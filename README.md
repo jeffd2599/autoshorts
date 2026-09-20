@@ -1,154 +1,148 @@
-⭐ [Support AutoShorts](#support)
+# AutoShorts 🎬⚡
 
-# AutoShorts
+**AutoShorts** es una suite de escritorio de código abierto para transformar transmisiones en vivo largas (streams de 1 a 4+ horas de gaming o IRL) y podcasts en:
+1. **Clips verticales de alto impacto (9:16 Shorts / TikToks / Reels)** con subtítulos animados y hooks virales.
+2. **Videos de Resumen Autoeditados para YouTube (16:9 u 9:16)** de 3, 5, 8, 10 o 15 minutos, estructurados narrativamente por IA con capítulos, miniaturas 1080p y textos clickbait.
 
-AutoShorts is a local-first desktop application for turning long-form video or audio recordings into high-impact, vertical short-form clip candidates (9:16 portrait) with AI-powered viral moment ranking.
-
-This repository implements the desktop app foundation using **Tauri 2 + React + TSX + Rust + SQLite**.
-
-<img width="1397" height="918" alt="Screenshot 2026-06-22 at 4 10 13 PM" src="https://github.com/user-attachments/assets/3a58ff60-6d9b-46fc-81e8-2778c96aba62" />
+Construido sobre una arquitectura moderna y ligera: **React + TypeScript + Vite** en el frontend, y un backend de alto rendimiento en **Python 3 (PyWebView + SQLite + Whisper CUDA + FFmpeg)** diseñado para consumir el mínimo de RAM y **0% de VRAM adicional** tras la inferencia.
 
 ---
 
-## Key Features
+## ✨ Características Principales
 
-- **Dynamic Multi-LLM Support**: Supports both **DeepSeek** (default) and **Claude** (anthropic) for viral moment detection and hooks analysis.
-- **Automated Pipeline**: Imports media, extracts audio, transcribes using Deepgram, and automatically analyzes and ranks moments in a single automated chain.
-- **Local SQLite Storage**: Saves transcripts, candidates, custom names, and rendering data locally.
-- **Native Project Manager**: Create, open, rename, and delete projects from the dashboard.
-- **Portrait Auto-Cropping**: Automatically center-crops landscape videos to vertical H.264 portrait clips using native `ffmpeg` integration.
-- **Key Warnings**: Built-in visual warnings that identify missing environment variables and prompt you directly in the UI.
+### 🧠 Detección Inteligente para Streams Largos (1h a 4h+)
+- **Chunking Adaptativo de 10 minutos con Overlap de 30s:** Divide transmisiones gigantescas en bloques de 10 minutos con solapamiento temporal para no perder jugadas épicas que empiezan al final de un bloque y terminan en el siguiente.
+- **Detección de Picos Acústicos en Silencio (Gaming Clutches):** 
+  - Analizador acústico RMS en tiempo real en Python puro (`wave`, `struct`, `math`).
+  - Procesa 1 hora completa de stream en **< 1.6 segundos**.
+  - Si estás en un clutch 1v3 o tiroteo intenso y te concentras sin hablar, el algoritmo detecta la energía sonora (disparos, explosiones) y genera automáticamente candidatos de acción/highlight para que la IA no los descarte.
+- **Duración Objetivo Personalizable:** Filtra momentos con duración objetivo de **30 segundos, 1 minuto, 2 minutos, 3 minutos o 5 minutos**.
 
----
+### 💻 Motor Multi-LLM con Descarga Inmediata de VRAM
+- **100% Offline con Ollama:** Soporta cualquier modelo local (`llama3.2`, `qwen2.5`, `qwen3.5`, `mistral`, `gemma2`). Incluye descargador con barra de progreso integrada en la app.
+- **Liberación Inmediata de VRAM:** En cuanto Ollama devuelve la planificación de momentos, se ejecuta un *unload* automático (`keep_alive: 0`) para liberar la VRAM de tu GPU y dejarla disponible para jugar, editar o reproducir video.
+- **Proveedores Cloud:**
+  - **OpenRouter** (Modelos gratuitos y de pago con control de velocidad para no saturar rate-limits).
+  - **DeepSeek** (Económico y con alta precisión de razonamiento).
+  - **Anthropic Claude** (Calidad premium de copywriting para hooks y títulos).
+  - **Google Gemini** (Modelos Flash gratuitos).
+  - **OpenAI GPT-4o** y **Groq** (Ultra rápido).
 
-## Prerequisites
+### 🎬 Autoedición y Compilación de Resúmenes para YouTube
+- **Auto-Editor Narrativo:** Une los mejores clips cronológicamente en un único archivo de video para subirlo a YouTube o abrirlo en Premiere, DaVinci Resolve o CapCut.
+- **3 Estilos / Vibes de Edición:**
+  - *Equilibrado:* Historia completa con teaser de gancho, risas, jugadas y desenlace.
+  - *Tryhard / Épico:* Prioriza kills, clutches, jugadas maestras y máxima tensión.
+  - *Risas y Fails:* Prioriza humor, anécdotas cómicas, bugs, fails y troleos con el chat.
+- **Control de Presupuesto Real de Tiempo:** La compilación se ajusta fielmente a la duración seleccionada (3, 5, 8, 10 o 15 min) **sin cortar jamás frases o jugadas por la mitad**.
+- **Timestamps y Capítulos para YouTube:** Genera el texto formateado (`00:00 Intro...`, `01:15 Partida...`) con botón de **1 Clic "Copiar Capítulos"** y guarda un archivo `Descripcion_YouTube.txt`.
+- **Miniaturas HD (1080p):** Extrae automáticamente un fotograma en alta definición del mejor momento con FFmpeg y sugiere 3 frases clickbait para la miniatura.
 
-To run the application, **FFmpeg & FFprobe** must be installed and available on your system `PATH` to handle cropping, audio extraction, and dynamic captions:
-
-* **macOS**: Install using Homebrew:
-  ```bash
-  brew install ffmpeg
-  ```
-  *Note: To ensure full captions rendering support, if standard Homebrew FFmpeg lacks drawtext/subtitles filters, tap and install the `homebrew-ffmpeg` formula:*
-  ```bash
-  brew tap homebrew-ffmpeg/ffmpeg
-  brew install homebrew-ffmpeg/ffmpeg/ffmpeg
-  ```
-* **Windows**: Install using Winget (in PowerShell):
-  ```powershell
-  winget install Gyan.FFmpeg
-  ```
-  *(Or download the release build from [gyan.dev](https://www.gyan.dev/ffmpeg/builds/) and add it to your system PATH environment variables).*
-* **Linux**: Install via your native package manager:
-  ```bash
-  sudo apt install ffmpeg      # Debian/Ubuntu
-  sudo pacman -S ffmpeg        # Arch Linux
-  sudo dnf install ffmpeg      # Fedora
-  ```
-
----
-
-## Installation Guide (For Users)
-
-Download the correct package matching your system from the latest [GitHub Releases](https://github.com/JayWebtech/autoshorts/releases/tag/autoshorts).
-
-### 🖥️ macOS Installation
-1. **Download**:
-   * **Apple Silicon (M1/M2/M3)**: Select the `aarch64.dmg` package.
-   * **Intel Mac**: Select the `x64.dmg` package.
-2. **Install**: Double-click the `.dmg` file and drag **AutoShorts** to your **Applications** folder.
-3. **Bypass Gatekeeper** (For unsigned local builds):
-   * Right-click `AutoShorts.app` in Finder, select **Open**, and click **Open** in the warning dialog.
-   * *Alternatively*, run this command in Terminal:
-     ```bash
-     xattr -cr /Applications/AutoShorts.app
-     ```
-
-### 🪟 Windows Installation
-1. **Download**: Select the `.msi` (installer) or `.exe` (portable executable) package.
-2. **Install**: Double-click the `.msi` file to run the setup wizard.
-3. **SmartScreen Bypass**: Since the package is self-signed, Windows SmartScreen may show a warning. Click **"More Info"** in the window and choose **"Run anyway"**.
-
-### 🐧 Linux Installation
-1. **Download**: Select the `.deb` (Debian/Ubuntu) or `.AppImage` (universal portable binary).
-2. **Install `.deb`**:
-   ```bash
-   sudo dpkg -i autoshorts_*.deb
-   ```
-3. **Run `.AppImage`**:
-   Make it executable and launch it:
-   ```bash
-   chmod +x autoshorts_*.AppImage
-   ./autoshorts_*.AppImage
-   ```
-
-### 🚀 First-Launch Onboarding & AI Configuration
-
-When you first launch the application, you will be greeted by an **Onboarding Wizard** that lets you choose your preferred workflow:
-
-#### Option A: Fully Offline (Ollama + Whisper)
-1. **Ollama Setup**: Select a local model card (`llama3.2 3B`, `qwen2.5 3B`, or `qwen2.5 7B`). The application will check if Ollama is running and automatically pull the model weights, showing a downloader progress bar.
-2. **Local Whisper**: Follow the prompt instructions to verify Python is installed and run `pip3 install openai-whisper` to enable fully offline transcription.
-
-#### Option B: Cloud API Keys
-1. Enter your API credentials for:
-   * **Deepgram**: For fast, accurate cloud transcription.
-   * **DeepSeek**: (Highly Recommended) For cheap, high-quality cloud moment detection.
-   * **Claude**: For premium copywriting, hooks, and moment detection.
-2. Click **Save & Start** to immediately load the dashboard.
+### ✂️ Ajuste Fino de Recorte (Trim Controls)
+- Previsualizador interactivo con botones rápidos: `[-5s]`, `[-1s]`, `[+1s]`, `[+5s]`.
+- Reproducción dinámica en tiempo real según los límites ajustados.
+- Persistencia directa en SQLite y reseteo del clip para re-renderizar con precisión de fotograma.
 
 ---
 
-### ⚙️ Modifying Settings & Resetting Onboarding
+## 🛠️ Requisitos Previos
 
-* **Update Credentials**: Click the **API Settings** gear icon in the top right of your app dashboard to switch engines, select different local models, or update API keys.
-* **Reset Onboarding**: If you want to switch from Cloud to Offline (or vice-versa) and start setup from scratch, click the **Reset App Configuration & Onboarding** button at the bottom of the API Settings panel.
-
-> [!TIP]
-> **LLM Provider Recommendation (Local vs. Cloud)**:
-> - **Local Models (Ollama)**: While AutoShorts supports fully offline moments analysis via local Ollama models (like LLaMA 3.2 3B or Qwen 2.5 3B/7B), **local models are generally not recommended for viral moment detection**. Smaller 3B/7B models lack the context reasoning and mathematical capabilities needed to evaluate long transcripts and calculate accurate segment timestamps (often outputting fragments that are too short).
-> - **DeepSeek (Highly Recommended)**: We strongly suggest using **DeepSeek** for moment detection. It offers top-tier reasoning capabilities (matching GPT-4/Claude 3.5 Sonnet) at a **fraction of a cent per run** (under $0.001 per transcript). You can get an API key instantly at [platform.deepseek.com](https://platform.deepseek.com).
-> - **Claude (Premium Option)**: Claude 3.5 Sonnet provides the absolute best hooks copywriting and emotional resonance, but is slightly more expensive than DeepSeek (typically $0.01 – $0.05 per run).
+1. **Python 3.10 o superior** (Recomendado Python 3.11).
+2. **Node.js 18+** y gestor de paquetes (`pnpm` o `npm`).
+3. **FFmpeg y FFprobe:** Debe estar en el `PATH` del sistema.
+   - **Windows:** `winget install Gyan.FFmpeg` o descargar de [gyan.dev](https://www.gyan.dev/ffmpeg/builds/).
+   - **macOS:** `brew install ffmpeg`
+   - **Linux:** `sudo apt install ffmpeg`
+4. **Ollama (Opcional para modo 100% Offline):** [ollama.com](https://ollama.com) con modelos como `llama3.2` o `qwen2.5`.
+5. **NVIDIA GPU con CUDA (Opcional):** Para acelerar la transcripción local con Whisper.
 
 ---
 
-## Developer Guide
+## 🚀 Instalación y Puesta en Marcha
 
-### 1. Setup Environment Configuration
-Copy `.env.example` to `.env` in the root folder:
+### 1. Clonar el Repositorio
 ```bash
-cp .env.example .env
-```
-Fill in your API Keys:
-```env
-DEEPGRAM_API_KEY=your-deepgram-api-key
-DEEPSEEK_API_KEY=your-deepseek-api-key
-ANTHROPIC_API_KEY=your-anthropic-api-key
-
-# Choose your default AI analysis provider ("deepseek" or "claude")
-LLM_PROVIDER=deepseek
+git clone https://github.com/jeffd2599/autoshorts.git
+cd autoshorts
 ```
 
-### 2. Run in Development Mode
-To start the live-reloaded frontend and backend development shell:
+### 2. Instalar Dependencias de Python
 ```bash
+pip install -r requirements.txt
+```
+*(Opcional: Si vas a usar Whisper local con GPU NVIDIA, asegúrate de tener instalado PyTorch con soporte CUDA).*
+
+### 3. Instalar Dependencias del Frontend
+```bash
+pnpm install
+# o con npm:
 npm install
-npm run tauri:dev
 ```
 
-### 3. Build the Application
-To build and package the native macOS app bundle (`.app` and `.dmg` installer):
+### 4. Compilar la Interfaz Web
 ```bash
-npm run tauri:build
+pnpm run build
+# o con npm:
+npm run build
 ```
-The output installers will be built under `src-tauri/target/release/bundle/`.
 
-<a id="support"></a>
+### 5. Iniciar AutoShorts
+Ejecuta el script principal de inicio:
+```bash
+python run.py
+```
+Esto iniciará:
+1. El servidor multimedia local de streaming en el puerto `1422`.
+2. La ventana de escritorio nativa (PyWebView / WebView2) lista para importar videos o audios.
 
-## ❤️ Support AutoShorts
+---
 
-If AutoShorts helps you create content faster, consider supporting its development.
+## 💻 Desarrollo en Vivo (Hot Reload)
 
-Your support helps fund new features, bug fixes, and ongoing improvements.
+Si deseas modificar la interfaz en tiempo real:
 
-👉 https://buy.polar.sh/polar_cl_ZjNgejG1JnPQqVXyMmEmq7vpdwJUFBqx4qahw4BqBCP
+1. Inicia el servidor de desarrollo de Vite:
+   ```bash
+   pnpm run dev
+   ```
+2. En otra terminal, ejecuta la aplicación:
+   ```bash
+   python run.py
+   ```
+
+---
+
+## 📁 Estructura del Proyecto
+
+```text
+autoshorts/
+├── python_backend/          # Backend central en Python
+│   ├── api.py               # API RPC expuesta a la interfaz PyWebView
+│   ├── db.py                # Capa SQLite (proyectos, transcripciones, clips, trims)
+│   ├── llm.py               # Lógica de chunking, prompts, Ollama, OpenRouter, Claude, GPT, etc.
+│   ├── media.py             # Integración FFmpeg, picos acústicos RMS, miniaturas 1080p, concatenación
+│   └── transcription.py     # Transcripción local (Whisper) y Cloud (Deepgram)
+├── src/                     # Frontend en React 19 + TypeScript
+│   ├── main.tsx             # Interfaz principal, modal de autoedición, reproductor y recorte
+│   ├── index.css            # Estilos modernos dark mode y glassmorphism
+│   └── components/          # Componentes visuales y panel de onboarding
+├── run.py                   # Punto de entrada de la aplicación de escritorio
+├── requirements.txt         # Dependencias de Python
+└── package.json             # Scripts y dependencias frontend
+```
+
+---
+
+## 🤝 Créditos y Fork
+
+Este proyecto es un fork extendido y optimizado de [JayWebtech/autoshorts](https://github.com/JayWebtech/autoshorts), rediseñado para proporcionar:
+- Backend desacoplado en Python para máxima compatibilidad y facilidad de extensión.
+- Análisis de audio y picos acústicos para streams de gaming.
+- Gestión segura de VRAM y memoria RAM baja (< 120 MB en renderizado).
+- Suite de autoedición completa para YouTube.
+
+---
+
+## 📄 Licencia
+
+Este proyecto se distribuye bajo la licencia MIT. Consulta el archivo [LICENSE](LICENSE) para más detalles.
