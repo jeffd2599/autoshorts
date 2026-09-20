@@ -13,6 +13,7 @@ from .db import Database
 from .media import (
     command_exists,
     extract_audio,
+    extract_video_thumbnail,
     generate_srt,
     build_drawtext_filters,
     probe_media,
@@ -20,7 +21,7 @@ from .media import (
     render_compilation_video,
 )
 from .transcription import transcribe_local, transcribe_deepgram, whisper_available
-from .llm import detect_candidates_pipeline, unload_all_ollama_models
+from .llm import detect_candidates_pipeline, unload_all_ollama_models, plan_summary_narrative
 
 
 class Api:
@@ -283,6 +284,8 @@ class Api:
             else:
                 chosen_model = "qwen2.5:7b"
 
+        audio_path = str(self.data_dir / "projects" / project_id / "transcription_audio.wav")
+
         # Pipeline de detección de momentos destacados
         drafts = detect_candidates_pipeline(
             transcript=normalized,
@@ -292,7 +295,8 @@ class Api:
             content_type=content_type,
             target_duration=target_duration,
             on_progress=on_chunk_progress,
-            is_cancelled=lambda: self._cancel_candidates_flag
+            is_cancelled=lambda: self._cancel_candidates_flag,
+            audio_path=audio_path if os.path.exists(audio_path) else None
         )
 
         if self._cancel_candidates_flag:
@@ -408,33 +412,89 @@ class Api:
         if not all_candidates:
             raise ValueError("El proyecto no tiene momentos candidatos detectados para compilar un resumen.")
 
-        # If specific candidate IDs are provided, use them; otherwise, perform intelligent greedy selection
+        # Read active LLM config for narrative sequencing
+        app_cfg = self.get_app_config()
+        llm_engine = app_cfg.get("llmEngine", "local")
+        model_name = app_cfg.get("localLlmModel") if llm_engine == "local" else (
+            app_cfg.get("deepseekModel") if llm_engine == "deepseek" else (
+                app_cfg.get("openrouterModel") if llm_engine == "openrouter" else None
+            )
+        )
+        api_key = (
+            app_cfg.get("anthropicKey") if llm_engine == "claude" else (
+                app_cfg.get("deepseekKey") if llm_engine == "deepseek" else (
+                    app_cfg.get("geminiKey") if llm_engine == "gemini" else (
+                        app_cfg.get("openaiKey") if llm_engine == "openai" else (
+                            app_cfg.get("openrouterKey") if llm_engine == "openrouter" else (
+                                app_cfg.get("groqKey") if llm_engine == "groq" else None
+                            )
+                        )
+                    )
+                )
+            )
+        )
+
+        summary_vibe = args.get("summaryVibe", "balanced")
+        narrative_title = "Resumen del Stream"
+        storyline = "Secuencia cronológica optimizada"
+        thumbnail_ideas = ["¡MOMENTOS ÉPICOS!", "NO TE LO PIERDAS", "FINAL DEL STREAM"]
+
+        # If specific candidate IDs are provided, use them; otherwise consult the AI for the narrative order!
         if specific_candidate_ids and isinstance(specific_candidate_ids, list) and len(specific_candidate_ids) > 0:
-            selected_candidates = [c for c in all_candidates if c["id"] in specific_candidate_ids]
-            selected_candidates.sort(key=lambda c: c["startSec"])
+            candidate_map = {c["id"]: c for c in all_candidates}
+            selected_candidates = [candidate_map[cid] for cid in specific_candidate_ids if cid in candidate_map]
         else:
-            candidates_by_score = sorted(all_candidates, key=lambda c: c["score"], reverse=True)
+            self.emit("summary-progress", {
+                "status": "planning",
+                "message": f"Consultando a la IA el mejor orden narrativo (estilo: {summary_vibe})...",
+                "percentage": 5
+            })
+
+            plan = plan_summary_narrative(
+                candidates=all_candidates,
+                target_duration_minutes=target_minutes,
+                provider=llm_engine,
+                model_name=model_name,
+                api_key=api_key,
+                summary_vibe=summary_vibe
+            )
+            narrative_title = plan.get("narrative_title", narrative_title)
+            storyline = plan.get("storyline", storyline)
+            thumbnail_ideas = plan.get("thumbnail_ideas", thumbnail_ideas)
+            ordered_ids = plan.get("ordered_clip_ids", [])
+
+            candidate_map = {c["id"]: c for c in all_candidates}
+            
+            # Follow the AI's narrative order while strictly respecting the target duration budget!
             chosen = []
-            current_total_dur = 0.0
+            accumulated_dur = 0.0
+            source_ids = ordered_ids if ordered_ids else [c["id"] for c in sorted(all_candidates, key=lambda c: c["score"], reverse=True)]
 
-            # 1. Best hook for intro teaser
-            intro = candidates_by_score[0]
-            chosen.append(intro)
-            current_total_dur += (intro["endSec"] - intro["startSec"])
+            for cid in source_ids:
+                if cid not in candidate_map:
+                    continue
+                c = candidate_map[cid]
+                dur = max(1.0, float(c["endSec"]) - float(c["startSec"]))
 
-            # 2. Add remaining high-scoring clips chronologically
-            remaining = [c for c in all_candidates if c["id"] != intro["id"]]
-            remaining.sort(key=lambda c: c["startSec"])
-
-            for c in remaining:
-                dur = c["endSec"] - c["startSec"]
-                if (current_total_dur + dur) <= (target_seconds + 30.0):
+                # Always keep at least 2 clips (hook + context)
+                if len(chosen) < 2:
                     chosen.append(c)
-                    current_total_dur += dur
-                if current_total_dur >= target_seconds:
+                    accumulated_dur += dur
+                    continue
+
+                # If adding this clip exceeds target + 30s buffer, stop if we already have sufficient duration
+                if (accumulated_dur + dur) > (target_seconds + 30.0):
+                    if accumulated_dur >= (target_seconds * 0.80):
+                        break
+
+                chosen.append(c)
+                accumulated_dur += dur
+
+                # Once target duration is reached or slightly passed with complete clips, stop
+                if accumulated_dur >= target_seconds:
                     break
 
-            selected_candidates = chosen
+            selected_candidates = chosen if chosen else [all_candidates[0]]
 
         if not selected_candidates:
             raise ValueError("No se pudieron seleccionar fragmentos para el video resumen.")
@@ -459,18 +519,58 @@ class Api:
         output_filename = f"Resumen Stream - {clean_name} - {mins_tag} - {ratio_tag}.mp4"
         output_path = out_dir / output_filename
 
-        self.emit("summary-progress", {
-            "status": "rendering",
-            "message": f"Compilando {len(segments)} momentos ({int(total_duration // 60)}m {int(total_duration % 60)}s) en FFmpeg...",
-            "percentage": 50
-        })
+        def on_render_progress(current_idx: int, total_segs: int, msg: str):
+            pct = 10 + int((current_idx / max(1, total_segs)) * 85)
+            self.emit("summary-progress", {
+                "status": "rendering",
+                "message": msg,
+                "percentage": min(95, pct)
+            })
 
         rendered_path = render_compilation_video(
             source_path=project["sourcePath"],
             segments=segments,
             output_path=output_path,
-            aspect_ratio=aspect_ratio
+            aspect_ratio=aspect_ratio,
+            progress_callback=on_render_progress
         )
+
+        # 1. Build YouTube chapters string
+        timestamps = []
+        current_time = 0.0
+        for idx, c in enumerate(selected_candidates):
+            mins = int(current_time // 60)
+            secs = int(current_time % 60)
+            hook_clean = re.sub(r'[\U00010000-\U0010ffff\u2600-\u27bf\ufe00-\ufe0f\u200d\u2300-\u23ff\u2b50-\u2b55]', '', c.get("hook", f"Momento {idx+1}")).strip()
+            timestamps.append(f"{mins}:{secs:02d} {hook_clean}")
+            current_time += (float(c["endSec"]) - float(c["startSec"]))
+
+        youtube_chapters = "\n".join(timestamps)
+
+        # 2. Extract 1080p thumbnail image from best candidate
+        thumbnail_filename = f"Resumen Stream - {clean_name} - {mins_tag} - Miniatura.jpg"
+        thumbnail_path = out_dir / thumbnail_filename
+        best_cand = max(selected_candidates, key=lambda c: c.get("score", 0))
+        thumb_time = float(best_cand["startSec"]) + min(5.0, max(0.5, (float(best_cand["endSec"]) - float(best_cand["startSec"])) / 3.0))
+        thumb_str = None
+        try:
+            extract_video_thumbnail(project["sourcePath"], thumb_time, thumbnail_path)
+            thumb_str = str(thumbnail_path)
+        except Exception as e:
+            print(f"Nota extrayendo miniatura: {e}")
+
+        # 3. Save companion YouTube description file
+        desc_filename = f"Resumen Stream - {clean_name} - {mins_tag} - Descripcion_YouTube.txt"
+        desc_path = out_dir / desc_filename
+        try:
+            with open(desc_path, "w", encoding="utf-8") as f:
+                f.write(f"TITULO RECOMENDADO:\n{narrative_title}\n\n")
+                f.write(f"RESUMEN Y GUION:\n{storyline}\n\n")
+                if thumbnail_ideas:
+                    f.write("IDEAS PARA EL TEXTO DE LA MINIATURA:\n" + "\n".join(f"- {t}" for t in thumbnail_ideas) + "\n\n")
+                f.write(f"CAPITULOS Y TIMESTAMPS PARA YOUTUBE:\n{youtube_chapters}\n")
+        except Exception as e:
+            print(f"Nota guardando descripcion de YouTube: {e}")
 
         self.emit("summary-progress", {
             "status": "done",
@@ -483,10 +583,23 @@ class Api:
             "clipCount": len(segments),
             "duration": round(total_duration, 1),
             "filename": output_filename,
-            "aspectRatio": aspect_ratio
+            "aspectRatio": aspect_ratio,
+            "narrativeTitle": narrative_title,
+            "storyline": storyline,
+            "youtubeChapters": youtube_chapters,
+            "thumbnailPath": thumb_str,
+            "thumbnailIdeas": thumbnail_ideas,
+            "descriptionPath": str(desc_path)
         }
 
+    def update_candidate_trim(self, args: Any) -> Dict[str, Any]:
+        candidate_id = args.get("candidateId")
+        start_sec = float(args.get("startSec", 0.0))
+        end_sec = float(args.get("endSec", 0.0))
+        return self.db.update_candidate_trim(candidate_id, start_sec, end_sec)
+
     def delete_project(self, args: Any):
+
         project_id = args.get("projectId") if isinstance(args, dict) else args
         self.db.delete_project(project_id)
 

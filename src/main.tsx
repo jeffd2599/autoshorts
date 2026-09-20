@@ -136,15 +136,27 @@ function App() {
   const [showSummaryModal, setShowSummaryModal] = useState(false);
   const [summaryTargetMinutes, setSummaryTargetMinutes] = useState<number>(8);
   const [summaryAspectRatio, setSummaryAspectRatio] = useState<"original" | "9:16">("original");
+  const [summaryVibe, setSummaryVibe] = useState<"balanced" | "tryhard" | "funny">("balanced");
   const [summaryStatus, setSummaryStatus] = useState<"idle" | "rendering" | "done">("idle");
   const [summaryProgressMsg, setSummaryProgressMsg] = useState<string>("");
+  const [copiedChapters, setCopiedChapters] = useState(false);
   const [summaryResult, setSummaryResult] = useState<{
     outputPath: string;
     clipCount: number;
     duration: number;
     filename: string;
     aspectRatio: string;
+    narrativeTitle?: string;
+    storyline?: string;
+    youtubeChapters?: string;
+    thumbnailPath?: string;
+    thumbnailIdeas?: string[];
+    descriptionPath?: string;
   } | null>(null);
+
+  const [trimStart, setTrimStart] = useState<number>(0);
+  const [trimEnd, setTrimEnd] = useState<number>(0);
+  const [isSavingTrim, setIsSavingTrim] = useState(false);
 
   const [youtubeModalOpen, setYoutubeModalOpen] = useState(false);
   const [youtubeUrl, setYoutubeUrl] = useState("");
@@ -722,21 +734,52 @@ function App() {
     });
   }
 
+  function openCandidatePreview(candidate: Candidate) {
+    setPreviewCandidate(candidate);
+    setTrimStart(candidate.startSec);
+    setTrimEnd(candidate.endSec);
+  }
+
+  async function saveCandidateTrim() {
+    if (!previewCandidate || !detail) return;
+    try {
+      setIsSavingTrim(true);
+      const updated = await invoke<Candidate>("update_candidate_trim", {
+        candidateId: previewCandidate.id,
+        startSec: trimStart,
+        endSec: trimEnd,
+      });
+      setPreviewCandidate(updated);
+      await refresh(detail.project.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsSavingTrim(false);
+    }
+  }
+
   async function generateSummary() {
     if (!detail) return;
     try {
       setSummaryStatus("rendering");
-      setSummaryProgressMsg("Iniciando compilación en FFmpeg...");
+      setSummaryProgressMsg("Iniciando análisis de guión con IA...");
       const res = await invoke<{
         outputPath: string;
         clipCount: number;
         duration: number;
         filename: string;
         aspectRatio: string;
+        narrativeTitle?: string;
+        storyline?: string;
+        youtubeChapters?: string;
+        thumbnailPath?: string;
+        thumbnailIdeas?: string[];
+        descriptionPath?: string;
       }>("render_auto_summary", {
         projectId: detail.project.id,
         targetDurationMinutes: summaryTargetMinutes,
         aspectRatio: summaryAspectRatio,
+        summaryVibe,
         outputDir: customOutputDir || null,
       });
       setSummaryResult(res);
@@ -1448,7 +1491,7 @@ function App() {
                           {/* 9:16 portrait mockup preview placeholder representing vertical formats */}
                           <div
                             className="portrait-preview-container"
-                            onClick={() => setPreviewCandidate(candidate)}
+                            onClick={() => openCandidatePreview(candidate)}
                             style={{ cursor: "pointer" }}
                             title="Haz clic para previsualizar este fragmento"
                           >
@@ -1496,7 +1539,7 @@ function App() {
                               <button
                                 className="icon-button"
                                 style={{ padding: "0.35rem 0.65rem", fontSize: "0.8rem", display: "inline-flex", alignItems: "center", gap: "4px" }}
-                                onClick={() => setPreviewCandidate(candidate)}
+                                onClick={() => openCandidatePreview(candidate)}
                                 title="Previsualizar fragmento en reproductor"
                               >
                                 <Play size={13} />
@@ -1994,14 +2037,149 @@ function App() {
 
               <div style={{ background: "#000", borderRadius: "8px", overflow: "hidden", maxHeight: "400px", display: "flex", justifyContent: "center" }}>
                 <video
-                  key={`${previewCandidate.id}-${previewCandidate.startSec}`}
+                  key={`${previewCandidate.id}-${trimStart}-${trimEnd}`}
                   src={`http://127.0.0.1:1422/stream?file=${encodeURIComponent(
                     clipByCandidate.get(previewCandidate.id)?.outputPath || detail.project.sourcePath
-                  )}#t=${clipByCandidate.get(previewCandidate.id)?.outputPath ? 0 : previewCandidate.startSec},${clipByCandidate.get(previewCandidate.id)?.outputPath ? '' : previewCandidate.endSec}`}
+                  )}#t=${clipByCandidate.get(previewCandidate.id)?.outputPath ? 0 : trimStart},${clipByCandidate.get(previewCandidate.id)?.outputPath ? '' : trimEnd}`}
                   controls
                   autoPlay
                   style={{ maxHeight: "400px", maxWidth: "100%", borderRadius: "8px" }}
                 />
+              </div>
+
+              {/* Ajuste Fino de Recorte (Trim Controls) */}
+              <div style={{ marginTop: "1rem", padding: "0.85rem", borderRadius: "8px", background: "rgba(255,255,255,0.03)", border: "1px solid var(--border)" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.6rem" }}>
+                  <span style={{ fontWeight: 600, fontSize: "0.82rem", letterSpacing: "0.02em" }}>
+                    AJUSTE FINO DE RECORTE (TRIM)
+                  </span>
+                  <span style={{ fontSize: "0.78rem", color: "var(--accent-primary)", fontWeight: 600 }}>
+                    Duración: {Math.max(0, trimEnd - trimStart).toFixed(1)}s
+                  </span>
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem", marginBottom: "0.75rem" }}>
+                  {/* Inicio */}
+                  <div style={{ background: "rgba(0,0,0,0.2)", padding: "0.5rem 0.65rem", borderRadius: "6px", border: "1px solid rgba(255,255,255,0.06)" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.35rem" }}>
+                      <span style={{ fontSize: "0.75rem", opacity: 0.8 }}>Inicio: <strong>{formatTime(trimStart)}</strong></span>
+                      <span style={{ fontSize: "0.72rem", opacity: 0.6 }}>{trimStart.toFixed(1)}s</span>
+                    </div>
+                    <div style={{ display: "flex", gap: "0.3rem" }}>
+                      <button
+                        type="button"
+                        className="icon-button"
+                        style={{ flex: 1, padding: "0.25rem 0", fontSize: "0.72rem", minHeight: "26px" }}
+                        onClick={() => setTrimStart(Math.max(0, Number((trimStart - 5).toFixed(1))))}
+                        title="Retroceder 5 segundos"
+                      >
+                        -5s
+                      </button>
+                      <button
+                        type="button"
+                        className="icon-button"
+                        style={{ flex: 1, padding: "0.25rem 0", fontSize: "0.72rem", minHeight: "26px" }}
+                        onClick={() => setTrimStart(Math.max(0, Number((trimStart - 1).toFixed(1))))}
+                        title="Retroceder 1 segundo"
+                      >
+                        -1s
+                      </button>
+                      <button
+                        type="button"
+                        className="icon-button"
+                        style={{ flex: 1, padding: "0.25rem 0", fontSize: "0.72rem", minHeight: "26px" }}
+                        onClick={() => setTrimStart(Math.min(trimEnd - 1, Number((trimStart + 1).toFixed(1))))}
+                        title="Avanzar 1 segundo"
+                      >
+                        +1s
+                      </button>
+                      <button
+                        type="button"
+                        className="icon-button"
+                        style={{ flex: 1, padding: "0.25rem 0", fontSize: "0.72rem", minHeight: "26px" }}
+                        onClick={() => setTrimStart(Math.min(trimEnd - 1, Number((trimStart + 5).toFixed(1))))}
+                        title="Avanzar 5 segundos"
+                      >
+                        +5s
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Fin */}
+                  <div style={{ background: "rgba(0,0,0,0.2)", padding: "0.5rem 0.65rem", borderRadius: "6px", border: "1px solid rgba(255,255,255,0.06)" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.35rem" }}>
+                      <span style={{ fontSize: "0.75rem", opacity: 0.8 }}>Fin: <strong>{formatTime(trimEnd)}</strong></span>
+                      <span style={{ fontSize: "0.72rem", opacity: 0.6 }}>{trimEnd.toFixed(1)}s</span>
+                    </div>
+                    <div style={{ display: "flex", gap: "0.3rem" }}>
+                      <button
+                        type="button"
+                        className="icon-button"
+                        style={{ flex: 1, padding: "0.25rem 0", fontSize: "0.72rem", minHeight: "26px" }}
+                        onClick={() => setTrimEnd(Math.max(trimStart + 1, Number((trimEnd - 5).toFixed(1))))}
+                        title="Acortar 5 segundos"
+                      >
+                        -5s
+                      </button>
+                      <button
+                        type="button"
+                        className="icon-button"
+                        style={{ flex: 1, padding: "0.25rem 0", fontSize: "0.72rem", minHeight: "26px" }}
+                        onClick={() => setTrimEnd(Math.max(trimStart + 1, Number((trimEnd - 1).toFixed(1))))}
+                        title="Acortar 1 segundo"
+                      >
+                        -1s
+                      </button>
+                      <button
+                        type="button"
+                        className="icon-button"
+                        style={{ flex: 1, padding: "0.25rem 0", fontSize: "0.72rem", minHeight: "26px" }}
+                        onClick={() => setTrimEnd(Number((trimEnd + 1).toFixed(1)))}
+                        title="Extender 1 segundo"
+                      >
+                        +1s
+                      </button>
+                      <button
+                        type="button"
+                        className="icon-button"
+                        style={{ flex: 1, padding: "0.25rem 0", fontSize: "0.72rem", minHeight: "26px" }}
+                        onClick={() => setTrimEnd(Number((trimEnd + 5).toFixed(1)))}
+                        title="Extender 5 segundos"
+                      >
+                        +5s
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: "0.5rem" }}>
+                  {(trimStart !== previewCandidate.startSec || trimEnd !== previewCandidate.endSec) && (
+                    <span style={{ fontSize: "0.74rem", opacity: 0.7, marginRight: "auto" }}>
+                      Modificado (Original: {formatTime(previewCandidate.startSec)} - {formatTime(previewCandidate.endSec)})
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    className="icon-button"
+                    style={{ fontSize: "0.76rem", padding: "0.3rem 0.6rem" }}
+                    onClick={() => {
+                      setTrimStart(previewCandidate.startSec);
+                      setTrimEnd(previewCandidate.endSec);
+                    }}
+                    disabled={trimStart === previewCandidate.startSec && trimEnd === previewCandidate.endSec}
+                  >
+                    Restablecer
+                  </button>
+                  <button
+                    type="button"
+                    className="primary-action"
+                    style={{ fontSize: "0.78rem", padding: "0.35rem 0.75rem", minHeight: "28px" }}
+                    onClick={saveCandidateTrim}
+                    disabled={isSavingTrim || trimStart >= trimEnd}
+                  >
+                    {isSavingTrim ? "Guardando..." : "Guardar Ajuste"}
+                  </button>
+                </div>
               </div>
 
               <div style={{ marginTop: "1rem", display: "flex", justifyContent: "space-between", alignItems: "center", gap: "1rem" }}>
@@ -2192,6 +2370,40 @@ function App() {
 
                 <div style={{ marginBottom: "1.25rem" }}>
                   <label style={{ display: "block", fontSize: "0.85rem", fontWeight: 600, marginBottom: "0.5rem" }}>
+                    Estilo de Autoedición (Vibe de la IA):
+                  </label>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.6rem" }}>
+                    {[
+                      { id: "balanced", title: "Equilibrado", desc: "Mezcla fluida de jugadas, humor y narrativa del stream." },
+                      { id: "tryhard", title: "Tryhard / Épico", desc: "Prioriza kills, clutches y máxima tensión con silencios de concentración." },
+                      { id: "funny", title: "Risas y Fails", desc: "Prioriza risas, troleos, fallos cómicos e interacciones con el chat." },
+                    ].map((v) => (
+                      <button
+                        key={v.id}
+                        type="button"
+                        onClick={() => setSummaryVibe(v.id as any)}
+                        style={{
+                          padding: "0.6rem 0.75rem",
+                          borderRadius: "8px",
+                          border: summaryVibe === v.id ? "1.5px solid var(--accent-primary)" : "1px solid var(--border)",
+                          background: summaryVibe === v.id ? "rgba(99, 102, 241, 0.2)" : "rgba(255,255,255,0.03)",
+                          color: summaryVibe === v.id ? "var(--accent-primary)" : "var(--foreground)",
+                          cursor: "pointer",
+                          textAlign: "left",
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: "2px"
+                        }}
+                      >
+                        <span style={{ fontWeight: 600, fontSize: "0.82rem" }}>{v.title}</span>
+                        <span style={{ fontSize: "0.72rem", opacity: 0.75, lineHeight: 1.25 }}>{v.desc}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div style={{ marginBottom: "1.25rem" }}>
+                  <label style={{ display: "block", fontSize: "0.85rem", fontWeight: 600, marginBottom: "0.5rem" }}>
                     Relación de Aspecto del Video:
                   </label>
                   <div style={{ display: "flex", gap: "0.75rem" }}>
@@ -2293,6 +2505,121 @@ function App() {
                 </div>
 
                 <div style={{ padding: "1rem", borderRadius: "10px", background: "rgba(255,255,255,0.03)", border: "1px solid var(--border)", marginBottom: "1.5rem", fontSize: "0.85rem" }}>
+                  {summaryResult.narrativeTitle && (
+                    <div style={{ marginBottom: "0.65rem", paddingBottom: "0.65rem", borderBottom: "1px solid var(--border)" }}>
+                      <div style={{ fontSize: "0.75rem", opacity: 0.7 }}>Guión narrativo sugerido por la IA:</div>
+                      <div style={{ fontWeight: 700, fontSize: "0.95rem", color: "var(--accent-primary)", marginTop: "2px" }}>
+                        {summaryResult.narrativeTitle}
+                      </div>
+                      {summaryResult.storyline && (
+                        <div style={{ fontSize: "0.78rem", opacity: 0.8, marginTop: "4px", fontStyle: "italic" }}>
+                          "{summaryResult.storyline}"
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {summaryResult.thumbnailPath && (
+                    <div style={{ marginBottom: "1rem", borderRadius: "8px", overflow: "hidden", border: "1px solid var(--border)", background: "#000" }}>
+                      <div style={{ fontSize: "0.75rem", padding: "0.4rem 0.65rem", background: "rgba(255,255,255,0.05)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <span style={{ fontWeight: 600 }}>Miniatura Extraída (1080p HD)</span>
+                        <button
+                          type="button"
+                          className="icon-button"
+                          style={{ fontSize: "0.72rem", padding: "2px 6px" }}
+                          onClick={() => void invoke("open_folder", { path: summaryResult.thumbnailPath })}
+                        >
+                          Abrir Archivo
+                        </button>
+                      </div>
+                      <img
+                        src={`http://127.0.0.1:1422/stream?file=${encodeURIComponent(summaryResult.thumbnailPath)}`}
+                        alt="Miniatura del Video"
+                        style={{ width: "100%", maxHeight: "200px", objectFit: "cover", display: "block" }}
+                      />
+                    </div>
+                  )}
+
+                  {summaryResult.thumbnailIdeas && summaryResult.thumbnailIdeas.length > 0 && (
+                    <div style={{ marginBottom: "1rem" }}>
+                      <div style={{ fontSize: "0.75rem", fontWeight: 600, marginBottom: "0.35rem", opacity: 0.85 }}>
+                        Ideas de Título / Miniatura (Generadas por IA):
+                      </div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: "0.3rem" }}>
+                        {summaryResult.thumbnailIdeas.map((idea, idx) => (
+                          <div
+                            key={idx}
+                            style={{
+                              fontSize: "0.8rem",
+                              padding: "0.35rem 0.6rem",
+                              borderRadius: "6px",
+                              background: "rgba(255,255,255,0.03)",
+                              border: "1px solid rgba(255,255,255,0.06)",
+                              display: "flex",
+                              justifyContent: "space-between",
+                              alignItems: "center"
+                            }}
+                          >
+                            <span>{idea}</span>
+                            <button
+                              type="button"
+                              className="desc-copy-btn"
+                              style={{ padding: "2px 6px", fontSize: "0.7rem" }}
+                              onClick={() => void navigator.clipboard.writeText(idea)}
+                              title="Copiar idea"
+                            >
+                              Copiar
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {summaryResult.youtubeChapters && (
+                    <div style={{ marginBottom: "1rem" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.35rem" }}>
+                        <span style={{ fontSize: "0.75rem", fontWeight: 600, opacity: 0.85 }}>
+                          Capítulos para Descripción de YouTube:
+                        </span>
+                        <button
+                          type="button"
+                          className="desc-copy-btn"
+                          style={{ padding: "3px 8px", fontSize: "0.72rem", display: "inline-flex", alignItems: "center", gap: "4px" }}
+                          onClick={() => {
+                            void navigator.clipboard.writeText(summaryResult.youtubeChapters || "");
+                            setCopiedChapters(true);
+                            setTimeout(() => setCopiedChapters(false), 2000);
+                          }}
+                        >
+                          <Copy size={12} />
+                          <span>{copiedChapters ? "Copiado" : "Copiar Capítulos"}</span>
+                        </button>
+                      </div>
+                      <textarea
+                        readOnly
+                        value={summaryResult.youtubeChapters}
+                        rows={4}
+                        style={{
+                          width: "100%",
+                          padding: "0.5rem",
+                          borderRadius: "6px",
+                          border: "1px solid var(--border)",
+                          background: "rgba(0,0,0,0.3)",
+                          color: "var(--foreground)",
+                          fontSize: "0.78rem",
+                          fontFamily: "monospace",
+                          resize: "vertical"
+                        }}
+                      />
+                      {summaryResult.descriptionPath && (
+                        <div style={{ fontSize: "0.72rem", opacity: 0.65, marginTop: "3px" }}>
+                          Archivo de texto listo: {summaryResult.descriptionPath}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   <div style={{ marginBottom: "0.5rem" }}>
                     <span style={{ opacity: 0.7 }}>Archivo: </span>
                     <strong style={{ color: "var(--accent-primary)" }}>{summaryResult.filename}</strong>

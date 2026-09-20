@@ -68,6 +68,7 @@ Tu misión es identificar los fragmentos más entretenidos, dinámicos y compart
 REGLAS DE DURACIÓN Y TIMESTAMPS:
 - CRÍTICO: {dur_rule}
 - NO elijas solo una frase corta de 2 a 5 segundos. El timestamp 'start' debe marcar el inicio del momento y 'end' debe abarcar el desarrollo completo hasta alcanzar la duración objetivo indicada.
+- SILENCIO Y ACCIÓN: En streams de gaming, a veces el streamer se concentra y no habla mientras dispara o juega una ronda tensa. Si la transcripción incluye notas como [ACCIÓN DE JUEGO / DISPAROS / ALTA CONCENTRACIÓN] o si hay una jugada tensa con poco diálogo, selecciónala como un clip épico de gameplay.
 - 'hook': Título gancho llamativo, directo y viral (en Español).
 - 'rationale': Explicación breve de por qué este momento es entretenido o viral.
 - 'description': Descripción optimizada para redes sociales (TikTok, Reels, Shorts, X) de 1 a 2 frases vendedoras invitando a interactuar, con 3 a 4 hashtags relevantes (ej. #gaming #clipviral).
@@ -552,16 +553,29 @@ def detect_candidates_pipeline(
     content_type: str = "gaming",
     target_duration: str = "60s",
     on_progress: Optional[Callable[[str, int, int], None]] = None,
-    is_cancelled: Optional[Callable[[], bool]] = None
+    is_cancelled: Optional[Callable[[], bool]] = None,
+    audio_path: Optional[str] = None
 ) -> List[Dict[str, Any]]:
     """
     Main detection pipeline using Chunking ("Divide y Vencerás").
     Processes long streams in 10-minute windows to avoid context explosion on 12GB VRAM.
+    Integrates audio action peak detection for silent gameplay clutches / gunfights.
     Automatically unloads Ollama models upon completion or cancellation to immediately free VRAM.
     """
     segments = transcript.get("segments", [])
     if not segments:
         return []
+
+    # Detect high-energy audio peaks (gunshots, explosions, action) if audio file is available
+    action_peaks = []
+    if audio_path and os.path.exists(audio_path):
+        try:
+            from .media import detect_audio_action_peaks
+            action_peaks = detect_audio_action_peaks(audio_path)
+            if action_peaks:
+                print(f"Detectadas {len(action_peaks)} zonas de acción acústica intensa en el audio del juego.")
+        except Exception as e:
+            print(f"Nota en detección de picos de audio: {e}")
 
     # Partition into 10-minute chunks (600 seconds) with 45 seconds overlap
     chunks = partition_segments(segments, chunk_duration_sec=600.0, overlap_sec=45.0)
@@ -584,7 +598,20 @@ def detect_candidates_pipeline(
             if on_progress:
                 on_progress(status_msg, idx, total_chunks)
 
-            prompt_text = f"Transcripción del segmento [{chunk_start_fmt} a {chunk_end_fmt}]:\n{compact_segments(chunk)}"
+            # Check if this chunk contains high-action audio peaks
+            chunk_start = chunk[0]["start"]
+            chunk_end = chunk[-1]["end"]
+            chunk_peaks = [p for p in action_peaks if p["end"] > chunk_start and p["start"] < chunk_end]
+
+            peak_cues = ""
+            if chunk_peaks:
+                cue_lines = [
+                    f"- [{int(p['start']//60):02d}:{int(p['start']%60):02d} a {int(p['end']//60):02d}:{int(p['end']%60):02d}] 💥 ACCIÓN INTENSA / DISPAROS DEL JUEGO (Streamer concentrado jugando)"
+                    for p in chunk_peaks[:5]
+                ]
+                peak_cues = "\n\nZonas de alta acción/disparos detectadas acústicamente:\n" + "\n".join(cue_lines)
+
+            prompt_text = f"Transcripción del segmento [{chunk_start_fmt} a {chunk_end_fmt}]:\n{compact_segments(chunk)}{peak_cues}"
 
             try:
                 if provider in ["local", "ollama"]:
@@ -625,6 +652,19 @@ def detect_candidates_pipeline(
                 print("🛑 Proceso de detección cancelado tras procesar bloque.")
                 break
 
+        # Check for silent gameplay clutches (action peaks with minimal/no speech)
+        for p in action_peaks:
+            overlapping_speech = [s for s in segments if s["end"] > p["start"] and s["start"] < p["end"]]
+            if len(overlapping_speech) <= 1:
+                all_drafts.append({
+                    "start": max(0.0, p["start"] - 1.0),
+                    "end": p["end"] + 1.0,
+                    "score": 4.5,
+                    "hook": "🎮 Jugada Épica en Máxima Concentración",
+                    "rationale": "Momento de acción intensa y tiroteo del juego con el streamer totalmente enfocado en jugar sin hablar.",
+                    "description": "¡Mira la concentración total en esta jugada de acción intensa! 🎮🔥 #gaming #highlight #gameplay"
+                })
+
         # Deduplicate and sort globally
         unique_candidates = deduplicate_candidates(all_drafts)
         unique_candidates.sort(key=lambda c: c["score"], reverse=True)
@@ -640,3 +680,224 @@ def detect_candidates_pipeline(
         # Free VRAM immediately in Ollama so other models can be used
         if provider in ["local", "ollama"]:
             unload_all_ollama_models(model_name)
+
+
+def plan_summary_narrative(
+    candidates: List[Dict[str, Any]],
+    target_duration_minutes: float,
+    provider: str = "local",
+    model_name: Optional[str] = None,
+    api_key: Optional[str] = None,
+    summary_vibe: str = "balanced"
+) -> Dict[str, Any]:
+    """
+    Asks the LLM (Ollama or Cloud) to act as a video editor and select & order the moments
+    to craft an engaging narrative summary totaling approximately target_duration_minutes.
+    Supports themes: 'balanced', 'tryhard', 'funny'.
+    Generates thumbnail ideas.
+    Returns:
+      {
+        "narrative_title": str,
+        "storyline": str,
+        "thumbnail_ideas": list of str,
+        "ordered_clip_ids": list of str
+      }
+    """
+    if not candidates:
+        return {"narrative_title": "Resumen del Stream", "storyline": "Sin clips disponibles.", "thumbnail_ideas": [], "ordered_clip_ids": []}
+
+    target_seconds = target_duration_minutes * 60.0
+    min_seconds = max(30.0, target_seconds - 60.0)
+    max_seconds = target_seconds + 60.0
+
+    # Build lightweight clip summary for LLM
+    clips_info = []
+    for c in candidates:
+        dur = round(float(c.get("endSec", 0)) - float(c.get("startSec", 0)), 1)
+        clips_info.append({
+            "id": c.get("id"),
+            "hook": c.get("hook", "Momento destacado"),
+            "description": c.get("description", ""),
+            "duration_sec": dur,
+            "score": c.get("score", 3.0)
+        })
+
+    avg_dur = sum(c["duration_sec"] for c in clips_info) / max(1, len(clips_info))
+    approx_count = max(2, min(len(clips_info), int(round(target_seconds / max(10.0, avg_dur)))))
+    min_count = max(2, approx_count - 2)
+    max_count = min(len(clips_info), approx_count + 2)
+
+    vibe_instructions = {
+        "tryhard": (
+            "ENFOQUE TEMÁTICO: 'TRYHARD / JUGADAS ÉPICAS'\n"
+            "- Prioriza y selecciona preferentemente momentos de alta tensión, kills, clutches, jugadas maestras y victorias.\n"
+            "- Descarta momentos de risas lentas o charlas secundarias."
+        ),
+        "funny": (
+            "ENFOQUE TEMÁTICO: 'RISAS, FAILS Y HUMOR'\n"
+            "- Prioriza y selecciona preferentemente momentos cómicos, risas, bromas, anécdotas, bugs graciosos, fails y trolleo.\n"
+            "- Descarta momentos puramente tácticos o serios."
+        ),
+        "balanced": (
+            "ENFOQUE TEMÁTICO: 'EQUILIBRADO / HISTORIA COMPLETA'\n"
+            "- Selecciona una mezcla armónica que cuente la historia del directo: intro teaser impactante, momentos entretenidos/risas, partidas clave y desenlace."
+        )
+    }
+    vibe_rule = vibe_instructions.get(summary_vibe, vibe_instructions["balanced"])
+
+    prompt = f"""Actúa como un editor profesional de YouTube y TikTok para streamers de gaming y entretenimiento.
+Tienes una lista de {len(clips_info)} momentos/clips extraídos de un stream, cada uno con su ID, título/hook, descripción, duración en segundos y score de viralidad:
+
+{json.dumps(clips_info, ensure_ascii=False, indent=2)}
+
+Tu objetivo es armar la compilación perfecta para un video resumen de aproximadamente {target_duration_minutes:.0f} minutos (duración total deseada: entre {min_seconds:.0f}s y {max_seconds:.0f}s).
+
+{vibe_rule}
+
+REGLAS EDITORIALES OBLIGATORIAS:
+1. LÍMITE DE DURACIÓN ESTRICTO: El video NO debe sobrepasar aproximadamente {target_duration_minutes:.0f} minutos. Dado que los momentos duran en promedio {int(avg_dur)}s, debes seleccionar ÚNICAMENTE entre {min_count} y {max_count} clips (los mejores de la lista). ¡NO selecciones todos los clips!
+2. El PRIMER clip ("ordered_clip_ids"[0]) DEBE ser el mejor gancho/teaser de alto impacto para retener al espectador en los primeros 10 segundos.
+3. Organiza los clips elegidos para crear una progresión narrativa emocionante.
+4. La suma acumulada de las duraciones de los IDs elegidos DEBE estar lo más cerca posible de {int(target_seconds)} segundos.
+5. Genera 3 ideas cortas y en mayúsculas de texto para la miniatura (thumbnail) de YouTube (ej. ["1v4 IMPOSIBLE", "NO ME LO CREO", "CLUTCH FINAL"]).
+6. No repitas ningún ID. Usa únicamente IDs existentes en la lista proporcionada.
+
+Responde EXCLUSIVAMENTE con este objeto JSON:
+{{
+  "narrative_title": "Título sugerido para YouTube (atractivo, sin emojis en el archivo)",
+  "storyline": "Explicación breve de la progresión narrativa elegida",
+  "thumbnail_ideas": ["TEXTO 1", "TEXTO 2", "TEXTO 3"],
+  "ordered_clip_ids": ["id_del_clip_1", "id_del_clip_2", ...]
+}}"""
+
+    raw_response = ""
+    try:
+        if provider in ["local", "ollama"]:
+            url = "http://127.0.0.1:11434/api/chat"
+            active_model = model_name or "qwen2.5:7b"
+            payload = {
+                "model": active_model,
+                "messages": [
+                    {"role": "system", "content": "Eres un editor experto de videos para streamers de YouTube. Responde siempre en formato JSON."},
+                    {"role": "user", "content": prompt}
+                ],
+                "think": False,
+                "stream": False,
+                "options": {"temperature": 0.3},
+                "format": "json"
+            }
+            resp = requests.post(url, json=payload, timeout=45)
+            if resp.ok:
+                raw_response = resp.json().get("message", {}).get("content", "")
+            else:
+                print(f"Ollama narrative planning failed: {resp.text}")
+
+        elif provider in ["claude", "deepseek", "gemini", "openai", "openrouter", "groq"]:
+            # Direct cloud call
+            if provider == "gemini":
+                model = model_name or os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+                payload = {
+                    "contents": [{"parts": [{"text": prompt}]}],
+                    "generationConfig": {"responseMimeType": "application/json", "temperature": 0.3}
+                }
+                resp = robust_cloud_post(url, headers={}, payload=payload, provider_name="Gemini")
+                if resp.ok:
+                    raw_response = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
+            elif provider == "openrouter":
+                url = "https://openrouter.ai/api/v1/chat/completions"
+                model = model_name or os.getenv("OPENROUTER_MODEL", "meta-llama/llama-3.3-70b-instruct:free")
+                headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+                payload = {
+                    "model": model,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "temperature": 0.3,
+                    "response_format": {"type": "json_object"}
+                }
+                resp = robust_cloud_post(url, headers, payload, provider_name="OpenRouter")
+                if resp.ok:
+                    raw_response = resp.json()["choices"][0]["message"]["content"]
+            elif provider in ["deepseek", "groq", "openai"]:
+                endpoint = (
+                    "https://api.deepseek.com/chat/completions" if provider == "deepseek"
+                    else "https://api.groq.com/openai/v1/chat/completions" if provider == "groq"
+                    else "https://api.openai.com/v1/chat/completions"
+                )
+                model = model_name or ("deepseek-chat" if provider == "deepseek" else "llama-3.3-70b-versatile" if provider == "groq" else "gpt-4o-mini")
+                headers = {"Authorization": f"Bearer {api_key}"}
+                payload = {
+                    "model": model,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "temperature": 0.3,
+                    "response_format": {"type": "json_object"}
+                }
+                resp = robust_cloud_post(endpoint, headers, payload, provider_name=provider)
+                if resp.ok:
+                    raw_response = resp.json()["choices"][0]["message"]["content"]
+            elif provider == "claude":
+                url = "https://api.anthropic.com/v1/messages"
+                model = model_name or "claude-3-5-sonnet-latest"
+                headers = {"x-api-key": api_key, "anthropic-version": "2023-06-01"}
+                payload = {
+                    "model": model,
+                    "max_tokens": 1500,
+                    "temperature": 0.3,
+                    "messages": [{"role": "user", "content": prompt}]
+                }
+                resp = robust_cloud_post(url, headers, payload, provider_name="Claude")
+                if resp.ok:
+                    content = resp.json().get("content", [])
+                    raw_response = content[0].get("text", "") if content else ""
+
+        # Parse JSON response
+        if raw_response:
+            clean_json = raw_response.strip()
+            if "```json" in clean_json:
+                clean_json = clean_json.split("```json")[1].split("```")[0].strip()
+            elif "```" in clean_json:
+                clean_json = clean_json.split("```")[1].split("```")[0].strip()
+
+            parsed = json.loads(clean_json)
+            ordered_ids = parsed.get("ordered_clip_ids", [])
+            valid_ids = {c["id"] for c in candidates}
+            filtered_ids = [cid for cid in ordered_ids if cid in valid_ids]
+            if filtered_ids:
+                return {
+                    "narrative_title": parsed.get("narrative_title", "Resumen de Stream").strip(),
+                    "storyline": parsed.get("storyline", "Secuencia narrativa generada por IA").strip(),
+                    "thumbnail_ideas": parsed.get("thumbnail_ideas", ["¡MOMENTOS ÉPICOS!", "NO TE LO PIERDAS", "FINAL DEL STREAM"]),
+                    "ordered_clip_ids": filtered_ids
+                }
+    except Exception as e:
+        print(f"Aviso: Error en secuenciamiento con IA ({e}). Usando orden voraz inteligente...")
+    finally:
+        # Crucial: Unload Ollama immediately so RAM/VRAM is 100% free for FFmpeg!
+        if provider in ["local", "ollama"]:
+            unload_all_ollama_models(model_name)
+
+    # Fallback greedy selection
+    candidates_by_score = sorted(candidates, key=lambda c: c.get("score", 0), reverse=True)
+    chosen = []
+    current_dur = 0.0
+
+    intro = candidates_by_score[0]
+    chosen.append(intro["id"])
+    current_dur += (float(intro["endSec"]) - float(intro["startSec"]))
+
+    remaining = [c for c in candidates if c["id"] != intro["id"]]
+    remaining.sort(key=lambda c: float(c["startSec"]))
+
+    for c in remaining:
+        dur = float(c["endSec"]) - float(c["startSec"])
+        if (current_dur + dur) <= (target_seconds + 30.0):
+            chosen.append(c["id"])
+            current_dur += dur
+        if current_dur >= target_seconds:
+            break
+
+    return {
+        "narrative_title": "Resumen del Stream",
+        "storyline": "Selección inteligente basada en gancho inicial y orden cronológico.",
+        "thumbnail_ideas": ["MOMENTOS ÉPICOS", "JUGADAS DEL STREAM", "RESUMEN FINAL"],
+        "ordered_clip_ids": chosen
+    }

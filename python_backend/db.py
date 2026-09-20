@@ -280,6 +280,38 @@ class Database:
                 for r in rows
             ]
 
+    def update_candidate_trim(self, candidate_id: str, start_sec: float, end_sec: float) -> Dict[str, Any]:
+        start_sec = max(0.0, float(start_sec))
+        end_sec = max(start_sec + 0.5, float(end_sec))
+        with self.get_conn() as conn:
+            conn.execute(
+                "UPDATE candidates SET start_sec = ?, end_sec = ? WHERE id = ?",
+                (start_sec, end_sec, candidate_id)
+            )
+            # Invalidate any previously cut clip for this candidate so it can be re-cut with new timings
+            conn.execute(
+                "UPDATE clips SET status = 'pending', output_path = NULL, caption_ass_path = NULL WHERE candidate_id = ?",
+                (candidate_id,)
+            )
+            r = conn.execute(
+                "SELECT id, project_id, start_sec, end_sec, score, hook, rationale, description, rank, selected FROM candidates WHERE id = ?",
+                (candidate_id,)
+            ).fetchone()
+            if not r:
+                raise ValueError(f"Candidate {candidate_id} not found")
+            return {
+                "id": r["id"],
+                "projectId": r["project_id"],
+                "startSec": r["start_sec"],
+                "endSec": r["end_sec"],
+                "score": r["score"],
+                "hook": r["hook"],
+                "rationale": r["rationale"],
+                "description": r["description"] or "",
+                "rank": r["rank"],
+                "selected": bool(r["selected"]),
+            }
+
     def get_clips(self, project_id: str) -> List[Dict[str, Any]]:
         with self.get_conn() as conn:
             rows = conn.execute(
