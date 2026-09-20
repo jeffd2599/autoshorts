@@ -189,7 +189,8 @@ def render_flat_clip(
     start_sec: float,
     end_sec: float,
     output_path: Path,
-    drawtext_filters: Optional[str] = None
+    drawtext_filters: Optional[str] = None,
+    aspect_ratio: str = "9:16"
 ) -> Path:
     if not command_exists("ffmpeg"):
         raise RuntimeError("ffmpeg is not installed or not available on PATH")
@@ -211,14 +212,19 @@ def render_flat_clip(
     ]
 
     if has_video:
-        crop_filter = "crop=w='2*trunc(min(iw,ih*9/16)/2)':h='2*trunc(min(ih,iw*16/9)/2)'"
+        filters = []
+        if aspect_ratio == "9:16":
+            filters.append("crop=w='2*trunc(min(iw,ih*9/16)/2)':h='2*trunc(min(ih,iw*16/9)/2)'")
+
         if drawtext_filters and drawtext_filters.strip():
-            vf = f"{crop_filter},{drawtext_filters}"
-        else:
-            vf = crop_filter
+            filters.append(drawtext_filters.strip())
+
+        vf = ",".join(filters) if filters else None
+
+        if vf:
+            cmd.extend(["-vf", vf])
 
         cmd.extend([
-            "-vf", vf,
             "-c:v", "libx264",
             "-preset", "fast",
             "-crf", "18",
@@ -237,7 +243,115 @@ def render_flat_clip(
     if res.returncode != 0:
         # Fallback without drawtext if filters caused error
         if drawtext_filters:
-            return render_flat_clip(source_path, start_sec, end_sec, output_path, None)
+            return render_flat_clip(source_path, start_sec, end_sec, output_path, None, aspect_ratio)
         raise RuntimeError(f"ffmpeg clip render failed: {res.stderr.strip()}")
 
     return output_path
+
+
+def render_compilation_video(
+    source_path: str,
+    segments: List[Dict[str, float]],
+    output_path: Path,
+    aspect_ratio: str = "original"
+) -> Path:
+    """
+    Stitches multiple segments from a single source video into a cohesive summary video.
+    Runs 100% in FFmpeg using native hardware or fast libx264 with audio micro-fades.
+    Uses 0 VRAM and keeps the original 16:9 aspect ratio (or 9:16 if requested).
+    """
+    if not command_exists("ffmpeg"):
+        raise RuntimeError("ffmpeg is not installed or not available on PATH")
+
+    if not segments:
+        raise ValueError("No segments provided for compilation video")
+
+    os.makedirs(output_path.parent, exist_ok=True)
+    probe = probe_media(source_path)
+    has_video = probe.get("hasVideo", False)
+
+    script_lines = []
+    video_labels = []
+    audio_labels = []
+
+    for idx, seg in enumerate(segments):
+        start = max(0.0, float(seg["start"]))
+        end = max(start + 0.1, float(seg["end"]))
+        dur = end - start
+        fade_dur = min(0.08, dur / 4.0)
+
+        if has_video:
+            script_lines.append(
+                f"[0:v]trim=start={start:.3f}:end={end:.3f},setpts=PTS-STARTPTS[v{idx}];"
+            )
+            video_labels.append(f"[v{idx}]")
+
+        script_lines.append(
+            f"[0:a]atrim=start={start:.3f}:end={end:.3f},asetpts=PTS-STARTPTS,"
+            f"afade=t=in:st=0:d={fade_dur:.3f},afade=t=out:st={dur-fade_dur:.3f}:d={fade_dur:.3f}[a{idx}];"
+        )
+        audio_labels.append(f"[a{idx}]")
+
+    num_seg = len(segments)
+    if has_video:
+        concat_inputs = "".join(f"{video_labels[i]}{audio_labels[i]}" for i in range(num_seg))
+        if aspect_ratio == "9:16":
+            script_lines.append(
+                f"{concat_inputs}concat=n={num_seg}:v=1:a=1[catv][outa];"
+                f"[catv]crop=w='2*trunc(min(iw,ih*9/16)/2)':h='2*trunc(min(ih,iw*16/9)/2)'[outv]"
+            )
+        else:
+            # Original aspect ratio (16:9 standard, zero crop)
+            script_lines.append(
+                f"{concat_inputs}concat=n={num_seg}:v=1:a=1[outv][outa]"
+            )
+    else:
+        concat_inputs = "".join(audio_labels)
+        script_lines.append(f"{concat_inputs}concat=n={num_seg}:v=0:a=1[outa]")
+
+    script_content = "\n".join(script_lines)
+    script_path = output_path.parent / f"_temp_filter_{output_path.stem}.txt"
+
+    with open(script_path, "w", encoding="utf-8") as f:
+        f.write(script_content)
+
+    try:
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-i", source_path,
+            "-filter_complex_script", str(script_path)
+        ]
+
+        if has_video:
+            cmd.extend([
+                "-map", "[outv]",
+                "-map", "[outa]",
+                "-c:v", "libx264",
+                "-preset", "fast",
+                "-crf", "19",
+                "-pix_fmt", "yuv420p"
+            ])
+        else:
+            cmd.extend([
+                "-map", "[outa]",
+                "-vn"
+            ])
+
+        cmd.extend([
+            "-c:a", "aac",
+            "-b:a", "192k",
+            str(output_path)
+        ])
+
+        res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
+        if res.returncode != 0:
+            raise RuntimeError(f"FFmpeg compilation render failed: {res.stderr.strip()[:400]}")
+
+        return output_path
+    finally:
+        if script_path.exists():
+            try:
+                os.remove(script_path)
+            except Exception:
+                pass

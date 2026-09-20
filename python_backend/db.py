@@ -54,6 +54,7 @@ class Database:
                 score REAL NOT NULL,
                 hook TEXT NOT NULL,
                 rationale TEXT NOT NULL,
+                description TEXT,
                 rank INTEGER NOT NULL,
                 selected INTEGER NOT NULL DEFAULT 0
             );
@@ -85,6 +86,11 @@ class Database:
                 status TEXT NOT NULL
             );
             """)
+
+            try:
+                conn.execute("ALTER TABLE candidates ADD COLUMN description TEXT;")
+            except Exception:
+                pass
 
             try:
                 rows = conn.execute("SELECT id, source_path, name FROM projects WHERE name IS NULL OR name = ''").fetchall()
@@ -214,10 +220,11 @@ class Database:
                 c_id = str(uuid.uuid4())
                 clip_id = str(uuid.uuid4())
                 selected = 1 if idx <= 3 else 0
+                desc = draft.get("description") or ""
                 conn.execute(
-                    """INSERT INTO candidates (id, project_id, start_sec, end_sec, score, hook, rationale, rank, selected)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                    (c_id, project_id, draft["start"], draft["end"], draft["score"], draft["hook"], draft["rationale"], idx, selected)
+                    """INSERT INTO candidates (id, project_id, start_sec, end_sec, score, hook, rationale, description, rank, selected)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (c_id, project_id, draft["start"], draft["end"], draft["score"], draft["hook"], draft["rationale"], desc, idx, selected)
                 )
                 conn.execute(
                     """INSERT INTO clips (id, candidate_id, status) VALUES (?, ?, ?)""",
@@ -231,6 +238,7 @@ class Database:
                     "score": draft["score"],
                     "hook": draft["hook"],
                     "rationale": draft["rationale"],
+                    "description": desc,
                     "rank": idx,
                     "selected": bool(selected),
                 })
@@ -253,7 +261,7 @@ class Database:
     def get_candidates(self, project_id: str) -> List[Dict[str, Any]]:
         with self.get_conn() as conn:
             rows = conn.execute(
-                "SELECT id, project_id, start_sec, end_sec, score, hook, rationale, rank, selected FROM candidates WHERE project_id = ? ORDER BY rank ASC",
+                "SELECT id, project_id, start_sec, end_sec, score, hook, rationale, description, rank, selected FROM candidates WHERE project_id = ? ORDER BY rank ASC",
                 (project_id,)
             ).fetchall()
             return [
@@ -265,6 +273,7 @@ class Database:
                     "score": r["score"],
                     "hook": r["hook"],
                     "rationale": r["rationale"],
+                    "description": r["description"] or "",
                     "rank": r["rank"],
                     "selected": bool(r["selected"]),
                 }
@@ -306,7 +315,7 @@ class Database:
     def get_candidate_with_project(self, candidate_id: str) -> tuple:
         with self.get_conn() as conn:
             c = conn.execute(
-                "SELECT id, project_id, start_sec, end_sec, score, hook, rationale, rank, selected FROM candidates WHERE id = ?",
+                "SELECT id, project_id, start_sec, end_sec, score, hook, rationale, description, rank, selected FROM candidates WHERE id = ?",
                 (candidate_id,)
             ).fetchone()
             if not c:
@@ -319,6 +328,7 @@ class Database:
                 "score": c["score"],
                 "hook": c["hook"],
                 "rationale": c["rationale"],
+                "description": c["description"] or "",
                 "rank": c["rank"],
                 "selected": bool(c["selected"]),
             }

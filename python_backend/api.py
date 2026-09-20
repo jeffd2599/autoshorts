@@ -17,9 +17,10 @@ from .media import (
     build_drawtext_filters,
     probe_media,
     render_flat_clip,
+    render_compilation_video,
 )
 from .transcription import transcribe_local, transcribe_deepgram, whisper_available
-from .llm import detect_candidates_pipeline
+from .llm import detect_candidates_pipeline, unload_all_ollama_models
 
 
 class Api:
@@ -28,6 +29,7 @@ class Api:
         os.makedirs(self.data_dir, exist_ok=True)
         self.db = Database(str(self.data_dir / "autoshorts.db"))
         self._window = None
+        self._cancel_candidates_flag = False
 
     def set_window(self, window):
         self._window = window
@@ -68,6 +70,28 @@ class Api:
         if result and len(result) > 0:
             return result[0]
         return None
+
+    def get_app_config(self, _args: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        config_path = self.data_dir / "config.json"
+        if config_path.exists():
+            try:
+                with open(config_path, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception:
+                pass
+        return {}
+
+    def save_app_config(self, args: Any) -> Dict[str, Any]:
+        config = args if isinstance(args, dict) else {}
+        config_path = self.data_dir / "config.json"
+        existing = self.get_app_config()
+        existing.update(config)
+        try:
+            with open(config_path, "w", encoding="utf-8") as f:
+                json.dump(existing, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            print(f"Error saving config.json: {e}")
+        return existing
 
     def environment_status(self, _args: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         has_ollama = False
@@ -209,6 +233,14 @@ class Api:
         self.db.update_project_status(project_id, "analyzing", 180.0)
         return saved
 
+    def cancel_candidate_generation(self, _args: Any = None) -> bool:
+        self._cancel_candidates_flag = True
+        try:
+            unload_all_ollama_models()
+        except Exception:
+            pass
+        return True
+
     def generate_candidates(self, args: Any) -> List[Dict[str, Any]]:
         if isinstance(args, dict):
             project_id = args.get("projectId")
@@ -216,12 +248,16 @@ class Api:
             provider = args.get("provider", "local")
             model_name = args.get("modelName")
             content_type = args.get("contentType", "gaming")
+            target_duration = args.get("targetDuration", "60s")
         else:
             project_id = args
             api_key = None
             provider = "local"
             model_name = None
             content_type = "gaming"
+            target_duration = "60s"
+
+        self._cancel_candidates_flag = False
 
         transcript_record = self.db.latest_transcript(project_id)
         if not transcript_record:
@@ -254,8 +290,18 @@ class Api:
             api_key=api_key,
             model_name=chosen_model or "qwen2.5:7b",
             content_type=content_type,
-            on_progress=on_chunk_progress
+            target_duration=target_duration,
+            on_progress=on_chunk_progress,
+            is_cancelled=lambda: self._cancel_candidates_flag
         )
+
+        if self._cancel_candidates_flag:
+            if drafts:
+                candidates = self.db.replace_candidates(project_id, drafts)
+                self.db.update_project_status(project_id, "ready")
+                return candidates
+            self.db.update_project_status(project_id, "ready")
+            return self.db.get_candidates(project_id)
 
         if not drafts:
             raise RuntimeError("No se detectaron momentos en la transcripción.")
@@ -293,9 +339,11 @@ class Api:
             out_dir = Path.home() / "Documents" / "AutoShorts" / proj_name
         os.makedirs(out_dir, exist_ok=True)
 
-        # Sanitize hook for filename
+        # Sanitize hook for filename: strip all emojis and invalid symbols
         raw_hook = candidate.get("hook", "").strip()
-        safe_hook = re.sub(r'[\\/*?:"<>|]', "", raw_hook)[:60].strip()
+        no_emoji = re.sub(r'[\U00010000-\U0010ffff\u2600-\u27bf\ufe00-\ufe0f\u200d\u2300-\u23ff\u2b50-\u2b55]', '', raw_hook)
+        safe_hook = re.sub(r'[\\/*?:"<>|#]', "", no_emoji)
+        safe_hook = re.sub(r'\s+', ' ', safe_hook).strip()[:50]
         base_name = f"Clip {candidate['rank']:02d} - {safe_hook}" if safe_hook else f"Clip {candidate['rank']:02d}"
         output_path = out_dir / f"{base_name}.mp4"
         exported_srt_path = out_dir / f"{base_name}.srt"
@@ -346,6 +394,97 @@ class Api:
             caption_path=srt_path
         )
         return str(rendered_path)
+
+    def render_auto_summary(self, args: Any) -> Dict[str, Any]:
+        project_id = args.get("projectId")
+        target_minutes = float(args.get("targetDurationMinutes", 8.0))
+        target_seconds = target_minutes * 60.0
+        aspect_ratio = args.get("aspectRatio", "original")
+        custom_dir = args.get("outputDir")
+        specific_candidate_ids = args.get("candidateIds")
+
+        project = self.db.get_project(project_id)
+        all_candidates = self.db.get_candidates(project_id)
+        if not all_candidates:
+            raise ValueError("El proyecto no tiene momentos candidatos detectados para compilar un resumen.")
+
+        # If specific candidate IDs are provided, use them; otherwise, perform intelligent greedy selection
+        if specific_candidate_ids and isinstance(specific_candidate_ids, list) and len(specific_candidate_ids) > 0:
+            selected_candidates = [c for c in all_candidates if c["id"] in specific_candidate_ids]
+            selected_candidates.sort(key=lambda c: c["startSec"])
+        else:
+            candidates_by_score = sorted(all_candidates, key=lambda c: c["score"], reverse=True)
+            chosen = []
+            current_total_dur = 0.0
+
+            # 1. Best hook for intro teaser
+            intro = candidates_by_score[0]
+            chosen.append(intro)
+            current_total_dur += (intro["endSec"] - intro["startSec"])
+
+            # 2. Add remaining high-scoring clips chronologically
+            remaining = [c for c in all_candidates if c["id"] != intro["id"]]
+            remaining.sort(key=lambda c: c["startSec"])
+
+            for c in remaining:
+                dur = c["endSec"] - c["startSec"]
+                if (current_total_dur + dur) <= (target_seconds + 30.0):
+                    chosen.append(c)
+                    current_total_dur += dur
+                if current_total_dur >= target_seconds:
+                    break
+
+            selected_candidates = chosen
+
+        if not selected_candidates:
+            raise ValueError("No se pudieron seleccionar fragmentos para el video resumen.")
+
+        segments = [
+            {"start": c["startSec"], "end": c["endSec"]}
+            for c in selected_candidates
+        ]
+        total_duration = sum(s["end"] - s["start"] for s in segments)
+
+        proj_name = project.get("name") or Path(project["sourcePath"]).stem or project["id"]
+        if custom_dir:
+            out_dir = Path(custom_dir)
+        else:
+            out_dir = Path.home() / "Documents" / "AutoShorts" / proj_name
+        os.makedirs(out_dir, exist_ok=True)
+
+        ratio_tag = "16x9" if aspect_ratio == "original" else "9x16"
+        mins_tag = f"{int(round(target_minutes))}min"
+        clean_name = re.sub(r'[\U00010000-\U0010ffff\u2600-\u27bf\ufe00-\ufe0f\u200d\u2300-\u23ff\u2b50-\u2b55]', '', proj_name)
+        clean_name = re.sub(r'[\\/*?:"<>|#]', "", clean_name).strip()[:40]
+        output_filename = f"Resumen Stream - {clean_name} - {mins_tag} - {ratio_tag}.mp4"
+        output_path = out_dir / output_filename
+
+        self.emit("summary-progress", {
+            "status": "rendering",
+            "message": f"Compilando {len(segments)} momentos ({int(total_duration // 60)}m {int(total_duration % 60)}s) en FFmpeg...",
+            "percentage": 50
+        })
+
+        rendered_path = render_compilation_video(
+            source_path=project["sourcePath"],
+            segments=segments,
+            output_path=output_path,
+            aspect_ratio=aspect_ratio
+        )
+
+        self.emit("summary-progress", {
+            "status": "done",
+            "message": "Video resumen generado exitosamente.",
+            "percentage": 100
+        })
+
+        return {
+            "outputPath": str(rendered_path),
+            "clipCount": len(segments),
+            "duration": round(total_duration, 1),
+            "filename": output_filename,
+            "aspectRatio": aspect_ratio
+        }
 
     def delete_project(self, args: Any):
         project_id = args.get("projectId") if isinstance(args, dict) else args
@@ -425,3 +564,15 @@ class Api:
 
     def install_ollama(self, _args: Any = None):
         raise RuntimeError("Descarga e instala Ollama desde https://ollama.com")
+
+    def open_folder(self, args: Any):
+        path = args.get("path") if isinstance(args, dict) else args
+        if path:
+            p = Path(path)
+            folder = p.parent if p.is_file() else p
+            if folder.exists():
+                try:
+                    os.startfile(str(folder))
+                except Exception as e:
+                    print(f"Error opening folder: {e}")
+        return True

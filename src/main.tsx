@@ -72,6 +72,7 @@ type Candidate = {
   score: number;
   hook: string;
   rationale: string;
+  description?: string;
   rank: number;
   selected: boolean;
 };
@@ -125,10 +126,25 @@ function App() {
   const [showStyleModal, setShowStyleModal] = useState(false);
   const [selectedStyle, setSelectedStyle] = useState("modern-box");
   const [selectedContentType, setSelectedContentType] = useState<"gaming" | "tutorial" | "podcast" | "general">("gaming");
+  const [targetDuration, setTargetDuration] = useState<"30s" | "60s" | "2m" | "3m" | "5m">("60s");
+  const [copiedDescId, setCopiedDescId] = useState<string | null>(null);
   const [mediaPathToImport, setMediaPathToImport] = useState<string | null>(null);
   const [previewCandidate, setPreviewCandidate] = useState<Candidate | null>(null);
   const [customOutputDir, setCustomOutputDir] = useState<string>(() => localStorage.getItem("autoshorts_output_dir") || "");
   const [autoDetectMoments, setAutoDetectMoments] = useState<boolean>(false);
+
+  const [showSummaryModal, setShowSummaryModal] = useState(false);
+  const [summaryTargetMinutes, setSummaryTargetMinutes] = useState<number>(8);
+  const [summaryAspectRatio, setSummaryAspectRatio] = useState<"original" | "9:16">("original");
+  const [summaryStatus, setSummaryStatus] = useState<"idle" | "rendering" | "done">("idle");
+  const [summaryProgressMsg, setSummaryProgressMsg] = useState<string>("");
+  const [summaryResult, setSummaryResult] = useState<{
+    outputPath: string;
+    clipCount: number;
+    duration: number;
+    filename: string;
+    aspectRatio: string;
+  } | null>(null);
 
   const [youtubeModalOpen, setYoutubeModalOpen] = useState(false);
   const [youtubeUrl, setYoutubeUrl] = useState("");
@@ -173,6 +189,12 @@ function App() {
   const [openrouterModel, setOpenrouterModel] = useState(() => {
     return localStorage.getItem("autoshorts_openrouter_model") || "";
   });
+
+  const [pullInputModel, setPullInputModel] = useState("");
+
+  const syncConfig = (updates: Record<string, any>) => {
+    void invoke("save_app_config", updates);
+  };
 
   const [downloadingModelName, setDownloadingModelName] = useState<string | null>(null);
   const [modelDownloadStatus, setModelDownloadStatus] = useState("");
@@ -231,12 +253,31 @@ function App() {
 
   useEffect(() => {
     void refresh();
-    const value = localStorage.getItem("autoshorts_onboarded");
-    if (value === "true") {
-      setIsOnboarded(true);
-    } else {
-      setIsOnboarded(false);
-    }
+
+    // Check both backend persistent config.json and localStorage
+    invoke<any>("get_app_config").then((cfg) => {
+      const localOnboarded = localStorage.getItem("autoshorts_onboarded");
+      if (cfg?.onboarded || localOnboarded === "true") {
+        setIsOnboarded(true);
+        if (cfg?.transcriptionEngine) setTranscriptionEngine(cfg.transcriptionEngine);
+        if (cfg?.llmEngine) setLlmEngine(cfg.llmEngine);
+        if (cfg?.localLlmModel) setLocalLlmModel(cfg.localLlmModel);
+        if (cfg?.deepseekKey) setDeepseekKey(cfg.deepseekKey);
+        if (cfg?.deepseekModel) setDeepseekModel(cfg.deepseekModel);
+        if (cfg?.anthropicKey) setAnthropicKey(cfg.anthropicKey);
+        if (cfg?.openrouterKey) setOpenrouterKey(cfg.openrouterKey);
+        if (cfg?.openrouterModel) setOpenrouterModel(cfg.openrouterModel);
+        if (cfg?.deepgramKey) setDeepgramKey(cfg.deepgramKey);
+        if (cfg?.openaiKey) setOpenaiKey(cfg.openaiKey);
+        if (cfg?.groqKey) setGroqKey(cfg.groqKey);
+        if (cfg?.geminiKey) setGeminiKey(cfg.geminiKey);
+      } else {
+        setIsOnboarded(false);
+      }
+    }).catch(() => {
+      const value = localStorage.getItem("autoshorts_onboarded");
+      setIsOnboarded(value === "true");
+    });
 
     let unlistenProgress: (() => void) | null = null;
     void listen<{ message: string; current: number; total: number }>("candidate-progress", (event) => {
@@ -245,21 +286,32 @@ function App() {
       unlistenProgress = unsub;
     });
 
+    let unlistenSummary: (() => void) | null = null;
+    void listen<{ status: string; message: string; percentage: number }>("summary-progress", (event) => {
+      setSummaryProgressMsg(event.payload.message);
+    }).then((unsub) => {
+      unlistenSummary = unsub;
+    });
+
     return () => {
       if (unlistenProgress) unlistenProgress();
+      if (unlistenSummary) unlistenSummary();
     };
   }, []);
 
   useEffect(() => {
     localStorage.setItem("autoshorts_transcription_engine", transcriptionEngine);
+    syncConfig({ transcriptionEngine });
   }, [transcriptionEngine]);
 
   useEffect(() => {
     localStorage.setItem("autoshorts_llm_engine", llmEngine);
+    syncConfig({ llmEngine });
   }, [llmEngine]);
 
   useEffect(() => {
     localStorage.setItem("autoshorts_local_llm_model", localLlmModel);
+    syncConfig({ localLlmModel });
   }, [localLlmModel]);
 
   useEffect(() => {
@@ -268,44 +320,54 @@ function App() {
       if (!installed.includes(localLlmModel)) {
         const preferred = installed.find((m) => m.includes("qwen3.5") || m.includes("qwen2.5") || m.includes("qwen")) || installed[0];
         setLocalLlmModel(preferred);
+        syncConfig({ localLlmModel: preferred });
       }
     }
   }, [environment?.installedOllamaModels]);
 
   useEffect(() => {
     localStorage.setItem("autoshorts_deepgram_key", deepgramKey);
+    syncConfig({ deepgramKey });
   }, [deepgramKey]);
 
   useEffect(() => {
     localStorage.setItem("autoshorts_anthropic_key", anthropicKey);
+    syncConfig({ anthropicKey });
   }, [anthropicKey]);
 
   useEffect(() => {
     localStorage.setItem("autoshorts_deepseek_key", deepseekKey);
+    syncConfig({ deepseekKey });
   }, [deepseekKey]);
 
   useEffect(() => {
     localStorage.setItem("autoshorts_deepseek_model", deepseekModel);
+    syncConfig({ deepseekModel });
   }, [deepseekModel]);
 
   useEffect(() => {
     localStorage.setItem("autoshorts_gemini_key", geminiKey);
+    syncConfig({ geminiKey });
   }, [geminiKey]);
 
   useEffect(() => {
     localStorage.setItem("autoshorts_openai_key", openaiKey);
+    syncConfig({ openaiKey });
   }, [openaiKey]);
 
   useEffect(() => {
     localStorage.setItem("autoshorts_openrouter_key", openrouterKey);
+    syncConfig({ openrouterKey });
   }, [openrouterKey]);
 
   useEffect(() => {
     localStorage.setItem("autoshorts_groq_key", groqKey);
+    syncConfig({ groqKey });
   }, [groqKey]);
 
   useEffect(() => {
     localStorage.setItem("autoshorts_openrouter_model", openrouterModel);
+    syncConfig({ openrouterModel });
   }, [openrouterModel]);
 
   const pullModelDirectly = async (modelName: string) => {
@@ -523,6 +585,7 @@ function App() {
         provider: llmEngine,
         modelName: llmEngine === "local" ? localLlmModel.trim() : (llmEngine === "deepseek" ? (deepseekModel.trim() || null) : (llmEngine === "openrouter" ? (openrouterModel.trim() || null) : null)),
         contentType,
+        targetDuration,
         allowDemo: false,
       });
       await refresh(projectId);
@@ -595,6 +658,32 @@ function App() {
     });
   }
 
+  const copyDescription = (id: string, text: string) => {
+    void navigator.clipboard.writeText(text);
+    setCopiedDescId(id);
+    setTimeout(() => {
+      setCopiedDescId((curr) => (curr === id ? null : curr));
+    }, 2500);
+  };
+
+  async function cancelMoments() {
+    try {
+      await invoke("cancel_candidate_generation");
+      setCandidateProgress("Cancelando y liberando VRAM...");
+      setTimeout(() => {
+        setBusy("idle");
+        setCandidateProgress(null);
+        if (detail) {
+          void refresh(detail.project.id);
+        }
+      }, 500);
+    } catch (err) {
+      console.error("Error al cancelar momentos:", err);
+      setBusy("idle");
+      setCandidateProgress(null);
+    }
+  }
+
   async function moments(allowDemo: boolean) {
     if (!detail) return;
     await run("moments", async () => {
@@ -612,6 +701,7 @@ function App() {
           provider: llmEngine,
           modelName: llmEngine === "local" ? localLlmModel.trim() : (llmEngine === "deepseek" ? (deepseekModel.trim() || null) : (llmEngine === "openrouter" ? (openrouterModel.trim() || null) : null)),
           contentType: selectedContentType,
+          targetDuration,
           allowDemo,
         });
         await refresh(detail.project.id);
@@ -630,6 +720,31 @@ function App() {
         throw err;
       }
     });
+  }
+
+  async function generateSummary() {
+    if (!detail) return;
+    try {
+      setSummaryStatus("rendering");
+      setSummaryProgressMsg("Iniciando compilación en FFmpeg...");
+      const res = await invoke<{
+        outputPath: string;
+        clipCount: number;
+        duration: number;
+        filename: string;
+        aspectRatio: string;
+      }>("render_auto_summary", {
+        projectId: detail.project.id,
+        targetDurationMinutes: summaryTargetMinutes,
+        aspectRatio: summaryAspectRatio,
+        outputDir: customOutputDir || null,
+      });
+      setSummaryResult(res);
+      setSummaryStatus("done");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setSummaryStatus("idle");
+    }
   }
 
   async function updateClipCount(count: number) {
@@ -697,6 +812,7 @@ function App() {
         environment={environment}
         onComplete={() => {
           localStorage.setItem("autoshorts_onboarded", "true");
+          void invoke("save_app_config", { onboarded: true });
           setIsOnboarded(true);
         }}
         setTranscriptionEngine={setTranscriptionEngine}
@@ -714,6 +830,331 @@ function App() {
       />
     );
   }
+
+  const renderSettingsPanel = () => (
+    <div className="settings-panel" style={{ margin: "1rem 0", padding: "1.25rem", background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: "12px", boxShadow: "0 8px 24px rgba(0,0,0,0.3)" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem", paddingBottom: "0.75rem", borderBottom: "1px solid var(--border)" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+          <SlidersHorizontal size={18} color="var(--accent-primary)" />
+          <h3 style={{ margin: 0, fontSize: "1rem", fontWeight: 700 }}>Configuración del Estudio (Modelos & APIs)</h3>
+        </div>
+        <button
+          type="button"
+          className="icon-button"
+          style={{ minHeight: "28px", height: "28px", padding: "2px 10px", fontSize: "0.8rem" }}
+          onClick={() => setShowSettings(false)}
+        >
+          Cerrar
+        </button>
+      </div>
+
+      <div className="key-stack-horizontal" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "1.25rem" }}>
+        {/* Transcription Engine */}
+        <label>
+          <span style={{ fontWeight: 600, fontSize: "0.82rem", display: "block", marginBottom: "0.4rem" }}>MOTOR DE TRANSCRIPCIÓN</span>
+          <select
+            className="form-select"
+            value={transcriptionEngine}
+            onChange={(event) => {
+              const eng = event.target.value as "deepgram" | "local";
+              setTranscriptionEngine(eng);
+              syncConfig({ transcriptionEngine: eng });
+            }}
+            style={{ width: "100%", padding: "0.5rem", borderRadius: "6px" }}
+          >
+            <option value="local">🎙️ Local Whisper (Offline - GPU CUDA)</option>
+            <option value="deepgram">⚡ Deepgram API (Cloud)</option>
+          </select>
+        </label>
+
+        {/* LLM Engine */}
+        <label>
+          <span style={{ fontWeight: 600, fontSize: "0.82rem", display: "block", marginBottom: "0.4rem" }}>MOTOR DE IA (DETECCIÓN DE MOMENTOS)</span>
+          <select
+            className="form-select"
+            value={llmEngine}
+            onChange={(event) => {
+              const eng = event.target.value as any;
+              setLlmEngine(eng);
+              syncConfig({ llmEngine: eng });
+            }}
+            style={{ width: "100%", padding: "0.5rem", borderRadius: "6px" }}
+          >
+            <option value="local">💻 Ollama (Offline Local en tu PC)</option>
+            <option value="openrouter">🌐 OpenRouter (Cloud - Modelos Libres / Pagos)</option>
+            <option value="deepseek">⚡ DeepSeek API (Cloud)</option>
+            <option value="claude">🧠 Claude Anthropic (Cloud)</option>
+            <option value="openai">🤖 OpenAI GPT-4o (Cloud)</option>
+            <option value="groq">🚀 Groq (Cloud - Ultra Rápido)</option>
+            <option value="gemini">✨ Google Gemini (Cloud)</option>
+          </select>
+        </label>
+
+        {/* Conditional Fields based on LLM Engine */}
+        {llmEngine === "local" && (
+          <div style={{ gridColumn: "1 / -1", padding: "1rem", borderRadius: "8px", background: "rgba(255,255,255,0.02)", border: "1px solid var(--border)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
+              <span style={{ fontWeight: 600, fontSize: "0.85rem" }}>
+                🤖 Modelos Instalados en tu Ollama Local:
+              </span>
+              <button
+                type="button"
+                className="icon-button"
+                style={{ minHeight: "26px", height: "26px", padding: "2px 8px", fontSize: "0.75rem" }}
+                onClick={() => void refresh()}
+                title="Actualizar lista de modelos desde Ollama"
+              >
+                <RefreshCw size={12} /> Refrescar Lista
+              </button>
+            </div>
+
+            {environment?.installedOllamaModels && environment.installedOllamaModels.length > 0 ? (
+              <div style={{ display: "flex", gap: "10px", alignItems: "center", marginBottom: "0.8rem" }}>
+                <select
+                  className="form-select"
+                  value={localLlmModel}
+                  onChange={(event) => {
+                    setLocalLlmModel(event.target.value);
+                    syncConfig({ localLlmModel: event.target.value });
+                  }}
+                  style={{ flex: 1, padding: "0.55rem", fontSize: "0.88rem", borderRadius: "6px" }}
+                >
+                  {environment.installedOllamaModels.map((m) => (
+                    <option key={m} value={m}>
+                      {m} {m.includes("qwen") ? "⭐ (Recomendado para AutoShorts)" : ""}
+                    </option>
+                  ))}
+                </select>
+                <span style={{ fontSize: "0.78rem", color: "#10b981", fontWeight: 600, whiteSpace: "nowrap" }}>
+                  ● {environment.installedOllamaModels.length} modelo(s) listo(s) en PC
+                </span>
+              </div>
+            ) : (
+              <div style={{ fontSize: "0.8rem", color: "#f59e0b", padding: "0.4rem 0", marginBottom: "0.6rem" }}>
+                ⚠️ No se detectaron modelos activos en Ollama (http://127.0.0.1:11434). Asegúrate de tener la app de Ollama abierta.
+              </div>
+            )}
+
+            {/* Optional Pull another model */}
+            <div style={{ paddingTop: "0.6rem", borderTop: "1px dashed var(--border)" }}>
+              <span style={{ fontSize: "0.75rem", opacity: 0.8, display: "block", marginBottom: "0.3rem" }}>
+                ¿Quieres descargar otro modelo desde la biblioteca de Ollama?
+              </span>
+              <div style={{ display: "flex", gap: "8px" }}>
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="Ej: llama3.2, mistral, deepseek-r1:8b"
+                  value={pullInputModel}
+                  onChange={(e) => setPullInputModel(e.target.value)}
+                  style={{ flex: 1, padding: "0.45rem 0.6rem", fontSize: "0.85rem", borderRadius: "6px" }}
+                />
+                <button
+                  type="button"
+                  className="icon-button"
+                  style={{ minHeight: "34px", height: "34px", whiteSpace: "nowrap" }}
+                  disabled={!pullInputModel.trim() || Boolean(downloadingModelName)}
+                  onClick={() => {
+                    if (pullInputModel.trim()) {
+                      void pullModelDirectly(pullInputModel.trim()).then(() => {
+                        setLocalLlmModel(pullInputModel.trim());
+                        syncConfig({ localLlmModel: pullInputModel.trim() });
+                        setPullInputModel("");
+                      });
+                    }
+                  }}
+                >
+                  <Download size={14} /> Descargar (Pull)
+                </button>
+              </div>
+              {downloadingModelName && (
+                <div style={{ marginTop: "0.5rem", fontSize: "0.78rem", color: "var(--accent-primary)" }}>
+                  {modelDownloadStatus} ({modelDownloadProgress}%)
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* OpenRouter */}
+        {llmEngine === "openrouter" && (
+          <div style={{ gridColumn: "1 / -1", padding: "1rem", borderRadius: "8px", background: "rgba(255,255,255,0.02)", border: "1px solid var(--border)", display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
+              <label>
+                <span style={{ fontWeight: 600, fontSize: "0.82rem", display: "block", marginBottom: "0.3rem" }}>OPENROUTER API KEY</span>
+                <input
+                  type="password"
+                  value={openrouterKey}
+                  onChange={(event) => {
+                    setOpenrouterKey(event.target.value);
+                    syncConfig({ openrouterKey: event.target.value });
+                  }}
+                  placeholder={environment?.hasOpenrouterKey ? "Cargado desde variables de entorno" : "sk-or-v1-..."}
+                  style={{ width: "100%", padding: "0.5rem", borderRadius: "6px" }}
+                />
+              </label>
+              <label>
+                <span style={{ fontWeight: 600, fontSize: "0.82rem", display: "block", marginBottom: "0.3rem" }}>MODELO DE OPENROUTER</span>
+                <input
+                  type="text"
+                  value={openrouterModel}
+                  onChange={(event) => {
+                    setOpenrouterModel(event.target.value);
+                    syncConfig({ openrouterModel: event.target.value });
+                  }}
+                  placeholder="meta-llama/llama-3.3-70b-instruct:free"
+                  style={{ width: "100%", padding: "0.5rem", borderRadius: "6px" }}
+                />
+              </label>
+            </div>
+
+            <div style={{ padding: "0.6rem 0.8rem", borderRadius: "6px", background: "rgba(16, 185, 129, 0.08)", border: "1px solid rgba(16, 185, 129, 0.2)", fontSize: "0.78rem", color: "var(--foreground)" }}>
+              🛡️ <strong>Protección Anti-Saturación:</strong> AutoShorts incorpora pausas de 2.5s entre bloques y reintentos automáticos con espera exponencial ante códigos 429 (Rate Limit), para que los modelos gratuitos de OpenRouter no saturen la cuota ni congelen la aplicación.
+            </div>
+          </div>
+        )}
+
+        {/* DeepSeek */}
+        {llmEngine === "deepseek" && (
+          <div style={{ gridColumn: "1 / -1", display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
+            <label>
+              <span style={{ fontWeight: 600, fontSize: "0.82rem", display: "block", marginBottom: "0.3rem" }}>DEEPSEEK API KEY</span>
+              <input
+                type="password"
+                value={deepseekKey}
+                onChange={(event) => {
+                  setDeepseekKey(event.target.value);
+                  syncConfig({ deepseekKey: event.target.value });
+                }}
+                placeholder={environment?.hasDeepseekKey ? "Cargado desde variables de entorno" : "sk-..."}
+                style={{ width: "100%", padding: "0.5rem", borderRadius: "6px" }}
+              />
+            </label>
+            <label>
+              <span style={{ fontWeight: 600, fontSize: "0.82rem", display: "block", marginBottom: "0.3rem" }}>MODELO DE DEEPSEEK</span>
+              <input
+                type="text"
+                value={deepseekModel}
+                onChange={(event) => {
+                  setDeepseekModel(event.target.value);
+                  syncConfig({ deepseekModel: event.target.value });
+                }}
+                placeholder="deepseek-chat (opcional)"
+                style={{ width: "100%", padding: "0.5rem", borderRadius: "6px" }}
+              />
+            </label>
+          </div>
+        )}
+
+        {/* Claude */}
+        {llmEngine === "claude" && (
+          <label style={{ gridColumn: "1 / -1" }}>
+            <span style={{ fontWeight: 600, fontSize: "0.82rem", display: "block", marginBottom: "0.3rem" }}>CLAUDE (ANTHROPIC) API KEY</span>
+            <input
+              type="password"
+              value={anthropicKey}
+              onChange={(event) => {
+                setAnthropicKey(event.target.value);
+                syncConfig({ anthropicKey: event.target.value });
+              }}
+              placeholder={environment?.hasAnthropicKey ? "Cargado desde variables de entorno" : "sk-ant-..."}
+              style={{ width: "100%", padding: "0.5rem", borderRadius: "6px" }}
+            />
+          </label>
+        )}
+
+        {/* OpenAI */}
+        {llmEngine === "openai" && (
+          <label style={{ gridColumn: "1 / -1" }}>
+            <span style={{ fontWeight: 600, fontSize: "0.82rem", display: "block", marginBottom: "0.3rem" }}>OPENAI API KEY</span>
+            <input
+              type="password"
+              value={openaiKey}
+              onChange={(event) => {
+                setOpenaiKey(event.target.value);
+                syncConfig({ openaiKey: event.target.value });
+              }}
+              placeholder={environment?.hasOpenaiKey ? "Cargado desde variables de entorno" : "sk-..."}
+              style={{ width: "100%", padding: "0.5rem", borderRadius: "6px" }}
+            />
+          </label>
+        )}
+
+        {/* Groq */}
+        {llmEngine === "groq" && (
+          <label style={{ gridColumn: "1 / -1" }}>
+            <span style={{ fontWeight: 600, fontSize: "0.82rem", display: "block", marginBottom: "0.3rem" }}>GROQ API KEY</span>
+            <input
+              type="password"
+              value={groqKey}
+              onChange={(event) => {
+                setGroqKey(event.target.value);
+                syncConfig({ groqKey: event.target.value });
+              }}
+              placeholder={environment?.hasGroqKey ? "Cargado desde variables de entorno" : "gsk_..."}
+              style={{ width: "100%", padding: "0.5rem", borderRadius: "6px" }}
+            />
+          </label>
+        )}
+
+        {/* Gemini */}
+        {llmEngine === "gemini" && (
+          <label style={{ gridColumn: "1 / -1" }}>
+            <span style={{ fontWeight: 600, fontSize: "0.82rem", display: "block", marginBottom: "0.3rem" }}>GEMINI API KEY</span>
+            <input
+              type="password"
+              value={geminiKey}
+              onChange={(event) => {
+                setGeminiKey(event.target.value);
+                syncConfig({ geminiKey: event.target.value });
+              }}
+              placeholder={environment?.hasGeminiKey ? "Cargado desde variables de entorno" : "AIzaSy..."}
+              style={{ width: "100%", padding: "0.5rem", borderRadius: "6px" }}
+            />
+          </label>
+        )}
+
+        {/* Deepgram Key if selected */}
+        {transcriptionEngine === "deepgram" && (
+          <label style={{ gridColumn: "1 / -1" }}>
+            <span style={{ fontWeight: 600, fontSize: "0.82rem", display: "block", marginBottom: "0.3rem" }}>DEEPGRAM API KEY</span>
+            <input
+              type="password"
+              value={deepgramKey}
+              onChange={(event) => {
+                setDeepgramKey(event.target.value);
+                syncConfig({ deepgramKey: event.target.value });
+              }}
+              placeholder={environment?.hasDeepgramKey ? "Cargado desde env" : "Token Deepgram..."}
+              style={{ width: "100%", padding: "0.5rem", borderRadius: "6px" }}
+            />
+          </label>
+        )}
+      </div>
+
+      <div style={{ marginTop: "1.5rem", paddingTop: "1rem", borderTop: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <button
+          type="button"
+          className="icon-button btn-danger"
+          style={{ background: "rgba(239, 68, 68, 0.08)", borderColor: "rgba(239, 68, 68, 0.2)", color: "#f87171", padding: "6px 14px" }}
+          onClick={() => {
+            if (window.confirm("¿Seguro que deseas reiniciar la configuración y volver al asistente inicial?")) {
+              localStorage.clear();
+              void invoke("save_app_config", { onboarded: false });
+              setIsOnboarded(false);
+              setShowSettings(false);
+            }
+          }}
+        >
+          Reset App Configuration & Onboarding
+        </button>
+
+        <span style={{ fontSize: "0.75rem", opacity: 0.6 }}>
+          💾 Las configuraciones se guardan automáticamente en tu sistema.
+        </span>
+      </div>
+    </div>
+  );
 
   return (
     <div className="app-shell-container">
@@ -771,6 +1212,19 @@ function App() {
               </button>
             ))}
           </section>
+
+          <div style={{ marginTop: "auto", paddingTop: "0.75rem", borderTop: "1px solid var(--border)" }}>
+            <button
+              type="button"
+              className={`project-row ${showSettings ? "active" : ""}`}
+              onClick={() => setShowSettings(!showSettings)}
+              title="Configuración de Modelos e IA"
+              style={{ width: "100%", textAlign: "left", cursor: "pointer", background: showSettings ? "rgba(16, 185, 129, 0.15)" : "transparent" }}
+            >
+              <SlidersHorizontal size={16} />
+              <span>Configuración & APIs</span>
+            </button>
+          </div>
         </aside>
 
         <section className="workspace">
@@ -782,6 +1236,33 @@ function App() {
                   <h2>{detail.project.name || fileName(detail.project.sourcePath)}</h2>
                 </div>
                 <div className="topbar-actions">
+                  <button
+                    className="primary-action compact"
+                    onClick={() => {
+                      setShowSummaryModal(true);
+                      setSummaryStatus("idle");
+                      setSummaryProgressMsg("");
+                    }}
+                    disabled={detail.candidates.length === 0}
+                    title={detail.candidates.length === 0 ? "Primero busca momentos con la IA para compilar el resumen" : "Autoeditar y compilar momentos en un video resumen"}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "6px",
+                      background: "linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)",
+                      color: "#fff",
+                      border: "none",
+                      padding: "0.45rem 0.9rem",
+                      borderRadius: "8px",
+                      fontWeight: 600,
+                      fontSize: "0.85rem",
+                      cursor: detail.candidates.length === 0 ? "not-allowed" : "pointer",
+                      opacity: detail.candidates.length === 0 ? 0.5 : 1
+                    }}
+                  >
+                    <Clapperboard size={16} />
+                    <span>Autoeditar Resumen</span>
+                  </button>
                   <button
                     className={`icon-button settings-toggle ${showSettings ? "active" : ""}`}
                     onClick={() => setShowSettings(!showSettings)}
@@ -796,172 +1277,7 @@ function App() {
                 </div>
               </header>
 
-              {showSettings && (
-                <div className="settings-panel">
-                  <div className="key-stack-horizontal">
-                    <label>
-                      <span>Transcription Engine</span>
-                      <select
-                        value={transcriptionEngine}
-                        onChange={(event) => setTranscriptionEngine(event.target.value as "deepgram" | "local")}
-                      >
-                        <option value="local">Local Whisper (Offline)</option>
-                        <option value="deepgram">Deepgram (Cloud)</option>
-                      </select>
-                      <span>LLM Engine</span>
-                      <select
-                        value={llmEngine}
-                        onChange={(event) => setLlmEngine(event.target.value as any)}
-                      >
-                        <option value="local">Ollama (Offline Local)</option>
-                        <option value="claude">Claude (Cloud)</option>
-                        <option value="deepseek">DeepSeek (Cloud)</option>
-                        <option value="gemini">Google Gemini (Cloud)</option>
-                        <option value="openai">OpenAI (Cloud)</option>
-                        <option value="openrouter">OpenRouter (Cloud)</option>
-                        <option value="groq">Groq (Cloud)</option>
-                      </select>
-                    </label>
-                    {transcriptionEngine === "deepgram" && (
-                      <label>
-                        <span>Deepgram API Key</span>
-                        <input
-                          value={deepgramKey}
-                          onChange={(event) => setDeepgramKey(event.target.value)}
-                          placeholder={environment?.hasDeepgramKey ? "Loaded from env" : "Optional (Deepgram API Key)"}
-                          type="password"
-                        />
-                      </label>
-                    )}
-                    {llmEngine === "claude" && (
-                      <label>
-                        <span>Claude API Key</span>
-                        <input
-                          value={anthropicKey}
-                          onChange={(event) => setAnthropicKey(event.target.value)}
-                          placeholder={environment?.hasAnthropicKey ? "Loaded from env" : "Optional (Claude API Key)"}
-                          type="password"
-                        />
-                      </label>
-                    )}
-                    {llmEngine === "deepseek" && (
-                      <>
-                        <label>
-                          <span>DeepSeek API Key</span>
-                          <input
-                            value={deepseekKey}
-                            onChange={(event) => setDeepseekKey(event.target.value)}
-                            placeholder={environment?.hasDeepseekKey ? "Loaded from env" : "Optional (DeepSeek API Key)"}
-                            type="password"
-                          />
-                        </label>
-                        <label>
-                          <span>DeepSeek Model</span>
-                          <input
-                            value={deepseekModel}
-                            onChange={(event) => setDeepseekModel(event.target.value)}
-                            placeholder="Optional (e.g. deepseek-chat, deepseek-v4-pro)"
-                            type="text"
-                          />
-                        </label>
-                      </>
-                    )}
-                    {llmEngine === "gemini" && (
-                      <label>
-                        <span>Gemini API Key</span>
-                        <input
-                          value={geminiKey}
-                          onChange={(event) => setGeminiKey(event.target.value)}
-                          placeholder={environment?.hasGeminiKey ? "Loaded from env" : "Optional (Gemini API Key)"}
-                          type="password"
-                        />
-                      </label>
-                    )}
-                    {llmEngine === "openai" && (
-                      <label>
-                        <span>OpenAI API Key</span>
-                        <input
-                          value={openaiKey}
-                          onChange={(event) => setOpenaiKey(event.target.value)}
-                          placeholder={environment?.hasOpenaiKey ? "Loaded from env" : "Optional (OpenAI API Key)"}
-                          type="password"
-                        />
-                      </label>
-                    )}
-                    {llmEngine === "openrouter" && (
-                      <>
-                        <label>
-                          <span>OpenRouter API Key</span>
-                          <input
-                            value={openrouterKey}
-                            onChange={(event) => setOpenrouterKey(event.target.value)}
-                            placeholder={environment?.hasOpenrouterKey ? "Loaded from env" : "Optional (OpenRouter API Key)"}
-                            type="password"
-                          />
-                        </label>
-                        <label>
-                          <span>OpenRouter Model</span>
-                          <input
-                            value={openrouterModel}
-                            onChange={(event) => setOpenrouterModel(event.target.value)}
-                            placeholder="Optional (e.g. google/gemini-2.5-flash, deepseek/deepseek-r1)"
-                            type="text"
-                          />
-                        </label>
-                      </>
-                    )}
-                    {llmEngine === "groq" && (
-                      <label>
-                        <span>Groq API Key</span>
-                        <input
-                          value={groqKey}
-                          onChange={(event) => setGroqKey(event.target.value)}
-                          placeholder={environment?.hasGroqKey ? "Loaded from env" : "Optional (Groq API Key)"}
-                          type="password"
-                        />
-                      </label>
-                    )}
-
-                    {llmEngine === "local" && (
-                      <label>
-                        <span>Ollama Model Name</span>
-                        <div style={{ display: 'flex', gap: '8px' }}>
-                          <input
-                            value={localLlmModel}
-                            onChange={(event) => setLocalLlmModel(event.target.value)}
-                            placeholder="e.g. llama3.2, qwen2.5:7b"
-                            type="text"
-                          />
-                          <button
-                            type="button"
-                            className="icon-button"
-                            style={{ minHeight: '36px', height: '36px' }}
-                            onClick={() => pullModelDirectly(localLlmModel)}
-                          >
-                            <Download size={14} /> Pull
-                          </button>
-                        </div>
-                      </label>
-                    )}
-                  </div>
-                  <div className="reset-container" style={{ marginTop: '1.5rem', paddingTop: '1rem', borderTop: '1px solid var(--border)' }}>
-                    <button
-                      type="button"
-                      className="icon-button btn-danger"
-                      style={{ background: 'rgba(239, 68, 68, 0.08)', borderColor: 'rgba(239, 68, 68, 0.2)', color: '#f87171' }}
-                      onClick={() => {
-                        if (window.confirm("Are you sure you want to reset all configurations? This will return you to the onboarding wizard.")) {
-                          localStorage.clear();
-                          setIsOnboarded(false);
-                          setShowSettings(false);
-                        }
-                      }}
-                    >
-                      Reset App Configuration & Onboarding
-                    </button>
-                  </div>
-                </div>
-              )}
+              {showSettings && renderSettingsPanel()}
 
               {error && <div className="error-banner">{error}</div>}
 
@@ -1041,10 +1357,49 @@ function App() {
                         {busy === "cut" ? <Loader2 className="spin" size={16} /> : <Scissors size={16} />}
                         Cortar ({selectedCount})
                       </button>
-                      <button onClick={() => void moments(false)} disabled={busy !== "idle" || !detail.transcript || !canUseActiveLlm}>
-                        {busy === "moments" ? <Loader2 className="spin" size={16} /> : <Sparkles size={16} />}
-                        {busy === "moments" ? (candidateProgress || "Detectando...") : "🔍 Buscar Momentos"}
-                      </button>
+                      {busy === "moments" ? (
+                        <button
+                          type="button"
+                          className="btn-cancel"
+                          onClick={cancelMoments}
+                          title="Detener la búsqueda y liberar VRAM"
+                          style={{ padding: "0.4rem 0.8rem", fontSize: "0.82rem", background: "rgba(239, 68, 68, 0.15)", border: "1px solid #ef4444", color: "#f87171", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: "6px" }}
+                        >
+                          <Loader2 className="spin" size={14} />
+                          Cancelar Búsqueda
+                        </button>
+                      ) : (
+                        <button onClick={() => void moments(false)} disabled={busy !== "idle" || !detail.transcript || !canUseActiveLlm}>
+                          <Sparkles size={16} />
+                          Buscar Momentos
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.4rem 1rem", background: "rgba(255,255,255,0.02)", borderBottom: "1px solid var(--border)", fontSize: "0.78rem" }}>
+                    <span style={{ opacity: 0.8 }}>Duración Objetivo de Clips:</span>
+                    <div style={{ display: "flex", gap: "0.35rem" }}>
+                      {(["30s", "60s", "2m", "3m", "5m"] as const).map((dur) => (
+                        <button
+                          key={dur}
+                          type="button"
+                          onClick={() => setTargetDuration(dur)}
+                          disabled={busy !== "idle"}
+                          style={{
+                            padding: "0.2rem 0.55rem",
+                            borderRadius: "4px",
+                            border: targetDuration === dur ? "1px solid var(--accent-primary)" : "1px solid var(--border)",
+                            background: targetDuration === dur ? "rgba(99, 102, 241, 0.2)" : "transparent",
+                            color: targetDuration === dur ? "var(--accent-primary)" : "var(--foreground)",
+                            cursor: "pointer",
+                            fontSize: "0.74rem",
+                            fontWeight: targetDuration === dur ? 600 : 400
+                          }}
+                        >
+                          {dur === "30s" ? "30 seg" : dur === "60s" ? "1 min" : dur === "2m" ? "2 min" : dur === "3m" ? "3 min" : "5 min"}
+                        </button>
+                      ))}
                     </div>
                   </div>
 
@@ -1116,6 +1471,24 @@ function App() {
                             <h4>{candidate.hook}</h4>
                             <p className="candidate-rationale">{candidate.rationale}</p>
 
+                            {candidate.description && (
+                              <div className="candidate-description-box">
+                                <div className="desc-header">
+                                  <span className="desc-label">Descripción para Redes</span>
+                                  <button
+                                    type="button"
+                                    className="desc-copy-btn"
+                                    onClick={() => copyDescription(candidate.id, candidate.description!)}
+                                    title="Copiar texto para redes sociales"
+                                  >
+                                    <Copy size={11} />
+                                    <span>{copiedDescId === candidate.id ? "Copiado" : "Copiar"}</span>
+                                  </button>
+                                </div>
+                                <p className="desc-text">{candidate.description}</p>
+                              </div>
+                            )}
+
                             <div className="candidate-actions">
                               <span className={`clip-status ${isCut ? "ready" : clip?.status === "error" ? "error" : ""}`}>
                                 {isCut ? "Cut ready" : clip?.status === "error" ? "Cut failed" : clip?.status ?? "Pending"}
@@ -1179,7 +1552,18 @@ function App() {
                   <Youtube size={18} />
                   Import from YouTube
                 </button>
+                <button 
+                  className={`secondary-action compact ${showSettings ? "active" : ""}`}
+                  onClick={() => setShowSettings(!showSettings)}
+                  title="Configuración de Modelos e Inteligencia Artificial"
+                  style={{ display: "flex", gap: "0.5rem", alignItems: "center", padding: "0.5rem 1rem", borderRadius: "8px", border: "1px solid var(--border)", background: showSettings ? "rgba(16, 185, 129, 0.15)" : "transparent", color: "var(--foreground)", cursor: "pointer", fontSize: "0.95rem", marginLeft: "0.75rem" }}
+                >
+                  <SlidersHorizontal size={18} />
+                  Configuración & APIs
+                </button>
               </header>
+
+              {showSettings && renderSettingsPanel()}
 
               {projects.length > 0 ? (
                 <div className="projects-grid">
@@ -1251,7 +1635,7 @@ function App() {
 
             <div style={{ marginBottom: "1.25rem", padding: "0 0.5rem" }}>
               <label style={{ fontSize: "0.85rem", fontWeight: 600, display: "block", marginBottom: "0.5rem", color: "var(--foreground)" }}>
-                🎯 Tipo de Video / Enfoque de la IA:
+                Tipo de Video / Enfoque de la IA:
               </label>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: "0.5rem" }}>
                 <button
@@ -1267,7 +1651,7 @@ function App() {
                     textAlign: "left"
                   }}
                 >
-                  <div style={{ fontWeight: 600, fontSize: "0.9rem" }}>🎮 Gaming</div>
+                  <div style={{ fontWeight: 600, fontSize: "0.9rem" }}>Gaming</div>
                   <div style={{ fontSize: "0.72rem", opacity: 0.75 }}>Kills, fails, torneos</div>
                 </button>
                 <button
@@ -1283,7 +1667,7 @@ function App() {
                     textAlign: "left"
                   }}
                 >
-                  <div style={{ fontWeight: 600, fontSize: "0.9rem" }}>💡 Tutorial</div>
+                  <div style={{ fontWeight: 600, fontSize: "0.9rem" }}>Tutorial</div>
                   <div style={{ fontSize: "0.72rem", opacity: 0.75 }}>Tips, avisos, trucos</div>
                 </button>
                 <button
@@ -1299,7 +1683,7 @@ function App() {
                     textAlign: "left"
                   }}
                 >
-                  <div style={{ fontWeight: 600, fontSize: "0.9rem" }}>🎙️ Charla</div>
+                  <div style={{ fontWeight: 600, fontSize: "0.9rem" }}>Charla</div>
                   <div style={{ fontSize: "0.72rem", opacity: 0.75 }}>Historias, debates</div>
                 </button>
                 <button
@@ -1315,9 +1699,42 @@ function App() {
                     textAlign: "left"
                   }}
                 >
-                  <div style={{ fontWeight: 600, fontSize: "0.9rem" }}>⚡ General</div>
+                  <div style={{ fontWeight: 600, fontSize: "0.9rem" }}>General</div>
                   <div style={{ fontSize: "0.72rem", opacity: 0.75 }}>Detección mixta</div>
                 </button>
+              </div>
+            </div>
+
+            {/* Selector de Duración Objetivo de Clips */}
+            <div style={{ marginBottom: "1.25rem", padding: "0 0.5rem" }}>
+              <label style={{ fontSize: "0.85rem", fontWeight: 600, display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem", color: "var(--foreground)" }}>
+                <span>Objetivo de Duración de Clips:</span>
+                <span style={{ fontSize: "0.72rem", color: "var(--accent-primary)", fontWeight: 500 }}>VRAM constante (no satura memoria)</span>
+              </label>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: "0.4rem" }}>
+                {(["30s", "60s", "2m", "3m", "5m"] as const).map((dur) => (
+                  <button
+                    key={dur}
+                    type="button"
+                    onClick={() => setTargetDuration(dur)}
+                    style={{
+                      padding: "0.5rem 0.4rem",
+                      borderRadius: "8px",
+                      border: targetDuration === dur ? "2px solid var(--accent-primary)" : "1px solid var(--border)",
+                      background: targetDuration === dur ? "rgba(99, 102, 241, 0.2)" : "var(--bg-card)",
+                      color: "var(--foreground)",
+                      cursor: "pointer",
+                      textAlign: "center"
+                    }}
+                  >
+                    <div style={{ fontWeight: 600, fontSize: "0.82rem" }}>
+                      {dur === "30s" ? "30 seg" : dur === "60s" ? "1 min" : dur === "2m" ? "2 min" : dur === "3m" ? "3 min" : "5 min"}
+                    </div>
+                    <div style={{ fontSize: "0.68rem", opacity: 0.7 }}>
+                      {dur === "60s" ? "Recomendado" : dur === "30s" ? "Rápido" : "Formato Largo"}
+                    </div>
+                  </button>
+                ))}
               </div>
             </div>
 
@@ -1566,7 +1983,7 @@ function App() {
                 </p>
               </div>
               <button className="btn-cancel" onClick={() => setPreviewCandidate(null)} style={{ padding: "0.4rem 0.8rem" }}>
-                ✕ Cerrar
+                Cerrar
               </button>
             </div>
 
@@ -1694,7 +2111,242 @@ function App() {
           </div>
         </div>
       )}
+
+      {showSummaryModal && detail && (
+        <div className="summary-modal-overlay">
+          <div className="summary-modal">
+            <div className="summary-modal-header">
+              <div>
+                <h3>Autoedición y Resumen de Stream</h3>
+                <p>Compila y une automáticamente los mejores momentos en un único video listo para subir a YouTube o editar.</p>
+              </div>
+              <button
+                className="icon-button"
+                onClick={() => {
+                  if (summaryStatus !== "rendering") {
+                    setShowSummaryModal(false);
+                    setSummaryStatus("idle");
+                  }
+                }}
+                disabled={summaryStatus === "rendering"}
+                title="Cerrar"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="summary-stats-box">
+              <div className="summary-stat-item">
+                <div className="stat-val">{detail.candidates.length}</div>
+                <div className="stat-lbl">Momentos Detectados</div>
+              </div>
+              <div className="summary-stat-item">
+                <div className="stat-val">
+                  {formatTime(detail.candidates.reduce((acc, c) => acc + (c.endSec - c.startSec), 0))}
+                </div>
+                <div className="stat-lbl">Duración Total Momentos</div>
+              </div>
+              <div className="summary-stat-item">
+                <div className="stat-val">{summaryTargetMinutes} min</div>
+                <div className="stat-lbl">Objetivo Resumen</div>
+              </div>
+            </div>
+
+            {summaryStatus === "idle" && (
+              <>
+                <div style={{ marginBottom: "1.25rem" }}>
+                  <label style={{ display: "block", fontSize: "0.85rem", fontWeight: 600, marginBottom: "0.5rem" }}>
+                    Duración Objetivo del Video Resumen:
+                  </label>
+                  <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+                    {[
+                      { val: 3, label: "3 min (Rápido)" },
+                      { val: 5, label: "5 min (Compacto)" },
+                      { val: 8, label: "8 min (YouTube Estándar)" },
+                      { val: 10, label: "10 min (Extendido)" },
+                      { val: 15, label: "15 min (Completo)" }
+                    ].map((opt) => (
+                      <button
+                        key={opt.val}
+                        type="button"
+                        onClick={() => setSummaryTargetMinutes(opt.val)}
+                        style={{
+                          padding: "0.45rem 0.85rem",
+                          borderRadius: "8px",
+                          border: summaryTargetMinutes === opt.val ? "1.5px solid var(--accent-primary)" : "1px solid var(--border)",
+                          background: summaryTargetMinutes === opt.val ? "rgba(99, 102, 241, 0.2)" : "rgba(255,255,255,0.03)",
+                          color: summaryTargetMinutes === opt.val ? "var(--accent-primary)" : "var(--foreground)",
+                          cursor: "pointer",
+                          fontWeight: summaryTargetMinutes === opt.val ? 600 : 400,
+                          fontSize: "0.82rem"
+                        }}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                  <p style={{ margin: "0.4rem 0 0", fontSize: "0.78rem", color: "var(--text-secondary)" }}>
+                    La IA elegirá el momento con mayor impacto como intro teaser y concatenará cronológicamente los mejores momentos del stream hasta alcanzar la duración deseada.
+                  </p>
+                </div>
+
+                <div style={{ marginBottom: "1.25rem" }}>
+                  <label style={{ display: "block", fontSize: "0.85rem", fontWeight: 600, marginBottom: "0.5rem" }}>
+                    Relación de Aspecto del Video:
+                  </label>
+                  <div style={{ display: "flex", gap: "0.75rem" }}>
+                    <button
+                      type="button"
+                      onClick={() => setSummaryAspectRatio("original")}
+                      style={{
+                        flex: 1,
+                        padding: "0.6rem 0.8rem",
+                        borderRadius: "8px",
+                        border: summaryAspectRatio === "original" ? "1.5px solid var(--accent-primary)" : "1px solid var(--border)",
+                        background: summaryAspectRatio === "original" ? "rgba(99, 102, 241, 0.2)" : "rgba(255,255,255,0.03)",
+                        color: summaryAspectRatio === "original" ? "var(--accent-primary)" : "var(--foreground)",
+                        cursor: "pointer",
+                        fontSize: "0.82rem",
+                        fontWeight: summaryAspectRatio === "original" ? 600 : 400,
+                        textAlign: "left"
+                      }}
+                    >
+                      <div style={{ fontWeight: 600 }}>16:9 Original (YouTube)</div>
+                      <div style={{ fontSize: "0.74rem", opacity: 0.75, marginTop: "2px" }}>Conserva el formato nativo panorámico sin recorte vertical.</div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSummaryAspectRatio("9:16")}
+                      style={{
+                        flex: 1,
+                        padding: "0.6rem 0.8rem",
+                        borderRadius: "8px",
+                        border: summaryAspectRatio === "9:16" ? "1.5px solid var(--accent-primary)" : "1px solid var(--border)",
+                        background: summaryAspectRatio === "9:16" ? "rgba(99, 102, 241, 0.2)" : "rgba(255,255,255,0.03)",
+                        color: summaryAspectRatio === "9:16" ? "var(--accent-primary)" : "var(--foreground)",
+                        cursor: "pointer",
+                        fontSize: "0.82rem",
+                        fontWeight: summaryAspectRatio === "9:16" ? 600 : 400,
+                        textAlign: "left"
+                      }}
+                    >
+                      <div style={{ fontWeight: 600 }}>9:16 Vertical (Shorts / Reels)</div>
+                      <div style={{ fontSize: "0.74rem", opacity: 0.75, marginTop: "2px" }}>Recorte centrado 9:16 para compilaciones verticales de móvil.</div>
+                    </button>
+                  </div>
+                </div>
+
+                <div style={{ marginBottom: "1.5rem", padding: "0.75rem", borderRadius: "8px", background: "rgba(255,255,255,0.02)", border: "1px solid var(--border)", fontSize: "0.8rem" }}>
+                  <div style={{ fontWeight: 600, marginBottom: "0.25rem" }}>Carpeta de destino:</div>
+                  <div style={{ color: "var(--accent-primary)", wordBreak: "break-all" }}>
+                    {customOutputDir || `Documentos/AutoShorts/${detail.project.name || fileName(detail.project.sourcePath)}`}
+                  </div>
+                  <div style={{ fontSize: "0.75rem", opacity: 0.7, marginTop: "4px" }}>
+                    El ensamblaje se realiza de forma directa en FFmpeg con micro-fades de audio entre cortes (0% de consumo de VRAM).
+                  </div>
+                </div>
+
+                <div className="style-modal-actions" style={{ display: "flex", justifyContent: "flex-end", gap: "0.75rem" }}>
+                  <button
+                    type="button"
+                    className="btn-cancel"
+                    onClick={() => setShowSummaryModal(false)}
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    className="primary-action"
+                    onClick={generateSummary}
+                    style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}
+                  >
+                    <Clapperboard size={16} />
+                    <span>Autoeditar y Generar Video</span>
+                  </button>
+                </div>
+              </>
+            )}
+
+            {summaryStatus === "rendering" && (
+              <div style={{ padding: "2rem 1rem", textAlign: "center" }}>
+                <Loader2 className="spin" size={44} style={{ color: "var(--accent-primary)", margin: "0 auto 1rem" }} />
+                <h4 style={{ margin: "0 0 0.5rem", fontSize: "1.1rem" }}>Generando Video Resumen...</h4>
+                <p style={{ margin: 0, fontSize: "0.85rem", color: "var(--text-secondary)" }}>
+                  {summaryProgressMsg || "Procesando cortes en FFmpeg con micro-fades de audio..."}
+                </p>
+                <div style={{ marginTop: "1rem", fontSize: "0.75rem", opacity: 0.7 }}>
+                  No se consume VRAM adicional durante este proceso.
+                </div>
+              </div>
+            )}
+
+            {summaryStatus === "done" && summaryResult && (
+              <div style={{ padding: "1rem 0" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "1.25rem", color: "#10b981" }}>
+                  <BadgeCheck size={32} />
+                  <div>
+                    <h4 style={{ margin: 0, fontSize: "1.15rem", color: "var(--text-primary)" }}>Video Resumen Generado con Éxito</h4>
+                    <p style={{ margin: "2px 0 0", fontSize: "0.82rem", color: "var(--text-secondary)" }}>
+                      El video está listo para reproducir, subir o abrir en Premiere / DaVinci Resolve.
+                    </p>
+                  </div>
+                </div>
+
+                <div style={{ padding: "1rem", borderRadius: "10px", background: "rgba(255,255,255,0.03)", border: "1px solid var(--border)", marginBottom: "1.5rem", fontSize: "0.85rem" }}>
+                  <div style={{ marginBottom: "0.5rem" }}>
+                    <span style={{ opacity: 0.7 }}>Archivo: </span>
+                    <strong style={{ color: "var(--accent-primary)" }}>{summaryResult.filename}</strong>
+                  </div>
+                  <div style={{ marginBottom: "0.5rem" }}>
+                    <span style={{ opacity: 0.7 }}>Duración final: </span>
+                    <strong>{formatTime(summaryResult.duration)}</strong>
+                    <span style={{ opacity: 0.7, marginLeft: "1rem" }}>Momentos unidos: </span>
+                    <strong>{summaryResult.clipCount}</strong>
+                  </div>
+                  <div>
+                    <span style={{ opacity: 0.7 }}>Ruta: </span>
+                    <span style={{ wordBreak: "break-all", fontSize: "0.78rem" }}>{summaryResult.outputPath}</span>
+                  </div>
+                </div>
+
+                <div className="style-modal-actions" style={{ display: "flex", justifyContent: "flex-end", gap: "0.75rem" }}>
+                  <button
+                    type="button"
+                    className="btn-cancel"
+                    onClick={() => void invoke("open_folder", { path: summaryResult.outputPath })}
+                    title="Abrir la carpeta en el Explorador de Windows"
+                  >
+                    Abrir Carpeta
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-cancel"
+                    onClick={() => {
+                      setSummaryStatus("idle");
+                      setSummaryResult(null);
+                    }}
+                  >
+                    Crear Otro Resumen
+                  </button>
+                  <button
+                    type="button"
+                    className="primary-action"
+                    onClick={() => {
+                      setShowSummaryModal(false);
+                      setSummaryStatus("idle");
+                      setSummaryResult(null);
+                    }}
+                  >
+                    Cerrar
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
+
   );
 }
 

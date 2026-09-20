@@ -57,6 +57,10 @@ def main():
         target_url = dev_url
 
     data_dir = Path.home() / ".autoshorts"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    storage_dir = data_dir / "webview_profile"
+    storage_dir.mkdir(parents=True, exist_ok=True)
+
     api = Api(str(data_dir))
 
     print("Launching AutoShorts desktop window (WebView2)...")
@@ -71,7 +75,7 @@ def main():
     api.set_window(window)
 
     try:
-        webview.start(debug=False)
+        webview.start(debug=False, private_mode=False, storage_path=str(storage_dir))
     finally:
         if vite_proc:
             try:
