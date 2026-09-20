@@ -167,7 +167,10 @@ pub fn whisper_cli_exists() -> bool {
     };
 
     for &cmd in candidates {
-        if let Ok(out) = std::process::Command::new(cmd).arg("--help").output() {
+        if let Ok(out) = std::process::Command::new(cmd)
+            .env("PYTHONIOENCODING", "utf-8")
+            .arg("--help")
+            .output() {
             if out.status.success() {
                 return true;
             }
@@ -196,7 +199,7 @@ pub fn whisper_python_exists() -> bool {
 fn normalize_whisper_raw_json(raw: serde_json::Value) -> Result<NormalizedTranscript> {
     let language = raw.get("language")
         .and_then(|v| v.as_str())
-        .unwrap_or("en")
+        .unwrap_or("es")
         .to_string();
 
     let segments_arr = raw.get("segments")
@@ -264,8 +267,10 @@ pub async fn transcribe_local(audio_path: &str, model_path: &str) -> Result<Norm
 
         tokio::task::spawn_blocking(move || {
             let output = std::process::Command::new("whisper")
+                .env("PYTHONIOENCODING", "utf-8")
                 .arg(&audio_path)
                 .args(["--model", "base"])
+                .args(["--language", "es"])
                 .args(["--output_format", "json"])
                 .args(["--output_dir", &audio_dir_str])
                 .args(["--word_timestamps", "True"])
@@ -303,8 +308,7 @@ pub async fn transcribe_local(audio_path: &str, model_path: &str) -> Result<Norm
             .ok_or_else(|| anyhow!("Invalid model path"))?;
         
         let script_path = model_dir.join("transcribe.py");
-        if !script_path.exists() {
-            let script_content = r#"import sys
+        let script_content = r#"import sys
 import json
 import whisper
 
@@ -320,11 +324,11 @@ def main():
     # Load model. Automatically uses MPS on Apple Silicon if PyTorch supports it.
     model = whisper.load_model(model_name)
     
-    # Transcribe with word-level timestamps
-    result = model.transcribe(audio_path, word_timestamps=True)
+    # Transcribe with word-level timestamps in Spanish
+    result = model.transcribe(audio_path, word_timestamps=True, language="es")
     
     normalized = {
-        "language": result.get("language", "en"),
+        "language": result.get("language", "es"),
         "duration": result.get("segments", [])[-1]["end"] if result.get("segments") else 0.0,
         "speakers": ["S1"],
         "words": [],
@@ -354,8 +358,7 @@ def main():
 if __name__ == "__main__":
     main()
 "#;
-            std::fs::write(&script_path, script_content).context("writing transcribe.py script")?;
-        }
+        std::fs::write(&script_path, script_content).context("writing transcribe.py script")?;
 
         let output_json_path = model_dir.join(format!("temp_transcript_{}.json", uuid::Uuid::new_v4()));
         let script_path_str = script_path.to_string_lossy().to_string();

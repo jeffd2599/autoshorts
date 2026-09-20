@@ -37,12 +37,35 @@ async fn environment_status(state: tauri::State<'_, AppState>) -> Result<Environ
 
     let has_local_whisper_model = transcription::whisper_cli_exists() || transcription::whisper_python_exists();
 
-    let has_ollama = reqwest::Client::new()
-        .get("http://localhost:11434")
-        .timeout(std::time::Duration::from_millis(1000))
+    let (has_ollama, installed_ollama_models) = match reqwest::Client::new()
+        .get("http://127.0.0.1:11434/api/tags")
+        .timeout(std::time::Duration::from_millis(1500))
         .send()
         .await
-        .is_ok();
+    {
+        Ok(resp) if resp.status().is_success() => {
+            let tags: serde_json::Value = resp.json().await.unwrap_or_default();
+            let models = tags
+                .get("models")
+                .and_then(|m| m.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|item| item.get("name").and_then(|n| n.as_str()).map(String::from))
+                        .collect()
+                })
+                .unwrap_or_default();
+            (true, models)
+        }
+        _ => {
+            let ok = reqwest::Client::new()
+                .get("http://127.0.0.1:11434")
+                .timeout(std::time::Duration::from_millis(1000))
+                .send()
+                .await
+                .is_ok();
+            (ok, vec![])
+        }
+    };
 
     Ok(EnvironmentStatus {
         data_dir: state.data_dir.to_string_lossy().to_string(),
@@ -59,6 +82,7 @@ async fn environment_status(state: tauri::State<'_, AppState>) -> Result<Environ
         has_local_whisper_model,
         has_ollama,
         has_ytdlp: media::command_exists("yt-dlp"),
+        installed_ollama_models,
     })
 }
 

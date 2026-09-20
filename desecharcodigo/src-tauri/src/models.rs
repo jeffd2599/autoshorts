@@ -17,6 +17,8 @@ pub struct EnvironmentStatus {
     pub has_local_whisper_model: bool,
     pub has_ollama: bool,
     pub has_ytdlp: bool,
+    #[serde(default)]
+    pub installed_ollama_models: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

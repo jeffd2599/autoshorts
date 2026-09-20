@@ -1,0 +1,119 @@
+import json
+import os
+from typing import Any, Dict, List, Optional
+import warnings
+import requests
+
+warnings.filterwarnings("ignore", message=".*Triton.*")
+
+
+def whisper_available() -> bool:
+    try:
+        import whisper
+        return True
+    except ImportError:
+        return False
+
+
+def transcribe_local(audio_path: str, model_name: str = "base") -> Dict[str, Any]:
+    import torch
+    import whisper
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f"Loading Whisper model '{model_name}' on device: {device}...")
+    model = whisper.load_model(model_name, device=device)
+
+    print(f"Transcribing audio '{audio_path}' in Spanish...")
+    result = model.transcribe(audio_path, word_timestamps=True, language="es")
+
+    segments_raw = result.get("segments", [])
+    duration = segments_raw[-1]["end"] if segments_raw else 0.0
+
+    segments = []
+    words = []
+
+    for seg in segments_raw:
+        segments.append({
+            "start": float(seg["start"]),
+            "end": float(seg["end"]),
+            "speaker": "S1",
+            "text": str(seg["text"]).strip()
+        })
+        for w in seg.get("words", []):
+            words.append({
+                "text": str(w["word"]).strip(),
+                "start": float(w["start"]),
+                "end": float(w["end"]),
+                "speaker": "S1"
+            })
+
+    return {
+        "language": "es",
+        "duration": duration,
+        "speakers": ["S1"],
+        "words": words,
+        "segments": segments
+    }
+
+
+def transcribe_deepgram(audio_path: str, api_key: str) -> Dict[str, Any]:
+    url = "https://api.deepgram.com/v1/listen?model=nova-2&smart_format=true&diarize=true&language=es&utterances=true"
+    headers = {
+        "Authorization": f"Token {api_key}",
+        "Content-Type": "audio/wav"
+    }
+
+    with open(audio_path, "rb") as f:
+        audio_data = f.read()
+
+    resp = requests.post(url, headers=headers, data=audio_data, timeout=300)
+    if not resp.ok:
+        raise RuntimeError(f"Deepgram transcription failed ({resp.status_code}): {resp.text}")
+
+    data = resp.json()
+    alt = (
+        data.get("results", {})
+        .get("channels", [{}])[0]
+        .get("alternatives", [{}])[0]
+    )
+
+    words = []
+    for w in alt.get("words", []):
+        words.append({
+            "text": w.get("punctuated_word", w.get("word", "")),
+            "start": float(w.get("start", 0.0)),
+            "end": float(w.get("end", 0.0)),
+            "speaker": f"S{w.get('speaker', 0)}"
+        })
+
+    duration = float(data.get("metadata", {}).get("duration", 0.0))
+
+    # Build segments from utterances or words
+    segments = []
+    for utt in alt.get("paragraphs", {}).get("paragraphs", []):
+        for sentence in utt.get("sentences", []):
+            segments.append({
+                "start": float(sentence.get("start", 0.0)),
+                "end": float(sentence.get("end", 0.0)),
+                "speaker": "S1",
+                "text": sentence.get("text", "").strip()
+            })
+
+    if not segments and words:
+        # Group every 10 words into a segment if no sentences
+        for i in range(0, len(words), 10):
+            chunk = words[i:i+10]
+            segments.append({
+                "start": chunk[0]["start"],
+                "end": chunk[-1]["end"],
+                "speaker": "S1",
+                "text": " ".join(w["text"] for w in chunk)
+            })
+
+    return {
+        "language": "es",
+        "duration": duration,
+        "speakers": ["S1"],
+        "words": words,
+        "segments": segments
+    }

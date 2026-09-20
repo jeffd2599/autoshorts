@@ -1,0 +1,337 @@
+import os
+from pathlib import Path
+import sqlite3
+import uuid
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
+
+
+def utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+class Database:
+    def __init__(self, db_path: str):
+        self.db_path = db_path
+        os.makedirs(os.path.dirname(os.path.abspath(db_path)), exist_ok=True)
+        self.migrate()
+
+    def get_conn(self) -> sqlite3.Connection:
+        conn = sqlite3.connect(self.db_path, check_same_thread=False)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys = ON;")
+        return conn
+
+    def migrate(self):
+        with self.get_conn() as conn:
+            conn.executescript("""
+            CREATE TABLE IF NOT EXISTS projects (
+                id TEXT PRIMARY KEY,
+                name TEXT,
+                source_path TEXT NOT NULL,
+                source_duration REAL,
+                status TEXT NOT NULL,
+                transcription_mode TEXT NOT NULL,
+                caption_style TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS transcripts (
+                id TEXT PRIMARY KEY,
+                project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                engine TEXT NOT NULL,
+                raw_json TEXT NOT NULL,
+                language TEXT,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS candidates (
+                id TEXT PRIMARY KEY,
+                project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                start_sec REAL NOT NULL,
+                end_sec REAL NOT NULL,
+                score REAL NOT NULL,
+                hook TEXT NOT NULL,
+                rationale TEXT NOT NULL,
+                rank INTEGER NOT NULL,
+                selected INTEGER NOT NULL DEFAULT 0
+            );
+
+            CREATE TABLE IF NOT EXISTS clips (
+                id TEXT PRIMARY KEY,
+                candidate_id TEXT NOT NULL REFERENCES candidates(id) ON DELETE CASCADE,
+                status TEXT NOT NULL,
+                output_path TEXT,
+                face_track_json TEXT,
+                caption_ass_path TEXT,
+                render_log TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS clip_copy (
+                id TEXT PRIMARY KEY,
+                clip_id TEXT NOT NULL REFERENCES clips(id) ON DELETE CASCADE,
+                platform TEXT NOT NULL,
+                hook_text TEXT,
+                caption_text TEXT,
+                hashtags TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS schedule_entries (
+                id TEXT PRIMARY KEY,
+                clip_id TEXT NOT NULL REFERENCES clips(id) ON DELETE CASCADE,
+                platform TEXT NOT NULL,
+                scheduled_for TEXT,
+                status TEXT NOT NULL
+            );
+            """)
+
+            try:
+                rows = conn.execute("SELECT id, source_path, name FROM projects WHERE name IS NULL OR name = ''").fetchall()
+                for r in rows:
+                    stem = Path(r["source_path"]).stem
+                    conn.execute("UPDATE projects SET name = ? WHERE id = ?", (stem, r["id"]))
+            except Exception:
+                pass
+
+    def create_project(self, source_path: str, transcription_mode: str = "local", caption_style: str = "modern-box", source_duration: Optional[float] = None) -> Dict[str, Any]:
+        proj_id = str(uuid.uuid4())
+        name = Path(source_path).stem
+        now = utc_now_iso()
+        with self.get_conn() as conn:
+            conn.execute(
+                """INSERT INTO projects (id, name, source_path, source_duration, status, transcription_mode, caption_style, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (proj_id, name, source_path, source_duration, "ingest", transcription_mode, caption_style, now, now)
+            )
+        return self.get_project(proj_id)
+
+    def list_projects(self) -> List[Dict[str, Any]]:
+        with self.get_conn() as conn:
+            rows = conn.execute(
+                "SELECT id, name, source_path, source_duration, status, transcription_mode, created_at, updated_at, caption_style FROM projects ORDER BY updated_at DESC"
+            ).fetchall()
+            return [
+                {
+                    "id": r["id"],
+                    "name": r["name"],
+                    "sourcePath": r["source_path"],
+                    "sourceDuration": r["source_duration"],
+                    "status": r["status"],
+                    "transcriptionMode": r["transcription_mode"],
+                    "captionStyle": r["caption_style"],
+                    "createdAt": r["created_at"],
+                    "updatedAt": r["updated_at"],
+                }
+                for r in rows
+            ]
+
+    def get_project(self, project_id: str) -> Dict[str, Any]:
+        with self.get_conn() as conn:
+            r = conn.execute(
+                "SELECT id, name, source_path, source_duration, status, transcription_mode, created_at, updated_at, caption_style FROM projects WHERE id = ?",
+                (project_id,)
+            ).fetchone()
+            if not r:
+                raise ValueError(f"Project not found: {project_id}")
+            return {
+                "id": r["id"],
+                "name": r["name"],
+                "sourcePath": r["source_path"],
+                "sourceDuration": r["source_duration"],
+                "status": r["status"],
+                "transcriptionMode": r["transcription_mode"],
+                "captionStyle": r["caption_style"],
+                "createdAt": r["created_at"],
+                "updatedAt": r["updated_at"],
+            }
+
+    def update_project_status(self, project_id: str, status: str, duration: Optional[float] = None):
+        now = utc_now_iso()
+        with self.get_conn() as conn:
+            if duration is not None:
+                conn.execute(
+                    "UPDATE projects SET status = ?, source_duration = ?, updated_at = ? WHERE id = ?",
+                    (status, duration, now, project_id)
+                )
+            else:
+                conn.execute(
+                    "UPDATE projects SET status = ?, updated_at = ? WHERE id = ?",
+                    (status, now, project_id)
+                )
+
+    def rename_project(self, project_id: str, name: str) -> Dict[str, Any]:
+        now = utc_now_iso()
+        with self.get_conn() as conn:
+            conn.execute("UPDATE projects SET name = ?, updated_at = ? WHERE id = ?", (name, now, project_id))
+        return self.get_project(project_id)
+
+    def delete_project(self, project_id: str):
+        with self.get_conn() as conn:
+            conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
+
+    def save_transcript(self, project_id: str, engine: str, raw_json: str, language: Optional[str] = "es") -> Dict[str, Any]:
+        t_id = str(uuid.uuid4())
+        now = utc_now_iso()
+        with self.get_conn() as conn:
+            conn.execute(
+                "INSERT INTO transcripts (id, project_id, engine, raw_json, language, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (t_id, project_id, engine, raw_json, language, now)
+            )
+            conn.execute("UPDATE projects SET updated_at = ? WHERE id = ?", (now, project_id))
+        return {
+            "id": t_id,
+            "projectId": project_id,
+            "engine": engine,
+            "rawJson": raw_json,
+            "language": language,
+            "createdAt": now,
+        }
+
+    def latest_transcript(self, project_id: str) -> Optional[Dict[str, Any]]:
+        with self.get_conn() as conn:
+            r = conn.execute(
+                "SELECT id, project_id, engine, raw_json, language, created_at FROM transcripts WHERE project_id = ? ORDER BY created_at DESC LIMIT 1",
+                (project_id,)
+            ).fetchone()
+            if not r:
+                return None
+            return {
+                "id": r["id"],
+                "projectId": r["project_id"],
+                "engine": r["engine"],
+                "rawJson": r["raw_json"],
+                "language": r["language"],
+                "createdAt": r["created_at"],
+            }
+
+    def replace_candidates(self, project_id: str, drafts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        now = utc_now_iso()
+        candidates = []
+        with self.get_conn() as conn:
+            conn.execute("DELETE FROM candidates WHERE project_id = ?", (project_id,))
+            for idx, draft in enumerate(drafts, start=1):
+                c_id = str(uuid.uuid4())
+                clip_id = str(uuid.uuid4())
+                selected = 1 if idx <= 3 else 0
+                conn.execute(
+                    """INSERT INTO candidates (id, project_id, start_sec, end_sec, score, hook, rationale, rank, selected)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (c_id, project_id, draft["start"], draft["end"], draft["score"], draft["hook"], draft["rationale"], idx, selected)
+                )
+                conn.execute(
+                    """INSERT INTO clips (id, candidate_id, status) VALUES (?, ?, ?)""",
+                    (clip_id, c_id, "draft")
+                )
+                candidates.append({
+                    "id": c_id,
+                    "projectId": project_id,
+                    "startSec": draft["start"],
+                    "endSec": draft["end"],
+                    "score": draft["score"],
+                    "hook": draft["hook"],
+                    "rationale": draft["rationale"],
+                    "rank": idx,
+                    "selected": bool(selected),
+                })
+            conn.execute("UPDATE projects SET updated_at = ? WHERE id = ?", (now, project_id))
+        return candidates
+
+    def set_selected_clip_count(self, project_id: str, count: int) -> List[Dict[str, Any]]:
+        count = max(0, min(count, 500))
+        now = utc_now_iso()
+        with self.get_conn() as conn:
+            conn.execute("UPDATE candidates SET selected = 0 WHERE project_id = ?", (project_id,))
+            if count > 0:
+                conn.execute(
+                    f"UPDATE candidates SET selected = 1 WHERE id IN (SELECT id FROM candidates WHERE project_id = ? ORDER BY rank ASC LIMIT {count})",
+                    (project_id,)
+                )
+            conn.execute("UPDATE projects SET updated_at = ? WHERE id = ?", (now, project_id))
+        return self.get_candidates(project_id)
+
+    def get_candidates(self, project_id: str) -> List[Dict[str, Any]]:
+        with self.get_conn() as conn:
+            rows = conn.execute(
+                "SELECT id, project_id, start_sec, end_sec, score, hook, rationale, rank, selected FROM candidates WHERE project_id = ? ORDER BY rank ASC",
+                (project_id,)
+            ).fetchall()
+            return [
+                {
+                    "id": r["id"],
+                    "projectId": r["project_id"],
+                    "startSec": r["start_sec"],
+                    "endSec": r["end_sec"],
+                    "score": r["score"],
+                    "hook": r["hook"],
+                    "rationale": r["rationale"],
+                    "rank": r["rank"],
+                    "selected": bool(r["selected"]),
+                }
+                for r in rows
+            ]
+
+    def get_clips(self, project_id: str) -> List[Dict[str, Any]]:
+        with self.get_conn() as conn:
+            rows = conn.execute(
+                """SELECT clips.id, clips.candidate_id, clips.status, clips.output_path, clips.caption_ass_path, clips.render_log
+                   FROM clips JOIN candidates ON clips.candidate_id = candidates.id
+                   WHERE candidates.project_id = ?""",
+                (project_id,)
+            ).fetchall()
+            return [
+                {
+                    "id": r["id"],
+                    "candidateId": r["candidate_id"],
+                    "status": r["status"],
+                    "outputPath": r["output_path"],
+                    "captionAssPath": r["caption_ass_path"],
+                    "renderLog": r["render_log"],
+                }
+                for r in rows
+            ]
+
+    def get_project_detail(self, project_id: str) -> Dict[str, Any]:
+        project = self.get_project(project_id)
+        transcript = self.latest_transcript(project_id)
+        candidates = self.get_candidates(project_id)
+        clips = self.get_clips(project_id)
+        return {
+            "project": project,
+            "transcript": transcript,
+            "candidates": candidates,
+            "clips": clips,
+        }
+
+    def get_candidate_with_project(self, candidate_id: str) -> tuple:
+        with self.get_conn() as conn:
+            c = conn.execute(
+                "SELECT id, project_id, start_sec, end_sec, score, hook, rationale, rank, selected FROM candidates WHERE id = ?",
+                (candidate_id,)
+            ).fetchone()
+            if not c:
+                raise ValueError(f"Candidate not found: {candidate_id}")
+            candidate = {
+                "id": c["id"],
+                "projectId": c["project_id"],
+                "startSec": c["start_sec"],
+                "endSec": c["end_sec"],
+                "score": c["score"],
+                "hook": c["hook"],
+                "rationale": c["rationale"],
+                "rank": c["rank"],
+                "selected": bool(c["selected"]),
+            }
+            project = self.get_project(candidate["projectId"])
+            return candidate, project
+
+    def update_clip_for_candidate(self, candidate_id: str, status: str, output_path: Optional[str] = None, caption_path: Optional[str] = None, render_log: Optional[str] = None):
+        with self.get_conn() as conn:
+            conn.execute(
+                """UPDATE clips SET status = ?,
+                                    output_path = COALESCE(?, output_path),
+                                    caption_ass_path = COALESCE(?, caption_ass_path),
+                                    render_log = COALESCE(?, render_log)
+                   WHERE candidate_id = ?""",
+                (status, output_path, caption_path, render_log, candidate_id)
+            )

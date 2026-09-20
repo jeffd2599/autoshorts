@@ -1,8 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { invoke } from "@tauri-apps/api/core";
-import { open } from "@tauri-apps/plugin-dialog";
-import { listen } from "@tauri-apps/api/event";
+import { invoke, open, listen } from "./apiBridge";
 import {
   AudioLines,
   BadgeCheck,
@@ -42,6 +40,7 @@ type EnvironmentStatus = {
   hasLocalWhisperModel: boolean;
   hasOllama: boolean;
   hasYtdlp: boolean;
+  installedOllamaModels?: string[];
 };
 
 type Project = {
@@ -125,7 +124,11 @@ function App() {
   const [renderingCandidateId, setRenderingCandidateId] = useState<string | null>(null);
   const [showStyleModal, setShowStyleModal] = useState(false);
   const [selectedStyle, setSelectedStyle] = useState("modern-box");
+  const [selectedContentType, setSelectedContentType] = useState<"gaming" | "tutorial" | "podcast" | "general">("gaming");
   const [mediaPathToImport, setMediaPathToImport] = useState<string | null>(null);
+  const [previewCandidate, setPreviewCandidate] = useState<Candidate | null>(null);
+  const [customOutputDir, setCustomOutputDir] = useState<string>(() => localStorage.getItem("autoshorts_output_dir") || "");
+  const [autoDetectMoments, setAutoDetectMoments] = useState<boolean>(false);
 
   const [youtubeModalOpen, setYoutubeModalOpen] = useState(false);
   const [youtubeUrl, setYoutubeUrl] = useState("");
@@ -174,6 +177,7 @@ function App() {
   const [downloadingModelName, setDownloadingModelName] = useState<string | null>(null);
   const [modelDownloadStatus, setModelDownloadStatus] = useState("");
   const [modelDownloadProgress, setModelDownloadProgress] = useState(0);
+  const [candidateProgress, setCandidateProgress] = useState<string | null>(null);
 
   const transcript = useMemo(() => {
     if (!detail?.transcript) return null;
@@ -233,6 +237,17 @@ function App() {
     } else {
       setIsOnboarded(false);
     }
+
+    let unlistenProgress: (() => void) | null = null;
+    void listen<{ message: string; current: number; total: number }>("candidate-progress", (event) => {
+      setCandidateProgress(event.payload.message);
+    }).then((unsub) => {
+      unlistenProgress = unsub;
+    });
+
+    return () => {
+      if (unlistenProgress) unlistenProgress();
+    };
   }, []);
 
   useEffect(() => {
@@ -246,6 +261,16 @@ function App() {
   useEffect(() => {
     localStorage.setItem("autoshorts_local_llm_model", localLlmModel);
   }, [localLlmModel]);
+
+  useEffect(() => {
+    if (environment?.installedOllamaModels && environment.installedOllamaModels.length > 0) {
+      const installed = environment.installedOllamaModels;
+      if (!installed.includes(localLlmModel)) {
+        const preferred = installed.find((m) => m.includes("qwen3.5") || m.includes("qwen2.5") || m.includes("qwen")) || installed[0];
+        setLocalLlmModel(preferred);
+      }
+    }
+  }, [environment?.installedOllamaModels]);
 
   useEffect(() => {
     localStorage.setItem("autoshorts_deepgram_key", deepgramKey);
@@ -390,7 +415,7 @@ function App() {
     }
   }
 
-  async function confirmImport(style: string) {
+  async function confirmImport(style: string, contentType: "gaming" | "tutorial" | "podcast" | "general" = selectedContentType) {
     if (!mediaPathToImport) return;
     const selected = mediaPathToImport;
     setMediaPathToImport(null);
@@ -408,11 +433,11 @@ function App() {
     });
 
     if (newProjectId) {
-      await runAutoPipeline(newProjectId);
+      await runAutoPipeline(newProjectId, contentType);
     }
   }
 
-  async function runAutoPipeline(projectId: string) {
+  async function runAutoPipeline(projectId: string, contentType: string = selectedContentType) {
     setError(null);
     const env = await invoke<EnvironmentStatus>("environment_status");
 
@@ -477,7 +502,12 @@ function App() {
       return;
     }
 
-    // 2. LLM Moments
+    // 2. LLM Moments (Only auto-run if autoDetectMoments is enabled, to protect GPU thermals)
+    if (!autoDetectMoments) {
+      setBusy("idle");
+      return;
+    }
+
     try {
       setBusy("moments");
       const activeKey =
@@ -492,6 +522,7 @@ function App() {
         apiKey: activeKey || null,
         provider: llmEngine,
         modelName: llmEngine === "local" ? localLlmModel.trim() : (llmEngine === "deepseek" ? (deepseekModel.trim() || null) : (llmEngine === "openrouter" ? (openrouterModel.trim() || null) : null)),
+        contentType,
         allowDemo: false,
       });
       await refresh(projectId);
@@ -580,6 +611,7 @@ function App() {
           apiKey: activeKey || null,
           provider: llmEngine,
           modelName: llmEngine === "local" ? localLlmModel.trim() : (llmEngine === "deepseek" ? (deepseekModel.trim() || null) : (llmEngine === "openrouter" ? (openrouterModel.trim() || null) : null)),
+          contentType: selectedContentType,
           allowDemo,
         });
         await refresh(detail.project.id);
@@ -617,7 +649,10 @@ function App() {
     setBusy("cut");
     setError(null);
     try {
-      await invoke<string>("render_flat_clip_for_candidate", { candidateId });
+      await invoke<string>("render_flat_clip_for_candidate", {
+        candidateId,
+        outputDir: customOutputDir || null
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -634,7 +669,10 @@ function App() {
     try {
       for (const candidate of selectedCandidates) {
         setRenderingCandidateId(candidate.id);
-        await invoke<string>("render_flat_clip_for_candidate", { candidateId: candidate.id });
+        await invoke<string>("render_flat_clip_for_candidate", {
+          candidateId: candidate.id,
+          outputDir: customOutputDir || null
+        });
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -657,7 +695,10 @@ function App() {
     return (
       <Onboarding
         environment={environment}
-        onComplete={() => setIsOnboarded(true)}
+        onComplete={() => {
+          localStorage.setItem("autoshorts_onboarded", "true");
+          setIsOnboarded(true);
+        }}
         setTranscriptionEngine={setTranscriptionEngine}
         setLlmEngine={setLlmEngine}
         setLocalLlmModel={setLocalLlmModel}
@@ -903,15 +944,16 @@ function App() {
                       </label>
                     )}
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '16px', borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>
+                  <div className="reset-container" style={{ marginTop: '1.5rem', paddingTop: '1rem', borderTop: '1px solid var(--border)' }}>
                     <button
                       type="button"
-                      className="icon-button"
+                      className="icon-button btn-danger"
                       style={{ background: 'rgba(239, 68, 68, 0.08)', borderColor: 'rgba(239, 68, 68, 0.2)', color: '#f87171' }}
                       onClick={() => {
-                        if (window.confirm("Are you sure you want to reset your configuration and restart onboarding from scratch?")) {
+                        if (window.confirm("Are you sure you want to reset all configurations? This will return you to the onboarding wizard.")) {
                           localStorage.clear();
-                          window.location.reload();
+                          setIsOnboarded(false);
+                          setShowSettings(false);
                         }
                       }}
                     >
@@ -936,7 +978,7 @@ function App() {
                   <div className="panel-heading">
                     <div>
                       <h3>Transcript</h3>
-                      <p>{transcript ? `${transcript.segments.length} segments` : "No transcript"}</p>
+                      <p>{transcript ? `${transcript.segments.length} segments (haz clic para editar texto)` : "No transcript"}</p>
                     </div>
                     <div className="button-pair">
                       <button onClick={transcribe} disabled={busy !== "idle" || !canTranscribe}>
@@ -958,7 +1000,24 @@ function App() {
                     {transcript?.segments.map((segment, index) => (
                       <article key={`${segment.start}-${index}`} className="segment-row">
                         <span>{formatTime(segment.start)}</span>
-                        <p>{segment.text}</p>
+                        <p
+                          contentEditable
+                          suppressContentEditableWarning
+                          title="Haz clic para editar este texto"
+                          style={{ cursor: "text", outline: "none", borderRadius: "4px", padding: "2px 4px" }}
+                          onBlur={(e) => {
+                            const newText = e.currentTarget.textContent || "";
+                            if (newText !== segment.text) {
+                              void invoke("update_transcript_segment", {
+                                projectId: detail.project.id,
+                                index,
+                                text: newText
+                              });
+                            }
+                          }}
+                        >
+                          {segment.text}
+                        </p>
                       </article>
                     )) ?? <EmptyState icon={<AudioLines size={28} />} label="Transcript pending" />}
                   </div>
@@ -968,16 +1027,23 @@ function App() {
                   <div className="panel-heading">
                     <div>
                       <h3>Clip Candidates</h3>
-                      <p>{detail.candidates.length ? `${selectedCount} selected` : "No candidates"}</p>
+                      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginTop: "2px" }}>
+                        <span style={{ fontSize: "0.8rem", opacity: 0.75 }}>
+                          {detail.candidates.length ? `${selectedCount} seleccionados` : "Sin candidatos"}
+                        </span>
+                        <span style={{ fontSize: "0.72rem", padding: "1px 6px", borderRadius: "4px", background: "rgba(255,255,255,0.06)", border: "1px solid var(--border)", color: "var(--accent-primary)" }}>
+                          IA: {llmEngine === "local" ? (localLlmModel || "Ollama") : llmEngine.toUpperCase()}
+                        </span>
+                      </div>
                     </div>
                     <div className="button-pair">
                       <button onClick={cutSelected} disabled={busy !== "idle" || selectedCount === 0 || !environment?.hasFfmpeg}>
                         {busy === "cut" ? <Loader2 className="spin" size={16} /> : <Scissors size={16} />}
-                        Cut
+                        Cortar ({selectedCount})
                       </button>
                       <button onClick={() => void moments(false)} disabled={busy !== "idle" || !detail.transcript || !canUseActiveLlm}>
                         {busy === "moments" ? <Loader2 className="spin" size={16} /> : <Sparkles size={16} />}
-                        Find Viral Moments
+                        {busy === "moments" ? (candidateProgress || "Detectando...") : "🔍 Buscar Momentos"}
                       </button>
                     </div>
                   </div>
@@ -997,7 +1063,7 @@ function App() {
                   )}
 
                   {detail.candidates.length > 0 && (
-                    <div className="clip-control">
+                    <div className="clip-control" style={{ display: "flex", alignItems: "center", gap: "0.75rem", padding: "0.5rem 0.8rem" }}>
                       <SlidersHorizontal size={17} />
                       <input
                         type="range"
@@ -1005,8 +1071,16 @@ function App() {
                         max={detail.candidates.length}
                         value={selectedCount}
                         onChange={(event) => void updateClipCount(Number(event.target.value))}
+                        style={{ flex: 1 }}
                       />
-                      <strong>{selectedCount}</strong>
+                      <strong style={{ minWidth: "45px" }}>{selectedCount} / {detail.candidates.length}</strong>
+                      <button
+                        className="icon-button"
+                        style={{ fontSize: "0.75rem", padding: "0.3rem 0.6rem", whiteSpace: "nowrap" }}
+                        onClick={() => void updateClipCount(selectedCount === detail.candidates.length ? 0 : detail.candidates.length)}
+                      >
+                        {selectedCount === detail.candidates.length ? "Deseleccionar" : "Seleccionar Todos"}
+                      </button>
                     </div>
                   )}
 
@@ -1017,17 +1091,16 @@ function App() {
                       return (
                         <article key={candidate.id} className={`candidate-card ${candidate.selected ? "selected" : ""}`}>
                           {/* 9:16 portrait mockup preview placeholder representing vertical formats */}
-                          <div className="portrait-preview-container">
+                          <div
+                            className="portrait-preview-container"
+                            onClick={() => setPreviewCandidate(candidate)}
+                            style={{ cursor: "pointer" }}
+                            title="Haz clic para previsualizar este fragmento"
+                          >
                             <div className="portrait-preview-mock">
-                              {isCut ? (
-                                <div className="mock-video-active">
-                                  <Play size={20} className="play-icon-mock" />
-                                </div>
-                              ) : (
-                                <div className="mock-video-inactive">
-                                  <span>9:16</span>
-                                </div>
-                              )}
+                              <div className="mock-video-active" style={{ opacity: isCut ? 1 : 0.85 }}>
+                                <Play size={20} className="play-icon-mock" />
+                              </div>
                             </div>
                             <div className="candidate-rank">
                               <span>#{candidate.rank}</span>
@@ -1047,6 +1120,15 @@ function App() {
                               <span className={`clip-status ${isCut ? "ready" : clip?.status === "error" ? "error" : ""}`}>
                                 {isCut ? "Cut ready" : clip?.status === "error" ? "Cut failed" : clip?.status ?? "Pending"}
                               </span>
+                              <button
+                                className="icon-button"
+                                style={{ padding: "0.35rem 0.65rem", fontSize: "0.8rem", display: "inline-flex", alignItems: "center", gap: "4px" }}
+                                onClick={() => setPreviewCandidate(candidate)}
+                                title="Previsualizar fragmento en reproductor"
+                              >
+                                <Play size={13} />
+                                <span>Ver</span>
+                              </button>
                               <button
                                 className="cut-button"
                                 onClick={() => void cutCandidate(candidate.id)}
@@ -1163,11 +1245,213 @@ function App() {
         <div className="style-modal-overlay">
           <div className="style-modal">
             <div className="style-modal-header">
-              <h3>Choose Caption Style</h3>
-              <p>Select how your automated captions should look on the portrait short-form video clips.</p>
+              <h3>Configura tu Clip</h3>
+              <p>Personaliza el enfoque del análisis de IA y el estilo de subtítulos automáticos.</p>
             </div>
 
+            <div style={{ marginBottom: "1.25rem", padding: "0 0.5rem" }}>
+              <label style={{ fontSize: "0.85rem", fontWeight: 600, display: "block", marginBottom: "0.5rem", color: "var(--foreground)" }}>
+                🎯 Tipo de Video / Enfoque de la IA:
+              </label>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: "0.5rem" }}>
+                <button
+                  type="button"
+                  onClick={() => setSelectedContentType("gaming")}
+                  style={{
+                    padding: "0.6rem 0.8rem",
+                    borderRadius: "8px",
+                    border: selectedContentType === "gaming" ? "2px solid #10b981" : "1px solid var(--border)",
+                    background: selectedContentType === "gaming" ? "rgba(16, 185, 129, 0.15)" : "var(--bg-card)",
+                    color: "var(--foreground)",
+                    cursor: "pointer",
+                    textAlign: "left"
+                  }}
+                >
+                  <div style={{ fontWeight: 600, fontSize: "0.9rem" }}>🎮 Gaming</div>
+                  <div style={{ fontSize: "0.72rem", opacity: 0.75 }}>Kills, fails, torneos</div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedContentType("tutorial")}
+                  style={{
+                    padding: "0.6rem 0.8rem",
+                    borderRadius: "8px",
+                    border: selectedContentType === "tutorial" ? "2px solid #3b82f6" : "1px solid var(--border)",
+                    background: selectedContentType === "tutorial" ? "rgba(59, 130, 246, 0.15)" : "var(--bg-card)",
+                    color: "var(--foreground)",
+                    cursor: "pointer",
+                    textAlign: "left"
+                  }}
+                >
+                  <div style={{ fontWeight: 600, fontSize: "0.9rem" }}>💡 Tutorial</div>
+                  <div style={{ fontSize: "0.72rem", opacity: 0.75 }}>Tips, avisos, trucos</div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedContentType("podcast")}
+                  style={{
+                    padding: "0.6rem 0.8rem",
+                    borderRadius: "8px",
+                    border: selectedContentType === "podcast" ? "2px solid #8b5cf6" : "1px solid var(--border)",
+                    background: selectedContentType === "podcast" ? "rgba(139, 92, 246, 0.15)" : "var(--bg-card)",
+                    color: "var(--foreground)",
+                    cursor: "pointer",
+                    textAlign: "left"
+                  }}
+                >
+                  <div style={{ fontWeight: 600, fontSize: "0.9rem" }}>🎙️ Charla</div>
+                  <div style={{ fontSize: "0.72rem", opacity: 0.75 }}>Historias, debates</div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedContentType("general")}
+                  style={{
+                    padding: "0.6rem 0.8rem",
+                    borderRadius: "8px",
+                    border: selectedContentType === "general" ? "2px solid #f59e0b" : "1px solid var(--border)",
+                    background: selectedContentType === "general" ? "rgba(245, 158, 11, 0.15)" : "var(--bg-card)",
+                    color: "var(--foreground)",
+                    cursor: "pointer",
+                    textAlign: "left"
+                  }}
+                >
+                  <div style={{ fontWeight: 600, fontSize: "0.9rem" }}>⚡ General</div>
+                  <div style={{ fontSize: "0.72rem", opacity: 0.75 }}>Detección mixta</div>
+                </button>
+              </div>
+            </div>
+
+            {/* Selector de Motor & Modelo de IA */}
+            <div style={{ marginBottom: "1.25rem", padding: "0.85rem 1rem", borderRadius: "10px", background: "rgba(255, 255, 255, 0.03)", border: "1px solid var(--border)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.6rem" }}>
+                <label style={{ fontSize: "0.85rem", fontWeight: 600, color: "var(--foreground)", display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                  <Sparkles size={16} color="var(--accent-primary)" />
+                  Motor & Modelo de IA para Analizar Momentos:
+                </label>
+                <span style={{ fontSize: "0.75rem", opacity: 0.75 }}>
+                  {llmEngine === "local" ? "💻 100% Local y Privado" : "☁️ API Cloud"}
+                </span>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "160px 1fr", gap: "0.75rem", alignItems: "center" }}>
+                {/* Engine Selector */}
+                <div>
+                  <label style={{ fontSize: "0.72rem", opacity: 0.7, display: "block", marginBottom: "0.2rem" }}>Proveedor</label>
+                  <select
+                    className="form-select"
+                    value={llmEngine}
+                    onChange={(e) => {
+                      const eng = e.target.value as any;
+                      setLlmEngine(eng);
+                      localStorage.setItem("autoshorts_llm_engine", eng);
+                    }}
+                    style={{ width: "100%", padding: "0.45rem 0.6rem", fontSize: "0.82rem", borderRadius: "6px" }}
+                  >
+                    <option value="local">💻 Ollama (Local)</option>
+                    <option value="deepseek">⚡ DeepSeek API</option>
+                    <option value="claude">🧠 Claude (Anthropic)</option>
+                    <option value="openai">🤖 OpenAI (GPT-4o)</option>
+                    <option value="groq">🚀 Groq</option>
+                    <option value="gemini">✨ Gemini</option>
+                    <option value="openrouter">🌐 OpenRouter</option>
+                  </select>
+                </div>
+
+                {/* Model Selector / Input */}
+                <div>
+                  <label style={{ fontSize: "0.72rem", opacity: 0.7, display: "block", marginBottom: "0.2rem" }}>
+                    {llmEngine === "local" ? "Modelo de Ollama instalado" : "Modelo / Clave"}
+                  </label>
+
+                  {llmEngine === "local" ? (
+                    environment?.installedOllamaModels && environment.installedOllamaModels.length > 0 ? (
+                      <select
+                        className="form-select"
+                        value={localLlmModel}
+                        onChange={(e) => {
+                          setLocalLlmModel(e.target.value);
+                          localStorage.setItem("autoshorts_local_llm_model", e.target.value);
+                        }}
+                        style={{ width: "100%", padding: "0.45rem 0.6rem", fontSize: "0.82rem", borderRadius: "6px" }}
+                      >
+                        {environment.installedOllamaModels.map((m) => (
+                          <option key={m} value={m}>
+                            {m} {m.includes("qwen") ? "⭐ (Recomendado)" : ""}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        type="text"
+                        className="form-input"
+                        value={localLlmModel}
+                        onChange={(e) => {
+                          setLocalLlmModel(e.target.value);
+                          localStorage.setItem("autoshorts_local_llm_model", e.target.value);
+                        }}
+                        placeholder="Ej: qwen3.5:9b o qwen2.5:7b"
+                        style={{ width: "100%", padding: "0.45rem 0.6rem", fontSize: "0.82rem", borderRadius: "6px" }}
+                      />
+                    )
+                  ) : (
+                    <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+                      <input
+                        type="text"
+                        className="form-input"
+                        value={
+                          llmEngine === "deepseek" ? (deepseekModel || "deepseek-chat") :
+                          llmEngine === "openrouter" ? (openrouterModel || "anthropic/claude-3.5-sonnet") :
+                          llmEngine === "claude" ? "claude-3-5-sonnet-20241022" :
+                          llmEngine === "openai" ? "gpt-4o" :
+                          llmEngine === "groq" ? "llama-3.3-70b-versatile" : "gemini-1.5-flash"
+                        }
+                        onChange={(e) => {
+                          if (llmEngine === "deepseek") setDeepseekModel(e.target.value);
+                          if (llmEngine === "openrouter") setOpenrouterModel(e.target.value);
+                        }}
+                        readOnly={llmEngine !== "deepseek" && llmEngine !== "openrouter"}
+                        style={{ flex: 1, padding: "0.45rem 0.6rem", fontSize: "0.82rem", borderRadius: "6px" }}
+                      />
+                      <span style={{ fontSize: "0.75rem", whiteSpace: "nowrap" }}>
+                        {((llmEngine === "deepseek" && canUseDeepseek) ||
+                          (llmEngine === "claude" && canUseClaude) ||
+                          (llmEngine === "openai" && canUseOpenai) ||
+                          (llmEngine === "groq" && canUseGroq) ||
+                          (llmEngine === "gemini" && canUseGemini) ||
+                          (llmEngine === "openrouter" && canUseOpenrouter)) ? (
+                          <span style={{ color: "#10b981", fontWeight: 600 }}>● API Key OK</span>
+                        ) : (
+                          <span
+                            onClick={() => setShowSettings(true)}
+                            style={{ color: "#ef4444", cursor: "pointer", textDecoration: "underline", fontWeight: 600 }}
+                            title="Haz clic para abrir ajustes y poner tu API Key"
+                          >
+                            ⚠️ Falta API Key (Configurar)
+                          </span>
+                        )}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <label style={{ fontSize: "0.85rem", fontWeight: 600, display: "block", marginBottom: "0.5rem", padding: "0 0.5rem", color: "var(--foreground)" }}>
+              🎨 Estilo de Subtítulos:
+            </label>
+
             <div className="style-grid">
+              <div
+                className={`style-card ${selectedStyle === "none" ? "selected" : ""}`}
+                onClick={() => setSelectedStyle("none")}
+              >
+                <div className="style-preview-box">
+                  <span style={{ fontSize: "0.75rem", fontWeight: "bold", opacity: 0.85, color: "var(--accent-primary)" }}>[VIDEO LIMPIO 9:16]</span>
+                </div>
+                <div className="style-card-title">Sin Subtítulos (Raw)</div>
+                <div className="style-card-desc">Corte vertical limpio sin texto quemado. Incluye el .SRT aparte para editar en CapCut o Premiere.</div>
+              </div>
+
               <div
                 className={`style-card ${selectedStyle === "modern-box" ? "selected" : ""}`}
                 onClick={() => setSelectedStyle("modern-box")}
@@ -1246,13 +1530,80 @@ function App() {
               </div>
             </div>
 
+            <div style={{ margin: "1rem 0.5rem 0.5rem", padding: "0.6rem 0.8rem", borderRadius: "8px", background: "rgba(255,255,255,0.03)", border: "1px solid var(--border)", display: "flex", alignItems: "center", gap: "0.6rem" }}>
+              <input
+                type="checkbox"
+                id="autoDetectMoments"
+                checked={autoDetectMoments}
+                onChange={(e) => setAutoDetectMoments(e.target.checked)}
+                style={{ cursor: "pointer", width: "16px", height: "16px" }}
+              />
+              <label htmlFor="autoDetectMoments" style={{ fontSize: "0.82rem", cursor: "pointer", opacity: 0.9 }}>
+                ⚡ Buscar momentos automáticamente tras transcribir (desmárcalo para dejar enfriar la GPU entre pasos)
+              </label>
+            </div>
+
             <div className="style-modal-actions">
               <button className="btn-cancel" onClick={() => { setShowStyleModal(false); setMediaPathToImport(null); }}>
                 Cancel
               </button>
-              <button className="btn-confirm" onClick={() => confirmImport(selectedStyle)}>
+              <button className="btn-confirm" onClick={() => confirmImport(selectedStyle, selectedContentType)}>
                 Confirm & Import
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {previewCandidate && detail && (
+        <div className="style-modal-overlay" onClick={() => setPreviewCandidate(null)}>
+          <div className="style-modal" style={{ maxWidth: "680px" }} onClick={(e) => e.stopPropagation()}>
+            <div className="style-modal-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div>
+                <h3>Previsualizar Clip #{previewCandidate.rank}</h3>
+                <p style={{ margin: 0 }}>
+                  {formatTime(previewCandidate.startSec)} - {formatTime(previewCandidate.endSec)} ({Math.round(previewCandidate.endSec - previewCandidate.startSec)}s)
+                </p>
+              </div>
+              <button className="btn-cancel" onClick={() => setPreviewCandidate(null)} style={{ padding: "0.4rem 0.8rem" }}>
+                ✕ Cerrar
+              </button>
+            </div>
+
+            <div style={{ padding: "1rem" }}>
+              <h4 style={{ color: "var(--accent-primary)", marginBottom: "0.75rem", fontSize: "1.05rem" }}>
+                "{previewCandidate.hook}"
+              </h4>
+
+              <div style={{ background: "#000", borderRadius: "8px", overflow: "hidden", maxHeight: "400px", display: "flex", justifyContent: "center" }}>
+                <video
+                  key={`${previewCandidate.id}-${previewCandidate.startSec}`}
+                  src={`http://127.0.0.1:1422/stream?file=${encodeURIComponent(
+                    clipByCandidate.get(previewCandidate.id)?.outputPath || detail.project.sourcePath
+                  )}#t=${clipByCandidate.get(previewCandidate.id)?.outputPath ? 0 : previewCandidate.startSec},${clipByCandidate.get(previewCandidate.id)?.outputPath ? '' : previewCandidate.endSec}`}
+                  controls
+                  autoPlay
+                  style={{ maxHeight: "400px", maxWidth: "100%", borderRadius: "8px" }}
+                />
+              </div>
+
+              <div style={{ marginTop: "1rem", display: "flex", justifyContent: "space-between", alignItems: "center", gap: "1rem" }}>
+                <p style={{ margin: 0, fontSize: "0.85rem", opacity: 0.8, flex: 1 }}>
+                  {previewCandidate.rationale}
+                </p>
+                <button
+                  className="btn-confirm"
+                  onClick={() => {
+                    const id = previewCandidate.id;
+                    setPreviewCandidate(null);
+                    void cutCandidate(id);
+                  }}
+                  disabled={busy !== "idle"}
+                  style={{ whiteSpace: "nowrap" }}
+                >
+                  <Scissors size={15} /> Cortar este Clip
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -1474,61 +1825,95 @@ function Onboarding({
     onComplete();
   };
 
+  const isModelDownloaded = (modelKey: string) => {
+    return (environment?.installedOllamaModels || []).some((m) => {
+      const normM = m.toLowerCase();
+      const normKey = modelKey.toLowerCase();
+      return normM === normKey || normM.startsWith(normKey) || normKey.startsWith(normM);
+    });
+  };
+
+  useEffect(() => {
+    if (environment?.installedOllamaModels && environment.installedOllamaModels.length > 0) {
+      const found = ["qwen2.5:7b", "qwen2.5:3b", "llama3.2"].find((candidate) =>
+        isModelDownloaded(candidate)
+      );
+      if (found) {
+        setSelectedModel(found);
+      }
+    }
+  }, [environment?.installedOllamaModels]);
+
   const startLocalSetup = async () => {
     setError(null);
     setCheckingOllama(true);
     setDownloadProgress(0);
 
-    await refreshEnv();
-
-    let isOllamaRunning = false;
     try {
-      const currentEnv = await invoke<EnvironmentStatus>("environment_status");
-      isOllamaRunning = currentEnv.hasOllama;
-    } catch (e) {
-      // ignore
-    }
-
-    setCheckingOllama(false);
-
-    if (!isOllamaRunning) {
-      setSetupMode("downloading");
-      setDownloadStatus("Ollama not found. Starting automatic installer...");
-
       try {
-        const unlistenInstall = await listen<string>("ollama-install-status", (event) => {
-          setDownloadStatus(event.payload);
-        });
-
-        await invoke("install_ollama");
-        unlistenInstall();
-      } catch (err) {
-        setError("Automatic installation failed: " + String(err) + ". Please install it manually from ollama.com.");
-        setSetupMode("local");
-        return;
+        await refreshEnv();
+      } catch (e) {
+        console.warn("refreshEnv warning:", e);
       }
-    }
 
-    setSetupMode("downloading");
-    setDownloadStatus("Ollama connected. Initiating model download...");
+      let currentEnv: EnvironmentStatus | null = null;
+      try {
+        currentEnv = await invoke<EnvironmentStatus>("environment_status");
+      } catch (e) {
+        console.warn("environment_status warning:", e);
+      }
 
-    try {
-      const unlisten = await listen<{
-        status: string;
-        completed?: number;
-        total?: number;
-        percentage?: number;
-      }>("ollama-pull-progress", (event) => {
-        const payload = event.payload;
-        setDownloadStatus(payload.status);
-        if (payload.percentage !== undefined && payload.percentage !== null) {
-          setDownloadProgress(Math.round(payload.percentage));
+      const isOllamaRunning = currentEnv?.hasOllama ?? false;
+
+      if (!isOllamaRunning) {
+        setSetupMode("downloading");
+        setDownloadStatus("Ollama no detectado. Iniciando...");
+
+        try {
+          const unlistenInstall = await listen<string>("ollama-install-status", (event) => {
+            setDownloadStatus(event.payload);
+          });
+
+          await invoke("install_ollama");
+          unlistenInstall();
+        } catch (err) {
+          setError("No se pudo iniciar Ollama automáticamente: " + String(err) + ". Asegúrate de abrir la app de Ollama en tu PC.");
+          setSetupMode("local");
+          return;
         }
+      }
+
+      // Check if selected model is ALREADY downloaded in Ollama!
+      const installed = currentEnv?.installedOllamaModels || [];
+      const alreadyDownloaded = installed.some((m) => {
+        const normM = m.toLowerCase();
+        const normSelected = selectedModel.toLowerCase();
+        return normM === normSelected || normM.startsWith(normSelected) || normSelected.startsWith(normM);
       });
 
-      await invoke("pull_ollama_model", { modelName: selectedModel });
+      if (!alreadyDownloaded) {
+        setSetupMode("downloading");
+        setDownloadStatus(`Descargando modelo ${selectedModel} en Ollama...`);
 
-      unlisten();
+        const unlisten = await listen<{
+          status: string;
+          completed?: number;
+          total?: number;
+          percentage?: number;
+        }>("ollama-pull-progress", (event) => {
+          const payload = event.payload;
+          setDownloadStatus(payload.status);
+          if (payload.percentage !== undefined && payload.percentage !== null) {
+            setDownloadProgress(Math.round(payload.percentage));
+          }
+        });
+
+        try {
+          await invoke("pull_ollama_model", { modelName: selectedModel });
+        } finally {
+          unlisten();
+        }
+      }
 
       setTranscriptionEngine("local");
       setLlmEngine("local");
@@ -1543,6 +1928,8 @@ function Onboarding({
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       setSetupMode("local");
+    } finally {
+      setCheckingOllama(false);
     }
   };
 
@@ -1631,6 +2018,9 @@ function Onboarding({
                         <span className="model-size">1.9 GB</span>
                       </div>
                       <p>Requires 8GB+ RAM. Recommended for standard setups. Fast and efficient.</p>
+                      {isModelDownloaded("llama3.2") && (
+                        <div style={{ color: "#4ade80", fontSize: "12px", marginTop: "4px", fontWeight: 600 }}>✓ Ya instalado en Ollama</div>
+                      )}
                     </div>
 
                     <div
@@ -1642,6 +2032,9 @@ function Onboarding({
                         <span className="model-size">2.0 GB</span>
                       </div>
                       <p>Requires 8GB+ RAM. Excellent coding and logical reasoning abilities.</p>
+                      {isModelDownloaded("qwen2.5:3b") && (
+                        <div style={{ color: "#4ade80", fontSize: "12px", marginTop: "4px", fontWeight: 600 }}>✓ Ya instalado en Ollama</div>
+                      )}
                     </div>
 
                     <div
@@ -1653,6 +2046,9 @@ function Onboarding({
                         <span className="model-size">4.7 GB</span>
                       </div>
                       <p>Requires 16GB+ RAM. High-quality moment detection and hook precision.</p>
+                      {isModelDownloaded("qwen2.5:7b") && (
+                        <div style={{ color: "#4ade80", fontSize: "12px", marginTop: "4px", fontWeight: 600 }}>✓ Ya instalado en Ollama</div>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -1668,7 +2064,11 @@ function Onboarding({
                 disabled={checkingOllama}
               >
                 {checkingOllama ? <Loader2 className="spin" size={18} /> : null}
-                {checkingOllama ? "Checking Ollama..." : "Download & Start Setup"}
+                {checkingOllama
+                  ? "Checking Ollama..."
+                  : isModelDownloaded(selectedModel)
+                    ? `Usar ${selectedModel} y Continuar`
+                    : "Download & Start Setup"}
               </button>
             </div>
           </div>
