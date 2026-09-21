@@ -1011,14 +1011,14 @@ def refine_transcript_with_llm(
     model_name: str = "qwen2.5:7b",
     provider: str = "local",
     api_key: Optional[str] = None,
-    chunk_size: int = 35,
+    chunk_size: int = 65,
     on_progress: Optional[Callable[[str, int, int], None]] = None,
     is_cancelled: Optional[Callable[[], bool]] = None
 ) -> List[Dict[str, Any]]:
     """
     Refines transcription spelling, grammar, punctuation, and gaming slang using an LLM (Ollama or Cloud).
     Preserves exact timestamps (start, end) for every segment without altering speech synchronization.
-    Supports both thinking models (Chain-of-Thought) and standard fast models with 0% remaining VRAM.
+    Runs in direct ultra-fast mode (think=False) to prevent slow generation or internal reasoning monologues.
     """
     if not segments:
         return []
@@ -1027,11 +1027,7 @@ def refine_transcript_with_llm(
     total_segments = len(refined_segments)
     num_chunks = (total_segments + chunk_size - 1) // chunk_size
 
-    has_thinking = False
-    if provider in ["local", "ollama"]:
-        has_thinking = detect_model_thinking_capability(model_name)
-
-    print(f"Perfeccionando transcripción con IA ({provider}:{model_name} | Thinking: {has_thinking}). Total bloques: {num_chunks}...")
+    print(f"Perfeccionando transcripción con IA ({provider}:{model_name} | Modo directo sin thinking). Total bloques: {num_chunks}...")
 
     try:
         for chunk_idx in range(num_chunks):
@@ -1055,15 +1051,13 @@ def refine_transcript_with_llm(
             batch_text = "\n".join(lines)
 
             system_prompt = (
-                "Eres un corrector de estilo y ortografía profesional especializado en transcripciones de streams de gaming, podcasts y entretenimiento en Español.\n"
-                "Tu objetivo es corregir errores fonéticos del reconocimiento de voz (ASR), tildes, signos de puntuación y términos de videojuegos (ej. 'ruxear' -> 'rushear', 'cluch' -> 'clutch', 'heshon' -> 'headshot', 'lú' -> 'loot', 'dropeame una arma' -> 'dropeame un arma').\n"
-                "REGLAS OBLIGATORIAS:\n"
-                "1. Conserva estrictamente el formato de líneas con su identificador: [ID] Texto corregido.\n"
-                "2. NO inventes contenido, NO unas líneas ni separes líneas. Debe haber exactamente el mismo número de elementos que en la entrada.\n"
-                "3. Mantén el tono natural y coloquial del streamer (no lo cambies a lenguaje formal)."
+                "Eres un corrector ortográfico ultrarrápido y preciso para transcripciones de streams y videojuegos en Español.\n"
+                "Corrige únicamente errores fonéticos del reconocimiento de voz (ASR), tildes y términos de gaming (ej. 'ruxear' -> 'rushear', 'cluch' -> 'clutch', 'heshon' -> 'headshot', 'lú' -> 'loot', 'dropeame una arma' -> 'dropeame un arma').\n"
+                "REGLAS ESTRICTAS:\n"
+                "1. Responde DIRECTAMENTE con las líneas corregidas en formato: [ID] Texto corregido.\n"
+                "2. PROHIBIDO pensar en voz alta, PROHIBIDO incluir explicaciones, notas, dudas, flechas (->) o comentarios en inglés.\n"
+                "3. Conserva exactamente el mismo número de líneas y sus identificadores numéricos."
             )
-            if has_thinking:
-                system_prompt += "\n4. En tu pensamiento (thinking), identifica los términos mal reconocidos y las faltas ortográficas. Luego produce estrictamente las líneas corregidas con su [ID]."
 
             user_prompt = f"Corrige las siguientes {len(batch)} líneas de transcripción manteniendo el formato [ID] Texto:\n\n{batch_text}"
 
@@ -1077,9 +1071,10 @@ def refine_transcript_with_llm(
                         {"role": "user", "content": user_prompt}
                     ],
                     "stream": False,
+                    "think": False,
                     "options": {"temperature": 0.1, "num_predict": 2048}
                 }
-                resp = requests.post(url, json=payload, timeout=240)
+                resp = requests.post(url, json=payload, timeout=120)
                 if resp.ok:
                     data = resp.json()
                     msg_obj = data.get("message", {})
@@ -1108,6 +1103,16 @@ def refine_transcript_with_llm(
                 if m:
                     line_id = int(m.group(1))
                     text_corr = m.group(2).strip().strip("`\"'")
+                    # If model outputs: "original" -> "corregido" or original => corregido
+                    if "->" in text_corr:
+                        text_corr = text_corr.split("->")[-1].strip().strip('`"\'')
+                    elif "=>" in text_corr:
+                        text_corr = text_corr.split("=>")[-1].strip().strip('`"\'')
+                    # Strip trailing parenthetical monologues / thoughts like (Wait, ... or (Maybe ...
+                    text_corr = re.sub(r"\s*\((?:wait|maybe|actually|let's|note|nota|context).*?\)\s*$", "", text_corr, flags=re.IGNORECASE).strip()
+                    text_corr = re.sub(r"\s*\((?:wait|maybe|actually|let's|note|nota|context).*$", "", text_corr, flags=re.IGNORECASE).strip()
+                    if len(text_corr) > 10 and "(" in text_corr and text_corr.endswith(")"):
+                        text_corr = re.sub(r"\s*\([^)]*\)$", "", text_corr).strip()
                     if text_corr:
                         corrected_dict[line_id] = text_corr
 

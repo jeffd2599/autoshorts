@@ -1114,10 +1114,15 @@ button:disabled {
   justify-content: center;
   z-index: 1000;
   animation: fadeIn 0.2s ease-out;
+  padding: 16px;
+  overflow-y: auto;
 }
 
 .style-modal {
-  width: 580px;
+  width: 620px;
+  max-width: 95vw;
+  max-height: 88vh;
+  overflow-y: auto;
   background: var(--bg-sidebar);
   border: 1px solid var(--border-color);
   border-radius: 16px;
@@ -1126,7 +1131,7 @@ button:disabled {
   animation: scaleIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 16px;
 }
 
 .style-modal-header h3 {
@@ -1147,7 +1152,7 @@ button:disabled {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 12px;
-  max-height: 380px;
+  max-height: 220px;
   overflow-y: auto;
   padding-right: 4px;
 }
@@ -1291,6 +1296,12 @@ button:disabled {
   justify-content: flex-end;
   gap: 10px;
   margin-top: 8px;
+  position: sticky;
+  bottom: -24px;
+  background: var(--bg-sidebar);
+  padding: 14px 0 4px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  z-index: 10;
 }
 
 .style-modal-actions button {
