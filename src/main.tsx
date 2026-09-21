@@ -132,6 +132,8 @@ function App() {
   const [previewCandidate, setPreviewCandidate] = useState<Candidate | null>(null);
   const [customOutputDir, setCustomOutputDir] = useState<string>(() => localStorage.getItem("autoshorts_output_dir") || "");
   const [autoDetectMoments, setAutoDetectMoments] = useState<boolean>(false);
+  const [refineTranscriptWithLlm, setRefineTranscriptWithLlm] = useState<boolean>(true);
+  const [isRefiningTranscript, setIsRefiningTranscript] = useState<boolean>(false);
 
   const [showSummaryModal, setShowSummaryModal] = useState(false);
   const [summaryTargetMinutes, setSummaryTargetMinutes] = useState<number>(8);
@@ -564,10 +566,26 @@ function App() {
     // 1. Transcription
     try {
       setBusy("transcribe");
+      const activeLlmKey =
+        llmEngine === "claude" ? anthropicKey.trim() :
+          llmEngine === "deepseek" ? deepseekKey.trim() :
+            llmEngine === "gemini" ? geminiKey.trim() :
+              llmEngine === "openai" ? openaiKey.trim() :
+                llmEngine === "openrouter" ? openrouterKey.trim() :
+                  llmEngine === "groq" ? groqKey.trim() : "";
+      const activeLlmModel =
+        llmEngine === "local" ? localLlmModel.trim() :
+          llmEngine === "deepseek" ? (deepseekModel.trim() || null) :
+            llmEngine === "openrouter" ? (openrouterModel.trim() || null) : null;
+
       await invoke<Transcript>("transcribe_project", {
         projectId,
         provider: transcriptionEngine,
         apiKey: transcriptionEngine === "deepgram" ? (deepgramKey.trim() || null) : null,
+        refineWithLlm: refineTranscriptWithLlm,
+        llmEngine,
+        llmModel: activeLlmModel,
+        llmApiKey: activeLlmKey || null,
       });
       await refresh(projectId);
     } catch (err) {
@@ -661,13 +679,61 @@ function App() {
   async function transcribe() {
     if (!detail) return;
     await run("transcribe", async () => {
+      const activeLlmKey =
+        llmEngine === "claude" ? anthropicKey.trim() :
+          llmEngine === "deepseek" ? deepseekKey.trim() :
+            llmEngine === "gemini" ? geminiKey.trim() :
+              llmEngine === "openai" ? openaiKey.trim() :
+                llmEngine === "openrouter" ? openrouterKey.trim() :
+                  llmEngine === "groq" ? groqKey.trim() : "";
+      const activeLlmModel =
+        llmEngine === "local" ? localLlmModel.trim() :
+          llmEngine === "deepseek" ? (deepseekModel.trim() || null) :
+            llmEngine === "openrouter" ? (openrouterModel.trim() || null) : null;
+
       await invoke<Transcript>("transcribe_project", {
         projectId: detail.project.id,
         provider: transcriptionEngine,
         apiKey: transcriptionEngine === "deepgram" ? (deepgramKey.trim() || null) : null,
+        refineWithLlm: refineTranscriptWithLlm,
+        llmEngine,
+        llmModel: activeLlmModel,
+        llmApiKey: activeLlmKey || null,
       });
       await refresh(detail.project.id);
     });
+  }
+
+  async function refineTranscript() {
+    if (!detail?.transcript) return;
+    try {
+      setIsRefiningTranscript(true);
+      setError(null);
+      const activeLlmKey =
+        llmEngine === "claude" ? anthropicKey.trim() :
+          llmEngine === "deepseek" ? deepseekKey.trim() :
+            llmEngine === "gemini" ? geminiKey.trim() :
+              llmEngine === "openai" ? openaiKey.trim() :
+                llmEngine === "openrouter" ? openrouterKey.trim() :
+                  llmEngine === "groq" ? groqKey.trim() : "";
+      const activeLlmModel =
+        llmEngine === "local" ? localLlmModel.trim() :
+          llmEngine === "deepseek" ? (deepseekModel.trim() || null) :
+            llmEngine === "openrouter" ? (openrouterModel.trim() || null) : null;
+
+      await invoke("refine_project_transcript", {
+        projectId: detail.project.id,
+        provider: llmEngine,
+        modelName: activeLlmModel,
+        apiKey: activeLlmKey || null,
+      });
+      await refresh(detail.project.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsRefiningTranscript(false);
+      setCandidateProgress(null);
+    }
   }
 
   const copyDescription = (id: string, text: string) => {
@@ -1340,6 +1406,19 @@ function App() {
                       <p>{transcript ? `${transcript.segments.length} segments (haz clic para editar texto)` : "No transcript"}</p>
                     </div>
                     <div className="button-pair">
+                      {detail?.transcript && (
+                        <button
+                          type="button"
+                          className="icon-button"
+                          style={{ fontSize: "0.78rem", padding: "0.35rem 0.65rem", display: "inline-flex", alignItems: "center", gap: "4px" }}
+                          onClick={refineTranscript}
+                          disabled={isRefiningTranscript || busy !== "idle"}
+                          title="Corregir ortografía, tildes y jerga gamer preservando los timestamps"
+                        >
+                          {isRefiningTranscript ? <Loader2 className="spin" size={13} /> : <Sparkles size={13} />}
+                          <span>{isRefiningTranscript ? "Puliendo..." : "Pulir con IA"}</span>
+                        </button>
+                      )}
                       <button onClick={transcribe} disabled={busy !== "idle" || !canTranscribe}>
                         {busy === "transcribe" ? <Loader2 className="spin" size={16} /> : <AudioLines size={16} />}
                         Transcribe
@@ -1990,7 +2069,7 @@ function App() {
               </div>
             </div>
 
-            <div style={{ margin: "1rem 0.5rem 0.5rem", padding: "0.6rem 0.8rem", borderRadius: "8px", background: "rgba(255,255,255,0.03)", border: "1px solid var(--border)", display: "flex", alignItems: "center", gap: "0.6rem" }}>
+            <div style={{ margin: "1rem 0.5rem 0.3rem", padding: "0.6rem 0.8rem", borderRadius: "8px", background: "rgba(255,255,255,0.03)", border: "1px solid var(--border)", display: "flex", alignItems: "center", gap: "0.6rem" }}>
               <input
                 type="checkbox"
                 id="autoDetectMoments"
@@ -1999,7 +2078,20 @@ function App() {
                 style={{ cursor: "pointer", width: "16px", height: "16px" }}
               />
               <label htmlFor="autoDetectMoments" style={{ fontSize: "0.82rem", cursor: "pointer", opacity: 0.9 }}>
-                ⚡ Buscar momentos automáticamente tras transcribir (desmárcalo para dejar enfriar la GPU entre pasos)
+                Buscar momentos automáticamente tras transcribir (desmárcalo para dejar enfriar la GPU entre pasos)
+              </label>
+            </div>
+
+            <div style={{ margin: "0.3rem 0.5rem 0.5rem", padding: "0.6rem 0.8rem", borderRadius: "8px", background: "rgba(255,255,255,0.03)", border: "1px solid var(--border)", display: "flex", alignItems: "center", gap: "0.6rem" }}>
+              <input
+                type="checkbox"
+                id="refineTranscriptWithLlm"
+                checked={refineTranscriptWithLlm}
+                onChange={(e) => setRefineTranscriptWithLlm(e.target.checked)}
+                style={{ cursor: "pointer", width: "16px", height: "16px" }}
+              />
+              <label htmlFor="refineTranscriptWithLlm" style={{ fontSize: "0.82rem", cursor: "pointer", opacity: 0.9 }}>
+                Perfeccionar ortografía y jerga con IA (Ollama / LLM ASR Refiner)
               </label>
             </div>
 

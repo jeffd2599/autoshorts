@@ -1004,3 +1004,124 @@ Responde EXCLUSIVAMENTE con este objeto JSON:
         "thumbnail_ideas": ["MOMENTOS ÉPICOS", "JUGADAS DEL STREAM", "RESUMEN FINAL"],
         "ordered_clip_ids": chosen
     }
+
+
+def refine_transcript_with_llm(
+    segments: List[Dict[str, Any]],
+    model_name: str = "qwen2.5:7b",
+    provider: str = "local",
+    api_key: Optional[str] = None,
+    chunk_size: int = 35,
+    on_progress: Optional[Callable[[str, int, int], None]] = None,
+    is_cancelled: Optional[Callable[[], bool]] = None
+) -> List[Dict[str, Any]]:
+    """
+    Refines transcription spelling, grammar, punctuation, and gaming slang using an LLM (Ollama or Cloud).
+    Preserves exact timestamps (start, end) for every segment without altering speech synchronization.
+    Supports both thinking models (Chain-of-Thought) and standard fast models with 0% remaining VRAM.
+    """
+    if not segments:
+        return []
+
+    refined_segments = [dict(s) for s in segments]
+    total_segments = len(refined_segments)
+    num_chunks = (total_segments + chunk_size - 1) // chunk_size
+
+    has_thinking = False
+    if provider in ["local", "ollama"]:
+        has_thinking = detect_model_thinking_capability(model_name)
+
+    print(f"Perfeccionando transcripción con IA ({provider}:{model_name} | Thinking: {has_thinking}). Total bloques: {num_chunks}...")
+
+    try:
+        for chunk_idx in range(num_chunks):
+            if is_cancelled and is_cancelled():
+                print("🛑 Perfeccionamiento de transcripción cancelado por el usuario.")
+                break
+
+            start_idx = chunk_idx * chunk_size
+            end_idx = min(start_idx + chunk_size, total_segments)
+            batch = refined_segments[start_idx:end_idx]
+
+            msg = f"Puliendo ortografía con IA: bloque {chunk_idx + 1}/{num_chunks}..."
+            if on_progress:
+                on_progress(msg, chunk_idx + 1, num_chunks)
+            print(msg)
+
+            lines = []
+            for i, seg in enumerate(batch, start=1):
+                clean_t = seg.get("text", "").strip()
+                lines.append(f"[{i}] {clean_t}")
+            batch_text = "\n".join(lines)
+
+            system_prompt = (
+                "Eres un corrector de estilo y ortografía profesional especializado en transcripciones de streams de gaming, podcasts y entretenimiento en Español.\n"
+                "Tu objetivo es corregir errores fonéticos del reconocimiento de voz (ASR), tildes, signos de puntuación y términos de videojuegos (ej. 'ruxear' -> 'rushear', 'cluch' -> 'clutch', 'heshon' -> 'headshot', 'lú' -> 'loot', 'dropeame una arma' -> 'dropeame un arma').\n"
+                "REGLAS OBLIGATORIAS:\n"
+                "1. Conserva estrictamente el formato de líneas con su identificador: [ID] Texto corregido.\n"
+                "2. NO inventes contenido, NO unas líneas ni separes líneas. Debe haber exactamente el mismo número de elementos que en la entrada.\n"
+                "3. Mantén el tono natural y coloquial del streamer (no lo cambies a lenguaje formal)."
+            )
+            if has_thinking:
+                system_prompt += "\n4. En tu pensamiento (thinking), identifica los términos mal reconocidos y las faltas ortográficas. Luego produce estrictamente las líneas corregidas con su [ID]."
+
+            user_prompt = f"Corrige las siguientes {len(batch)} líneas de transcripción manteniendo el formato [ID] Texto:\n\n{batch_text}"
+
+            raw_resp = ""
+            if provider in ["local", "ollama"]:
+                url = "http://127.0.0.1:11434/api/chat"
+                payload = {
+                    "model": model_name,
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt}
+                    ],
+                    "stream": False,
+                    "options": {"temperature": 0.1, "num_predict": 2048}
+                }
+                resp = requests.post(url, json=payload, timeout=240)
+                if resp.ok:
+                    data = resp.json()
+                    msg_obj = data.get("message", {})
+                    content = msg_obj.get("content", "")
+                    thinking = msg_obj.get("thinking", "")
+                    if "<think>" in content:
+                        content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
+                    if "<think>" in content:
+                        content = re.sub(r"<think>.*$", "", content, flags=re.DOTALL).strip()
+                    raw_resp = content or thinking
+            else:
+                raw_resp = call_cloud_llm(
+                    provider=provider,
+                    api_key=api_key or "",
+                    prompt=user_prompt,
+                    model_name=model_name,
+                    content_type="general",
+                    target_duration="60s"
+                )
+
+            # Parse lines [i] text
+            corrected_dict = {}
+            for line in raw_resp.splitlines():
+                line_str = line.strip()
+                m = re.match(r"^[\*\-\s]*\[?(\d+)\]?[\s:\-–—\.]+(.*)$", line_str)
+                if m:
+                    line_id = int(m.group(1))
+                    text_corr = m.group(2).strip().strip("`\"'")
+                    if text_corr:
+                        corrected_dict[line_id] = text_corr
+
+            # Apply corrections to the batch
+            for i, seg in enumerate(batch, start=1):
+                if i in corrected_dict:
+                    new_text = corrected_dict[i]
+                    if len(new_text) >= 1:
+                        seg["text"] = new_text
+
+    except Exception as e:
+        print(f"Nota en perfeccionamiento de transcripción con IA: {e}")
+    finally:
+        if provider in ["local", "ollama"]:
+            unload_all_ollama_models(model_name)
+
+    return refined_segments

@@ -21,12 +21,37 @@ from .media import (
     render_compilation_video,
 )
 from .transcription import transcribe_local, transcribe_deepgram, whisper_available
-from .llm import detect_candidates_pipeline, unload_all_ollama_models, plan_summary_narrative
+from .llm import detect_candidates_pipeline, unload_all_ollama_models, plan_summary_narrative, refine_transcript_with_llm
+
+
+def rebuild_words_from_segments(segments: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    words = []
+    for seg in segments:
+        text = seg.get("text", "").strip()
+        if not text:
+            continue
+        seg_words = text.split()
+        if not seg_words:
+            continue
+        start = float(seg.get("start", 0.0))
+        end = float(seg.get("end", start + 1.0))
+        seg_duration = max(0.05, end - start)
+        step = seg_duration / len(seg_words)
+        for idx, w in enumerate(seg_words):
+            w_start = start + idx * step
+            w_end = w_start + step
+            words.append({
+                "text": w,
+                "start": round(w_start, 2),
+                "end": round(w_end, 2),
+                "speaker": seg.get("speaker", "S1")
+            })
+    return words
 
 
 class Api:
-    def __init__(self, data_dir: str):
-        self.data_dir = Path(data_dir)
+    def __init__(self, data_dir: Optional[str] = None):
+        self.data_dir = Path(data_dir) if data_dir else Path("data")
         os.makedirs(self.data_dir, exist_ok=True)
         self.db = Database(str(self.data_dir / "autoshorts.db"))
         self._window = None
@@ -184,10 +209,18 @@ class Api:
             project_id = args.get("projectId")
             provider = args.get("provider", "local")
             api_key = args.get("apiKey")
+            refine_with_llm = bool(args.get("refineWithLlm", False))
+            llm_engine = args.get("llmEngine", "local")
+            llm_model = args.get("llmModel")
+            llm_api_key = args.get("llmApiKey")
         else:
             project_id = args
             provider = "local"
             api_key = None
+            refine_with_llm = False
+            llm_engine = "local"
+            llm_model = None
+            llm_api_key = None
 
         project = self.db.get_project(project_id)
         self.db.update_project_status(project_id, "transcribing")
@@ -203,6 +236,26 @@ class Api:
         else:
             transcript = transcribe_local(str(audio_path), model_name="base")
 
+        if refine_with_llm and transcript.get("segments"):
+            try:
+                def on_refine_progress(msg, cur, tot):
+                    if self._window:
+                        self._window.evaluate_js(f"window.__emitEvent && window.__emitEvent('candidate-progress', {{ message: '{msg}', current: {cur}, total: {tot} }})")
+
+                print(f"Perfeccionando transcripción con IA ({llm_engine}:{llm_model})...")
+                refined_segments = refine_transcript_with_llm(
+                    transcript.get("segments", []),
+                    model_name=llm_model or "qwen2.5:7b",
+                    provider=llm_engine or "local",
+                    api_key=llm_api_key,
+                    on_progress=on_refine_progress,
+                    is_cancelled=lambda: self._cancel_candidates_flag
+                )
+                transcript["segments"] = refined_segments
+                transcript["words"] = rebuild_words_from_segments(refined_segments)
+            except Exception as e:
+                print(f"Nota en perfeccionamiento automático: {e}")
+
         raw_json = json.dumps(transcript, ensure_ascii=False, indent=2)
         saved = self.db.save_transcript(
             project_id=project_id,
@@ -211,6 +264,47 @@ class Api:
             language=transcript.get("language", "es")
         )
         self.db.update_project_status(project_id, "analyzing", transcript.get("duration"))
+        return saved
+
+    def refine_project_transcript(self, args: Any) -> Dict[str, Any]:
+        project_id = args.get("projectId") if isinstance(args, dict) else args
+        llm_engine = args.get("provider", "local") if isinstance(args, dict) else "local"
+        llm_model = args.get("modelName") if isinstance(args, dict) else None
+        llm_api_key = args.get("apiKey") if isinstance(args, dict) else None
+
+        detail = self.db.get_project_detail(project_id)
+        transcript_record = detail.get("transcript")
+        if not transcript_record:
+            raise ValueError("El proyecto aún no tiene transcripción generada.")
+
+        parsed_transcript = json.loads(transcript_record["rawJson"])
+        segments = parsed_transcript.get("segments", [])
+        if not segments:
+            raise ValueError("La transcripción no contiene segmentos de voz.")
+
+        self._cancel_candidates_flag = False
+        def on_refine_progress(msg, cur, tot):
+            if self._window:
+                self._window.evaluate_js(f"window.__emitEvent && window.__emitEvent('candidate-progress', {{ message: '{msg}', current: {cur}, total: {tot} }})")
+
+        refined_segments = refine_transcript_with_llm(
+            segments,
+            model_name=llm_model or "qwen2.5:7b",
+            provider=llm_engine,
+            api_key=llm_api_key,
+            on_progress=on_refine_progress,
+            is_cancelled=lambda: self._cancel_candidates_flag
+        )
+        parsed_transcript["segments"] = refined_segments
+        parsed_transcript["words"] = rebuild_words_from_segments(refined_segments)
+
+        raw_json = json.dumps(parsed_transcript, ensure_ascii=False, indent=2)
+        saved = self.db.save_transcript(
+            project_id=project_id,
+            engine=transcript_record.get("engine", "local"),
+            raw_json=raw_json,
+            language=parsed_transcript.get("language", "es")
+        )
         return saved
 
     def save_demo_transcript(self, args: Any) -> Dict[str, Any]:

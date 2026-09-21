@@ -24,7 +24,21 @@ def transcribe_local(audio_path: str, model_name: str = "base") -> Dict[str, Any
     model = whisper.load_model(model_name, device=device)
 
     print(f"Transcribing audio '{audio_path}' in Spanish...")
-    result = model.transcribe(audio_path, word_timestamps=True, language="es")
+    gamer_initial_prompt = (
+        "clutch, headshot, rushear, lootear, drop, respawn, hitbox, nerfeo, buff, "
+        "streamer, lag, ping, push, dault, noob, ace, pentakill, clip, directo, "
+        "discord, twitch, youtube, shorts, partida, gameplay, sniper, kill"
+    )
+    result = model.transcribe(
+        audio_path,
+        word_timestamps=True,
+        language="es",
+        initial_prompt=gamer_initial_prompt
+    )
+
+    del model
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
 
     segments_raw = result.get("segments", [])
     duration = segments_raw[-1]["end"] if segments_raw else 0.0
