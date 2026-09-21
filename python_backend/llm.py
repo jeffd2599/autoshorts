@@ -39,7 +39,7 @@ DURATION_SPECS = {
 }
 
 
-def build_system_prompt(content_type: str = "gaming", target_duration: str = "60s") -> str:
+def build_system_prompt(content_type: str = "gaming", target_duration: str = "60s", has_thinking: bool = False) -> str:
     dur_info = DURATION_SPECS.get(target_duration, DURATION_SPECS["60s"])
     dur_rule = dur_info["instruction"]
 
@@ -63,6 +63,16 @@ Tu misión es identificar los fragmentos más entretenidos, dinámicos y compart
     }
     focus_text = focus_dict.get(content_type, focus_dict["gaming"])
 
+    thinking_guide = ""
+    if has_thinking:
+        thinking_guide = f"""
+PROCESO DE RAZONAMIENTO (THINKING):
+- En tu razonamiento interno (thinking), analiza la transcripción línea por línea.
+- Calcula la duración exacta de cada candidato restando (end - start).
+- Verifica estrictamente que cada momento cumpla con la duración objetivo solicitada ({dur_rule}). Si el gancho inicial dura poco, revisa los segmentos contiguos y extiende 'end' hasta completar la jugada, anécdota o remate cómico.
+- Descarta partes de charla vacía o silencios sin acción.
+- Tras razonar detenidamente, produce estrictamente el objeto JSON en el formato final requerido, sin texto fuera del JSON."""
+
     return f"""{focus_text}
 
 REGLAS DE DURACIÓN Y TIMESTAMPS:
@@ -71,7 +81,7 @@ REGLAS DE DURACIÓN Y TIMESTAMPS:
 - SILENCIO Y ACCIÓN: En streams de gaming, a veces el streamer se concentra y no habla mientras dispara o juega una ronda tensa. Si la transcripción incluye notas como [ACCIÓN DE JUEGO / DISPAROS / ALTA CONCENTRACIÓN] o si hay una jugada tensa con poco diálogo, selecciónala como un clip épico de gameplay.
 - 'hook': Título gancho llamativo, directo y viral (en Español).
 - 'rationale': Explicación breve de por qué este momento es entretenido o viral.
-- 'description': Descripción optimizada para redes sociales (TikTok, Reels, Shorts, X) de 1 a 2 frases vendedoras invitando a interactuar, con 3 a 4 hashtags relevantes (ej. #gaming #clipviral).
+- 'description': Descripción optimizada para redes sociales (TikTok, Reels, Shorts, X) de 1 a 2 frases vendedoras invitando a interactuar, con 3 a 4 hashtags relevantes (ej. #gaming #clipviral).{thinking_guide}
 
 Devuelve entre 1 y 5 candidatos en formato JSON exactamente con esta estructura:
 {{"candidates":[{{"start":0.0,"end":0.0,"score":0.0,"hook":"...","rationale":"...","description":"..."}}]}}
@@ -148,20 +158,45 @@ def parse_candidate_json(
     target_duration: str = "60s"
 ) -> List[Dict[str, Any]]:
     clean = text.strip()
+    # Strip any thinking tags if present in text
+    clean = re.sub(r"<think>.*?</think>", "", clean, flags=re.DOTALL).strip()
     clean = re.sub(r"^```json\s*", "", clean)
     clean = re.sub(r"^```\s*", "", clean)
-    clean = re.sub(r"\s*```$", "", clean)
 
-    # Find JSON object
-    match = re.search(r"(\{.*\})", clean, re.DOTALL)
-    if match:
-        clean = match.group(1)
+    val = None
+    # 1. Try raw_decode from first '{' (safely ignores any trailing CoT thinking or text)
+    start_brace = clean.find('{')
+    if start_brace != -1:
+        try:
+            val, _ = json.JSONDecoder().raw_decode(clean[start_brace:])
+        except Exception:
+            pass
 
-    try:
-        val = json.loads(clean)
-    except Exception as e:
-        print(f"Error parsing JSON: {e}. Raw text: {text[:200]}")
-        return []
+    # 2. Try raw_decode from first '['
+    if val is None:
+        start_bracket = clean.find('[')
+        if start_bracket != -1:
+            try:
+                val, _ = json.JSONDecoder().raw_decode(clean[start_bracket:])
+            except Exception:
+                pass
+
+    # 3. Fallback regex
+    if val is None:
+        match = re.search(r"(\{.*\})", clean, re.DOTALL)
+        if match:
+            try:
+                val = json.loads(match.group(1))
+            except Exception:
+                pass
+
+    # 4. Final attempt
+    if val is None:
+        try:
+            val = json.loads(clean)
+        except Exception as e:
+            print(f"Error parsing JSON: {e}. Raw text: {text[:200]}")
+            return []
 
     candidates_arr = None
     if isinstance(val, list):
@@ -252,56 +287,105 @@ def partition_segments(
     return chunks
 
 
+_THINKING_CACHE: Dict[str, bool] = {}
+
+
+def detect_model_thinking_capability(model_name: str) -> bool:
+    """
+    Detects whether an Ollama model supports native thinking/reasoning (Chain of Thought),
+    inspecting /api/show capabilities, template, details, or model family.
+    Works for any model (gemma4, qwen3.5, deepseek-r1, qwq, etc.) even when 'think'
+    is not in the model name.
+    """
+    if not model_name:
+        return False
+    if model_name in _THINKING_CACHE:
+        return _THINKING_CACHE[model_name]
+
+    try:
+        resp = requests.post("http://127.0.0.1:11434/api/show", json={"name": model_name}, timeout=3)
+        if resp.ok:
+            data = resp.json()
+            # 1. Official capabilities list in Ollama v0.5+
+            caps = [str(c).lower() for c in data.get("capabilities", [])]
+            if "thinking" in caps:
+                _THINKING_CACHE[model_name] = True
+                return True
+
+            # 2. Template inspection
+            template = data.get("template", "").lower()
+            if "<think>" in template or "thinking" in template:
+                _THINKING_CACHE[model_name] = True
+                return True
+
+            # 3. Families and details
+            details = data.get("details", {})
+            family = str(details.get("family", "")).lower()
+            families = [str(f).lower() for f in details.get("families", [])]
+            if any(f in ["deepseek2", "deepseek3", "qwen35", "gemma4"] for f in [family] + families):
+                _THINKING_CACHE[model_name] = True
+                return True
+    except Exception as e:
+        print(f"Nota al comprobar capacidades de thinking para {model_name}: {e}")
+
+    # 4. Fallback: keywords in model name
+    lower_name = model_name.lower()
+    has_think = any(kw in lower_name for kw in ["r1", "qwq", "think", "reason", "cot"])
+    _THINKING_CACHE[model_name] = has_think
+    return has_think
+
+
 def call_ollama(
     prompt: str,
     model_name: str = "qwen2.5:7b",
     content_type: str = "gaming",
     target_duration: str = "60s"
 ) -> str:
-    system_prompt = build_system_prompt(content_type, target_duration)
+    has_thinking = detect_model_thinking_capability(model_name)
+    system_prompt = build_system_prompt(content_type, target_duration, has_thinking=has_thinking)
     url = "http://127.0.0.1:11434/api/chat"
-    payload = {
+
+    payload: Dict[str, Any] = {
         "model": model_name,
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": prompt}
         ],
-        "think": False,
         "stream": False,
         "options": {
             "temperature": 0.2,
             "num_ctx": 8192
-        },
-        "format": {
-            "type": "object",
-            "properties": {
-                "candidates": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "start": {"type": "number"},
-                            "end": {"type": "number"},
-                            "score": {"type": "number"},
-                            "hook": {"type": "string"},
-                            "rationale": {"type": "string"},
-                            "description": {"type": "string"}
-                        },
-                        "required": ["start", "end", "score", "hook", "rationale", "description"]
-                    }
-                }
-            },
-            "required": ["candidates"]
         }
     }
+
+    # For non-thinking models, format: json assists structured output without token interference
+    if not has_thinking:
+        payload["format"] = "json"
+
     resp = requests.post(url, json=payload, timeout=300)
     if not resp.ok:
         raise RuntimeError(f"Ollama call failed ({resp.status_code}): {resp.text}")
     data = resp.json()
     msg = data.get("message", {})
+    thinking = msg.get("thinking", "")
     content = msg.get("content", "")
-    if not content and "thinking" in msg:
-        content = msg.get("thinking", "")
+
+    # Extract inline <think> tags if model formatted them in content
+    if "<think>" in content:
+        inline_thinks = re.findall(r"<think>(.*?)</think>", content, re.DOTALL)
+        if inline_thinks and not thinking:
+            thinking = "\n".join(inline_thinks).strip()
+        content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
+
+    # Fallback: if content is empty but thinking contains the JSON object
+    if not content and thinking:
+        m = re.search(r"(\{.*\"candidates\".*\})", thinking, re.DOTALL)
+        if m:
+            content = m.group(1)
+
+    if thinking:
+        print(f"🧠 [{model_name} CoT Thinking ({len(thinking)} caracteres)]: {thinking[:150].strip()}...")
+
     return content
 
 
@@ -592,7 +676,11 @@ def detect_candidates_pipeline(
 
             chunk_start_fmt = f"{int(chunk[0]['start'] // 60):02d}:{int(chunk[0]['start'] % 60):02d}"
             chunk_end_fmt = f"{int(chunk[-1]['end'] // 60):02d}:{int(chunk[-1]['end'] % 60):02d}"
-            status_msg = f"Analizando bloque {idx}/{total_chunks} ({chunk_start_fmt} - {chunk_end_fmt})..."
+            thinking_indicator = ""
+            if provider in ["local", "ollama"] and detect_model_thinking_capability(model_name or "qwen2.5:7b"):
+                thinking_indicator = " (Razonamiento CoT activo)"
+
+            status_msg = f"Analizando bloque {idx}/{total_chunks} ({chunk_start_fmt} - {chunk_end_fmt}){thinking_indicator}..."
             print(status_msg)
 
             if on_progress:
@@ -775,20 +863,35 @@ Responde EXCLUSIVAMENTE con este objeto JSON:
         if provider in ["local", "ollama"]:
             url = "http://127.0.0.1:11434/api/chat"
             active_model = model_name or "qwen2.5:7b"
-            payload = {
+            has_thinking = detect_model_thinking_capability(active_model)
+            summary_sys = "Eres un editor experto de videos para streamers de YouTube. Responde siempre en formato JSON."
+            if has_thinking:
+                summary_sys += " Utiliza tu proceso de pensamiento para calcular la suma de duraciones y respetar estrictamente los minutos pedidos, luego entrega el JSON."
+
+            payload: Dict[str, Any] = {
                 "model": active_model,
                 "messages": [
-                    {"role": "system", "content": "Eres un editor experto de videos para streamers de YouTube. Responde siempre en formato JSON."},
+                    {"role": "system", "content": summary_sys},
                     {"role": "user", "content": prompt}
                 ],
-                "think": False,
                 "stream": False,
-                "options": {"temperature": 0.3},
-                "format": "json"
+                "options": {"temperature": 0.3}
             }
-            resp = requests.post(url, json=payload, timeout=45)
+            if not has_thinking:
+                payload["format"] = "json"
+
+            resp = requests.post(url, json=payload, timeout=60)
             if resp.ok:
-                raw_response = resp.json().get("message", {}).get("content", "")
+                msg = resp.json().get("message", {})
+                content = msg.get("content", "")
+                thinking = msg.get("thinking", "")
+                if "<think>" in content:
+                    content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
+                if not content and thinking:
+                    m = re.search(r"(\{.*\"narrative_title\".*\})", thinking, re.DOTALL)
+                    if m:
+                        content = m.group(1)
+                raw_response = content
             else:
                 print(f"Ollama narrative planning failed: {resp.text}")
 
