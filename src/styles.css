@@ -1119,19 +1119,18 @@ button:disabled {
 }
 
 .style-modal {
-  width: 620px;
+  width: 680px;
   max-width: 95vw;
-  max-height: 88vh;
-  overflow-y: auto;
+  max-height: 90vh;
   background: var(--bg-sidebar);
   border: 1px solid var(--border-color);
   border-radius: 16px;
-  padding: 24px;
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+  padding: 0;
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.6);
   animation: scaleIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  overflow: hidden;
 }
 
 .style-modal-header h3 {
@@ -1150,11 +1149,20 @@ button:disabled {
 
 .style-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   gap: 12px;
-  max-height: 220px;
+  max-height: 310px;
   overflow-y: auto;
-  padding-right: 4px;
+  padding-right: 6px;
+}
+
+.style-grid::-webkit-scrollbar {
+  width: 6px;
+}
+
+.style-grid::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 4px;
 }
 
 .style-card {
