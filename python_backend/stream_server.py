@@ -1,6 +1,7 @@
 import os
 import mimetypes
 import re
+from pathlib import Path
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 import threading
@@ -68,6 +69,40 @@ class VideoStreamHandler(BaseHTTPRequestHandler):
                         self.wfile.write(data)
                     except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
                         break
+            return
+
+        # Serve static assets from dist/
+        base_dir = Path(__file__).resolve().parent.parent
+        dist_dir = base_dir / "dist"
+        rel_path = parsed.path.lstrip("/")
+        if not rel_path or rel_path == "":
+            rel_path = "index.html"
+
+        target_file = (dist_dir / rel_path).resolve()
+        if not str(target_file).startswith(str(dist_dir.resolve())) or not target_file.is_file():
+            target_file = dist_dir / "index.html"
+
+        if target_file.is_file():
+            content_type, _ = mimetypes.guess_type(str(target_file))
+            if str(target_file).endswith(".js"):
+                content_type = "application/javascript"
+            elif str(target_file).endswith(".css"):
+                content_type = "text/css"
+            elif str(target_file).endswith(".html"):
+                content_type = "text/html; charset=utf-8"
+
+            self.send_response(200)
+            self.send_header("Content-Type", content_type or "application/octet-stream")
+            self.send_header("Content-Length", str(target_file.stat().st_size))
+            if str(target_file).endswith("index.html"):
+                self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+                self.send_header("Pragma", "no-cache")
+                self.send_header("Expires", "0")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+
+            with open(target_file, "rb") as f:
+                self.wfile.write(f.read())
             return
 
         self.send_error(404, "Not found")

@@ -133,6 +133,7 @@ function App() {
   const [mediaPathToImport, setMediaPathToImport] = useState<string | null>(null);
   const [previewCandidate, setPreviewCandidate] = useState<Candidate | null>(null);
   const [customOutputDir, setCustomOutputDir] = useState<string>(() => localStorage.getItem("autoshorts_output_dir") || "");
+  const [autoTranscribeOnImport, setAutoTranscribeOnImport] = useState<boolean>(true);
   const [autoDetectMoments, setAutoDetectMoments] = useState<boolean>(false);
   const [refineTranscriptWithLlm, setRefineTranscriptWithLlm] = useState<boolean>(true);
   const [isRefiningTranscript, setIsRefiningTranscript] = useState<boolean>(false);
@@ -517,7 +518,7 @@ function App() {
       await refresh(project.id);
     });
 
-    if (newProjectId) {
+    if (newProjectId && autoTranscribeOnImport) {
       await runAutoPipeline(newProjectId, contentType, dur);
     }
   }
@@ -760,6 +761,24 @@ function App() {
       setCopiedDescId((curr) => (curr === id ? null : curr));
     }, 2500);
   };
+
+  async function cancelTranscription() {
+    try {
+      await invoke("cancel_transcription");
+      setCandidateProgress("Cancelando transcripción...");
+      setTimeout(() => {
+        setBusy("idle");
+        setCandidateProgress(null);
+        if (detail) {
+          void refresh(detail.project.id);
+        }
+      }, 400);
+    } catch (err) {
+      console.error("Error al cancelar transcripción:", err);
+      setBusy("idle");
+      setCandidateProgress(null);
+    }
+  }
 
   async function cancelMoments() {
     try {
@@ -1455,10 +1474,33 @@ function App() {
                           <span>{isRefiningTranscript ? "Puliendo..." : "Pulir con IA"}</span>
                         </button>
                       )}
-                      <button onClick={transcribe} disabled={busy !== "idle" || !canTranscribe}>
-                        {busy === "transcribe" ? <Loader2 className="spin" size={16} /> : <AudioLines size={16} />}
-                        Transcribe
-                      </button>
+                      {busy === "transcribe" ? (
+                        <button
+                          className="btn-cancel"
+                          onClick={cancelTranscription}
+                          style={{
+                            background: "#ef4444",
+                            color: "#ffffff",
+                            border: "none",
+                            fontWeight: 600,
+                            cursor: "pointer",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "0.4rem",
+                            padding: "0.4rem 0.8rem",
+                            borderRadius: "6px"
+                          }}
+                          title="Detener transcripción y liberar recursos"
+                        >
+                          <Loader2 className="spin" size={14} />
+                          Cancelar Transcripción
+                        </button>
+                      ) : (
+                        <button onClick={transcribe} disabled={busy !== "idle" || !canTranscribe}>
+                          <AudioLines size={16} />
+                          Transcribe
+                        </button>
+                      )}
                     </div>
                   </div>
 
@@ -2129,6 +2171,19 @@ function App() {
             </div>
 
             <div style={{ margin: "1rem 0.5rem 0.3rem", padding: "0.6rem 0.8rem", borderRadius: "8px", background: "rgba(255,255,255,0.03)", border: "1px solid var(--border)", display: "flex", alignItems: "center", gap: "0.6rem" }}>
+              <input
+                type="checkbox"
+                id="autoTranscribeOnImport"
+                checked={autoTranscribeOnImport}
+                onChange={(e) => setAutoTranscribeOnImport(e.target.checked)}
+                style={{ cursor: "pointer", width: "16px", height: "16px" }}
+              />
+              <label htmlFor="autoTranscribeOnImport" style={{ fontSize: "0.82rem", cursor: "pointer", opacity: 0.9 }}>
+                Transcribir audio automáticamente al importar (desmárcalo si solo quieres cargar el video sin transcribir)
+              </label>
+            </div>
+
+            <div style={{ margin: "0.3rem 0.5rem 0.3rem", padding: "0.6rem 0.8rem", borderRadius: "8px", background: "rgba(255,255,255,0.03)", border: "1px solid var(--border)", display: "flex", alignItems: "center", gap: "0.6rem" }}>
               <input
                 type="checkbox"
                 id="autoDetectMoments"

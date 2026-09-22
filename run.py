@@ -43,8 +43,10 @@ def main():
 
     dist_index = base_dir / "dist" / "index.html"
 
+    app_server_url = "http://127.0.0.1:1422"
+
     if is_frozen:
-        target_url = str(dist_index)
+        target_url = app_server_url
     else:
         # Check if dev server is already running
         is_running = False
@@ -67,7 +69,7 @@ def main():
                 wait_for_server(dev_url)
                 target_url = dev_url
             else:
-                target_url = str(dist_index)
+                target_url = app_server_url
         else:
             target_url = dev_url
 

@@ -56,6 +56,7 @@ class Api:
         self.db = Database(str(self.data_dir / "autoshorts.db"))
         self._window = None
         self._cancel_candidates_flag = False
+        self._cancel_transcription_flag = False
 
     def set_window(self, window):
         self._window = window
@@ -224,11 +225,16 @@ class Api:
             llm_api_key = None
             enable_thinking = False
 
+        self._cancel_transcription_flag = False
         project = self.db.get_project(project_id)
         self.db.update_project_status(project_id, "transcribing")
         proj_name = project.get("name") or project_id
         proj_dir = self.data_dir / "projects" / proj_name
         audio_path = extract_audio(project["sourcePath"], proj_dir)
+
+        if self._cancel_transcription_flag:
+            self.db.update_project_status(project_id, "created")
+            return {}
 
         if provider == "deepgram":
             key = api_key or os.getenv("DEEPGRAM_API_KEY")
@@ -237,6 +243,10 @@ class Api:
             transcript = transcribe_deepgram(str(audio_path), key)
         else:
             transcript = transcribe_local(str(audio_path), model_name="base")
+
+        if self._cancel_transcription_flag:
+            self.db.update_project_status(project_id, "created")
+            return {}
 
         if refine_with_llm and transcript.get("segments"):
             try:
@@ -252,12 +262,19 @@ class Api:
                     api_key=llm_api_key,
                     enable_thinking=enable_thinking,
                     on_progress=on_refine_progress,
-                    is_cancelled=lambda: self._cancel_candidates_flag
+                    is_cancelled=lambda: self._cancel_candidates_flag or self._cancel_transcription_flag
                 )
+                if self._cancel_transcription_flag:
+                    self.db.update_project_status(project_id, "created")
+                    return {}
                 transcript["segments"] = refined_segments
                 transcript["words"] = rebuild_words_from_segments(refined_segments)
             except Exception as e:
                 print(f"Nota en perfeccionamiento automático: {e}")
+
+        if self._cancel_transcription_flag:
+            self.db.update_project_status(project_id, "created")
+            return {}
 
         raw_json = json.dumps(transcript, ensure_ascii=False, indent=2)
         saved = self.db.save_transcript(
@@ -268,6 +285,15 @@ class Api:
         )
         self.db.update_project_status(project_id, "analyzing", transcript.get("duration"))
         return saved
+
+    def cancel_transcription(self, _args: Any = None) -> bool:
+        self._cancel_transcription_flag = True
+        self._cancel_candidates_flag = True
+        try:
+            unload_all_ollama_models()
+        except Exception:
+            pass
+        return True
 
     def refine_project_transcript(self, args: Any) -> Dict[str, Any]:
         project_id = args.get("projectId") if isinstance(args, dict) else args
