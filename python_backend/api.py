@@ -213,6 +213,7 @@ class Api:
             llm_engine = args.get("llmEngine", "local")
             llm_model = args.get("llmModel")
             llm_api_key = args.get("llmApiKey")
+            enable_thinking = bool(args.get("enableThinking", False))
         else:
             project_id = args
             provider = "local"
@@ -221,6 +222,7 @@ class Api:
             llm_engine = "local"
             llm_model = None
             llm_api_key = None
+            enable_thinking = False
 
         project = self.db.get_project(project_id)
         self.db.update_project_status(project_id, "transcribing")
@@ -248,6 +250,7 @@ class Api:
                     model_name=llm_model or "qwen2.5:7b",
                     provider=llm_engine or "local",
                     api_key=llm_api_key,
+                    enable_thinking=enable_thinking,
                     on_progress=on_refine_progress,
                     is_cancelled=lambda: self._cancel_candidates_flag
                 )
@@ -271,6 +274,7 @@ class Api:
         llm_engine = args.get("provider", "local") if isinstance(args, dict) else "local"
         llm_model = args.get("modelName") if isinstance(args, dict) else None
         llm_api_key = args.get("apiKey") if isinstance(args, dict) else None
+        enable_thinking = bool(args.get("enableThinking", False)) if isinstance(args, dict) else False
 
         detail = self.db.get_project_detail(project_id)
         transcript_record = detail.get("transcript")
@@ -292,6 +296,7 @@ class Api:
             model_name=llm_model or "qwen2.5:7b",
             provider=llm_engine,
             api_key=llm_api_key,
+            enable_thinking=enable_thinking,
             on_progress=on_refine_progress,
             is_cancelled=lambda: self._cancel_candidates_flag
         )
@@ -344,6 +349,7 @@ class Api:
             model_name = args.get("modelName")
             content_type = args.get("contentType", "gaming")
             target_duration = args.get("targetDuration", "60s")
+            enable_thinking = bool(args.get("enableThinking", False))
         else:
             project_id = args
             api_key = None
@@ -351,6 +357,7 @@ class Api:
             model_name = None
             content_type = "gaming"
             target_duration = "60s"
+            enable_thinking = False
 
         self._cancel_candidates_flag = False
 
@@ -388,6 +395,7 @@ class Api:
             model_name=chosen_model or "qwen2.5:7b",
             content_type=content_type,
             target_duration=target_duration,
+            enable_thinking=enable_thinking,
             on_progress=on_chunk_progress,
             is_cancelled=lambda: self._cancel_candidates_flag,
             audio_path=audio_path if os.path.exists(audio_path) else None

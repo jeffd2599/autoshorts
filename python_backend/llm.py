@@ -8,32 +8,32 @@ import requests
 DURATION_SPECS = {
     "30s": {
         "label": "30 segundos",
-        "instruction": "Cada clip DEBE durar aproximadamente 30 segundos (rango permitido: 15 a 40 segundos).",
-        "min": 15.0,
-        "max": 40.0,
+        "instruction": "Cada clip DEBE durar aproximadamente 30 segundos (rango permitido: 20 a 45 segundos).",
+        "min": 20.0,
+        "max": 45.0,
     },
     "60s": {
         "label": "1 minuto",
-        "instruction": "Cada clip DEBE durar aproximadamente 1 minuto (rango permitido: 35 a 75 segundos).",
-        "min": 35.0,
+        "instruction": "Cada clip DEBE durar aproximadamente 1 minuto (rango permitido: 45 a 75 segundos).",
+        "min": 45.0,
         "max": 75.0,
     },
     "2m": {
         "label": "2 minutos",
-        "instruction": "Cada clip DEBE durar aproximadamente 2 minutos (rango permitido: 75 a 140 segundos).",
-        "min": 75.0,
+        "instruction": "Cada clip DEBE durar aproximadamente 2 minutos (rango permitido: 105 a 140 segundos).",
+        "min": 105.0,
         "max": 140.0,
     },
     "3m": {
         "label": "3 minutos",
-        "instruction": "Cada clip DEBE durar aproximadamente 3 minutos (rango permitido: 140 a 200 segundos).",
-        "min": 140.0,
-        "max": 200.0,
+        "instruction": "Cada clip DEBE durar aproximadamente 3 minutos completos (rango permitido: 165 a 210 segundos, alrededor de 3 minutos).",
+        "min": 165.0,
+        "max": 210.0,
     },
     "5m": {
         "label": "5 minutos",
-        "instruction": "Cada clip DEBE durar aproximadamente 5 minutos (rango permitido: 200 a 330 segundos).",
-        "min": 200.0,
+        "instruction": "Cada clip DEBE durar aproximadamente 5 minutos completos (rango permitido: 270 a 330 segundos, es decir ~5 minutos, NUNCA clips cortos de 2 o 3 minutos).",
+        "min": 270.0,
         "max": 330.0,
     },
 }
@@ -130,6 +130,7 @@ def expand_short_candidate(
     if not segments:
         return start, end
 
+    target_ideal = (target_min + target_max) / 2.0
     dur = end - start
     if dur >= target_min:
         return start, min(end, start + target_max)
@@ -141,14 +142,14 @@ def expand_short_candidate(
             start_idx = i
             break
 
-    # Expand end timestamp across subsequent segments
+    # Expand end timestamp across subsequent segments until reaching target_ideal
     new_end = end
     for s in segments[start_idx:]:
         new_end = max(new_end, s["end"])
-        if (new_end - start) >= target_min:
+        if (new_end - start) >= target_ideal:
             break
 
-    return start, new_end
+    return start, min(new_end, start + target_max)
 
 
 def parse_candidate_json(
@@ -339,9 +340,10 @@ def call_ollama(
     prompt: str,
     model_name: str = "qwen2.5:7b",
     content_type: str = "gaming",
-    target_duration: str = "60s"
+    target_duration: str = "60s",
+    enable_thinking: bool = False
 ) -> str:
-    has_thinking = detect_model_thinking_capability(model_name)
+    has_thinking = enable_thinking and detect_model_thinking_capability(model_name)
     system_prompt = build_system_prompt(content_type, target_duration, has_thinking=has_thinking)
     url = "http://127.0.0.1:11434/api/chat"
 
@@ -358,9 +360,12 @@ def call_ollama(
         }
     }
 
-    # For non-thinking models, format: json assists structured output without token interference
+    # For non-thinking mode, format: json + think: false prevents CoT token overhead and speeds up 10x
     if not has_thinking:
+        payload["think"] = False
         payload["format"] = "json"
+    else:
+        payload["think"] = True
 
     resp = requests.post(url, json=payload, timeout=300)
     if not resp.ok:
@@ -636,13 +641,14 @@ def detect_candidates_pipeline(
     model_name: Optional[str] = None,
     content_type: str = "gaming",
     target_duration: str = "60s",
+    enable_thinking: bool = False,
     on_progress: Optional[Callable[[str, int, int], None]] = None,
     is_cancelled: Optional[Callable[[], bool]] = None,
     audio_path: Optional[str] = None
 ) -> List[Dict[str, Any]]:
     """
     Main detection pipeline using Chunking ("Divide y Vencerás").
-    Processes long streams in 10-minute windows to avoid context explosion on 12GB VRAM.
+    Processes streams in adaptive windows (10 min or 15 min for long clips) to avoid context explosion on 12GB VRAM.
     Integrates audio action peak detection for silent gameplay clutches / gunfights.
     Automatically unloads Ollama models upon completion or cancellation to immediately free VRAM.
     """
@@ -661,12 +667,14 @@ def detect_candidates_pipeline(
         except Exception as e:
             print(f"Nota en detección de picos de audio: {e}")
 
-    # Partition into 10-minute chunks (600 seconds) with 45 seconds overlap
-    chunks = partition_segments(segments, chunk_duration_sec=600.0, overlap_sec=45.0)
+    # Partition into chunks with overlap (adapt window to 15 min for 3m/5m clips so long moments fit naturally)
+    chunk_dur = 900.0 if target_duration in ["3m", "5m"] else 600.0
+    overlap = 120.0 if target_duration in ["3m", "5m"] else 45.0
+    chunks = partition_segments(segments, chunk_duration_sec=chunk_dur, overlap_sec=overlap)
     total_chunks = len(chunks)
     all_drafts = []
 
-    print(f"Dividing stream into {total_chunks} chunk(s) of 10 min for {content_type} detection (objetivo: {target_duration})...")
+    print(f"Dividing stream into {total_chunks} chunk(s) of {int(chunk_dur//60)} min for {content_type} detection (objetivo: {target_duration} | Thinking: {enable_thinking})...")
 
     try:
         for idx, chunk in enumerate(chunks, start=1):
@@ -677,7 +685,7 @@ def detect_candidates_pipeline(
             chunk_start_fmt = f"{int(chunk[0]['start'] // 60):02d}:{int(chunk[0]['start'] % 60):02d}"
             chunk_end_fmt = f"{int(chunk[-1]['end'] // 60):02d}:{int(chunk[-1]['end'] % 60):02d}"
             thinking_indicator = ""
-            if provider in ["local", "ollama"] and detect_model_thinking_capability(model_name or "qwen2.5:7b"):
+            if provider in ["local", "ollama"] and enable_thinking and detect_model_thinking_capability(model_name or "qwen2.5:7b"):
                 thinking_indicator = " (Razonamiento CoT activo)"
 
             status_msg = f"Analizando bloque {idx}/{total_chunks} ({chunk_start_fmt} - {chunk_end_fmt}){thinking_indicator}..."
@@ -708,7 +716,8 @@ def detect_candidates_pipeline(
                         prompt_text,
                         model_name=model,
                         content_type=content_type,
-                        target_duration=target_duration
+                        target_duration=target_duration,
+                        enable_thinking=enable_thinking
                     )
                 else:
                     resp_text = call_cloud_llm(
@@ -1012,13 +1021,14 @@ def refine_transcript_with_llm(
     provider: str = "local",
     api_key: Optional[str] = None,
     chunk_size: int = 65,
+    enable_thinking: bool = False,
     on_progress: Optional[Callable[[str, int, int], None]] = None,
     is_cancelled: Optional[Callable[[], bool]] = None
 ) -> List[Dict[str, Any]]:
     """
     Refines transcription spelling, grammar, punctuation, and gaming slang using an LLM (Ollama or Cloud).
     Preserves exact timestamps (start, end) for every segment without altering speech synchronization.
-    Runs in direct ultra-fast mode (think=False) to prevent slow generation or internal reasoning monologues.
+    Runs in direct ultra-fast mode (think=False by default) to prevent slow generation or internal reasoning monologues.
     """
     if not segments:
         return []
@@ -1027,7 +1037,9 @@ def refine_transcript_with_llm(
     total_segments = len(refined_segments)
     num_chunks = (total_segments + chunk_size - 1) // chunk_size
 
-    print(f"Perfeccionando transcripción con IA ({provider}:{model_name} | Modo directo sin thinking). Total bloques: {num_chunks}...")
+    has_thinking = enable_thinking and (detect_model_thinking_capability(model_name) if provider in ["local", "ollama"] else False)
+    mode_label = "Razonamiento CoT activo" if has_thinking else "Modo directo ultrarrápido sin thinking"
+    print(f"Perfeccionando transcripción con IA ({provider}:{model_name} | {mode_label}). Total bloques: {num_chunks}...")
 
     try:
         for chunk_idx in range(num_chunks):
@@ -1071,7 +1083,7 @@ def refine_transcript_with_llm(
                         {"role": "user", "content": user_prompt}
                     ],
                     "stream": False,
-                    "think": False,
+                    "think": bool(has_thinking),
                     "options": {"temperature": 0.1, "num_predict": 2048}
                 }
                 resp = requests.post(url, json=payload, timeout=120)

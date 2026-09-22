@@ -126,7 +126,9 @@ function App() {
   const [showStyleModal, setShowStyleModal] = useState(false);
   const [selectedStyle, setSelectedStyle] = useState("modern-box");
   const [selectedContentType, setSelectedContentType] = useState<"gaming" | "tutorial" | "podcast" | "general">("gaming");
-  const [targetDuration, setTargetDuration] = useState<"30s" | "60s" | "2m" | "3m" | "5m">("60s");
+  const [targetDuration, setTargetDuration] = useState<"30s" | "60s" | "2m" | "3m" | "5m">(() => {
+    return (localStorage.getItem("autoshorts_target_duration") as any) || "60s";
+  });
   const [copiedDescId, setCopiedDescId] = useState<string | null>(null);
   const [mediaPathToImport, setMediaPathToImport] = useState<string | null>(null);
   const [previewCandidate, setPreviewCandidate] = useState<Candidate | null>(null);
@@ -134,6 +136,9 @@ function App() {
   const [autoDetectMoments, setAutoDetectMoments] = useState<boolean>(false);
   const [refineTranscriptWithLlm, setRefineTranscriptWithLlm] = useState<boolean>(true);
   const [isRefiningTranscript, setIsRefiningTranscript] = useState<boolean>(false);
+  const [enableThinking, setEnableThinking] = useState<boolean>(() => {
+    return localStorage.getItem("autoshorts_enable_thinking") === "true";
+  });
 
   const [showSummaryModal, setShowSummaryModal] = useState(false);
   const [summaryTargetMinutes, setSummaryTargetMinutes] = useState<number>(8);
@@ -491,7 +496,11 @@ function App() {
     }
   }
 
-  async function confirmImport(style: string, contentType: "gaming" | "tutorial" | "podcast" | "general" = selectedContentType) {
+  async function confirmImport(
+    style: string,
+    contentType: "gaming" | "tutorial" | "podcast" | "general" = selectedContentType,
+    dur: "30s" | "60s" | "2m" | "3m" | "5m" = targetDuration
+  ) {
     if (!mediaPathToImport) return;
     const selected = mediaPathToImport;
     setMediaPathToImport(null);
@@ -509,11 +518,15 @@ function App() {
     });
 
     if (newProjectId) {
-      await runAutoPipeline(newProjectId, contentType);
+      await runAutoPipeline(newProjectId, contentType, dur);
     }
   }
 
-  async function runAutoPipeline(projectId: string, contentType: string = selectedContentType) {
+  async function runAutoPipeline(
+    projectId: string,
+    contentType: string = selectedContentType,
+    durationTarget: "30s" | "60s" | "2m" | "3m" | "5m" = targetDuration
+  ) {
     setError(null);
     const env = await invoke<EnvironmentStatus>("environment_status");
 
@@ -586,6 +599,7 @@ function App() {
         llmEngine,
         llmModel: activeLlmModel,
         llmApiKey: activeLlmKey || null,
+        enableThinking,
       });
       await refresh(projectId);
     } catch (err) {
@@ -615,8 +629,9 @@ function App() {
         provider: llmEngine,
         modelName: llmEngine === "local" ? localLlmModel.trim() : (llmEngine === "deepseek" ? (deepseekModel.trim() || null) : (llmEngine === "openrouter" ? (openrouterModel.trim() || null) : null)),
         contentType,
-        targetDuration,
+        targetDuration: durationTarget,
         allowDemo: false,
+        enableThinking,
       });
       await refresh(projectId);
     } catch (err) {
@@ -699,6 +714,7 @@ function App() {
         llmEngine,
         llmModel: activeLlmModel,
         llmApiKey: activeLlmKey || null,
+        enableThinking,
       });
       await refresh(detail.project.id);
     });
@@ -726,6 +742,7 @@ function App() {
         provider: llmEngine,
         modelName: activeLlmModel,
         apiKey: activeLlmKey || null,
+        enableThinking,
       });
       await refresh(detail.project.id);
     } catch (err) {
@@ -781,6 +798,7 @@ function App() {
           contentType: selectedContentType,
           targetDuration,
           allowDemo,
+          enableThinking,
         });
         await refresh(detail.project.id);
       } catch (err) {
@@ -1043,6 +1061,24 @@ function App() {
                 ⚠️ No se detectaron modelos activos en Ollama (http://127.0.0.1:11434). Asegúrate de tener la app de Ollama abierta.
               </div>
             )}
+
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "0.6rem 0", padding: "0.5rem 0.75rem", background: "rgba(255,255,255,0.02)", borderRadius: "6px", border: "1px solid var(--border)" }}>
+              <label style={{ display: "flex", alignItems: "center", gap: "8px", cursor: "pointer", fontSize: "0.82rem" }}>
+                <input
+                  type="checkbox"
+                  checked={enableThinking}
+                  onChange={(e) => {
+                    setEnableThinking(e.target.checked);
+                    localStorage.setItem("autoshorts_enable_thinking", String(e.target.checked));
+                  }}
+                  style={{ cursor: "pointer", width: "15px", height: "15px" }}
+                />
+                <span>Activar modo razonamiento (Thinking / CoT en Ollama)</span>
+              </label>
+              <span style={{ fontSize: "0.72rem", color: enableThinking ? "#f59e0b" : "#10b981", fontWeight: 600 }}>
+                {enableThinking ? "Más lento (análisis profundo)" : "Modo rápido (Recomendado para RTX 2060)"}
+              </span>
+            </div>
 
             {/* Optional Pull another model */}
             <div style={{ paddingTop: "0.6rem", borderTop: "1px dashed var(--border)" }}>
@@ -1500,29 +1536,49 @@ function App() {
                   </div>
 
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.4rem 1rem", background: "rgba(255,255,255,0.02)", borderBottom: "1px solid var(--border)", fontSize: "0.78rem" }}>
-                    <span style={{ opacity: 0.8 }}>Duración Objetivo de Clips:</span>
-                    <div style={{ display: "flex", gap: "0.35rem" }}>
-                      {(["30s", "60s", "2m", "3m", "5m"] as const).map((dur) => (
-                        <button
-                          key={dur}
-                          type="button"
-                          onClick={() => setTargetDuration(dur)}
-                          disabled={busy !== "idle"}
-                          style={{
-                            padding: "0.2rem 0.55rem",
-                            borderRadius: "4px",
-                            border: targetDuration === dur ? "1px solid var(--accent-primary)" : "1px solid var(--border)",
-                            background: targetDuration === dur ? "rgba(99, 102, 241, 0.2)" : "transparent",
-                            color: targetDuration === dur ? "var(--accent-primary)" : "var(--foreground)",
-                            cursor: "pointer",
-                            fontSize: "0.74rem",
-                            fontWeight: targetDuration === dur ? 600 : 400
-                          }}
-                        >
-                          {dur === "30s" ? "30 seg" : dur === "60s" ? "1 min" : dur === "2m" ? "2 min" : dur === "3m" ? "3 min" : "5 min"}
-                        </button>
-                      ))}
+                    <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
+                      <span style={{ opacity: 0.8 }}>Duración Objetivo:</span>
+                      <div style={{ display: "flex", gap: "0.35rem" }}>
+                        {(["30s", "60s", "2m", "3m", "5m"] as const).map((dur) => (
+                          <button
+                            key={dur}
+                            type="button"
+                            onClick={() => {
+                              setTargetDuration(dur);
+                              localStorage.setItem("autoshorts_target_duration", dur);
+                            }}
+                            disabled={busy !== "idle"}
+                            style={{
+                              padding: "0.2rem 0.55rem",
+                              borderRadius: "4px",
+                              border: targetDuration === dur ? "1px solid var(--accent-primary)" : "1px solid var(--border)",
+                              background: targetDuration === dur ? "rgba(99, 102, 241, 0.2)" : "transparent",
+                              color: targetDuration === dur ? "var(--accent-primary)" : "var(--foreground)",
+                              cursor: "pointer",
+                              fontSize: "0.74rem",
+                              fontWeight: targetDuration === dur ? 600 : 400
+                            }}
+                          >
+                            {dur === "30s" ? "30 seg" : dur === "60s" ? "1 min" : dur === "2m" ? "2 min" : dur === "3m" ? "3 min" : "5 min"}
+                          </button>
+                        ))}
+                      </div>
                     </div>
+
+                    <label style={{ display: "flex", alignItems: "center", gap: "6px", cursor: "pointer", fontSize: "0.74rem" }} title="Desactívalo para análisis ultrarrápido (Recomendado para RTX 2060)">
+                      <input
+                        type="checkbox"
+                        checked={enableThinking}
+                        onChange={(e) => {
+                          setEnableThinking(e.target.checked);
+                          localStorage.setItem("autoshorts_enable_thinking", String(e.target.checked));
+                        }}
+                        style={{ cursor: "pointer", width: "13px", height: "13px" }}
+                      />
+                      <span style={{ color: enableThinking ? "#f59e0b" : "var(--text-secondary)", fontWeight: enableThinking ? 600 : 400 }}>
+                        {enableThinking ? "Thinking CoT (Lento)" : "Modo Rápido"}
+                      </span>
+                    </label>
                   </div>
 
                   {!canUseActiveLlm && (
@@ -1838,7 +1894,10 @@ function App() {
                   <button
                     key={dur}
                     type="button"
-                    onClick={() => setTargetDuration(dur)}
+                    onClick={() => {
+                      setTargetDuration(dur);
+                      localStorage.setItem("autoshorts_target_duration", dur);
+                    }}
                     style={{
                       padding: "0.5rem 0.4rem",
                       borderRadius: "8px",
@@ -2095,11 +2154,32 @@ function App() {
               </label>
             </div>
 
+            <div style={{ margin: "0.3rem 0.5rem 0.5rem", padding: "0.6rem 0.8rem", borderRadius: "8px", background: "rgba(255,255,255,0.03)", border: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
+                <input
+                  type="checkbox"
+                  id="enableThinkingImport"
+                  checked={enableThinking}
+                  onChange={(e) => {
+                    setEnableThinking(e.target.checked);
+                    localStorage.setItem("autoshorts_enable_thinking", String(e.target.checked));
+                  }}
+                  style={{ cursor: "pointer", width: "16px", height: "16px" }}
+                />
+                <label htmlFor="enableThinkingImport" style={{ fontSize: "0.82rem", cursor: "pointer", opacity: 0.9 }}>
+                  Activar modo razonamiento (Thinking / CoT en Ollama)
+                </label>
+              </div>
+              <span style={{ fontSize: "0.72rem", color: enableThinking ? "#f59e0b" : "#10b981", fontWeight: 600 }}>
+                {enableThinking ? "Más lento (análisis profundo)" : "Modo rápido (Recomendado para RTX 2060)"}
+              </span>
+            </div>
+
             <div className="style-modal-actions">
               <button className="btn-cancel" onClick={() => { setShowStyleModal(false); setMediaPathToImport(null); }}>
                 Cancel
               </button>
-              <button className="btn-confirm" onClick={() => confirmImport(selectedStyle, selectedContentType)}>
+              <button className="btn-confirm" onClick={() => confirmImport(selectedStyle, selectedContentType, targetDuration)}>
                 Confirm & Import
               </button>
             </div>
