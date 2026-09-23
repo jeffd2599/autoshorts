@@ -20,8 +20,15 @@ from .media import (
     render_flat_clip,
     render_compilation_video,
 )
-from .transcription import transcribe_local, transcribe_deepgram, whisper_available
-from .llm import detect_candidates_pipeline, unload_all_ollama_models, plan_summary_narrative, refine_transcript_with_llm
+from .transcription import transcribe_local, transcribe_deepgram, whisper_available, get_installed_whisper_models
+from .llm import (
+    detect_candidates_pipeline,
+    unload_all_ollama_models,
+    plan_summary_narrative,
+    refine_transcript_with_llm,
+    DEFAULT_MOMENTS_PROMPT,
+    generate_social_copy_with_llm
+)
 
 
 def rebuild_words_from_segments(segments: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -152,6 +159,7 @@ class Api:
             "hasGroqKey": bool(os.getenv("GROQ_API_KEY")),
             "llmProvider": os.getenv("LLM_PROVIDER", "local"),
             "hasLocalWhisperModel": whisper_available(),
+            "whisperModels": get_installed_whisper_models(),
             "hasOllama": has_ollama,
             "hasYtdlp": has_ytdlp,
             "installedOllamaModels": installed_models
@@ -210,6 +218,7 @@ class Api:
             project_id = args.get("projectId")
             provider = args.get("provider", "local")
             api_key = args.get("apiKey")
+            whisper_model = args.get("whisperModel") or "base"
             refine_with_llm = bool(args.get("refineWithLlm", False))
             llm_engine = args.get("llmEngine", "local")
             llm_model = args.get("llmModel")
@@ -219,6 +228,7 @@ class Api:
             project_id = args
             provider = "local"
             api_key = None
+            whisper_model = "base"
             refine_with_llm = False
             llm_engine = "local"
             llm_model = None
@@ -242,7 +252,7 @@ class Api:
                 raise ValueError("Deepgram API Key is required")
             transcript = transcribe_deepgram(str(audio_path), key)
         else:
-            transcript = transcribe_local(str(audio_path), model_name="base")
+            transcript = transcribe_local(str(audio_path), model_name=whisper_model)
 
         if self._cancel_transcription_flag:
             self.db.update_project_status(project_id, "created")
@@ -367,6 +377,45 @@ class Api:
             pass
         return True
 
+    def get_whisper_models(self, _args: Any = None) -> List[Dict[str, Any]]:
+        return get_installed_whisper_models()
+
+    def get_default_moments_prompt(self, _args: Any = None) -> Dict[str, str]:
+        return {"defaultPrompt": DEFAULT_MOMENTS_PROMPT}
+
+    def generate_project_copy(self, args: Any) -> Dict[str, Any]:
+        if not isinstance(args, dict):
+            raise ValueError("Invalid arguments")
+        project_id = args.get("projectId")
+        provider = args.get("provider", "local")
+        model_name = args.get("modelName")
+        api_key = args.get("apiKey")
+        enable_thinking = bool(args.get("enableThinking", False))
+        extra_context = args.get("extraContext")
+
+        detail = self.db.get_project_detail(project_id)
+        transcript_record = detail.get("transcript")
+        if not transcript_record:
+            raise ValueError("El proyecto aún no tiene transcripción generada.")
+
+        parsed_transcript = json.loads(transcript_record["rawJson"])
+        segments = parsed_transcript.get("segments", [])
+        if not segments:
+            raise ValueError("La transcripción no contiene segmentos de voz.")
+
+        full_text = " ".join([s.get("text", "").strip() for s in segments if s.get("text")])
+
+        print(f"Generando copy para redes con IA ({provider}:{model_name})...")
+        copy_data = generate_social_copy_with_llm(
+            transcript_text=full_text,
+            model_name=model_name or "qwen2.5:7b",
+            provider=provider,
+            api_key=api_key,
+            enable_thinking=enable_thinking,
+            extra_context=extra_context
+        )
+        return copy_data
+
     def generate_candidates(self, args: Any) -> List[Dict[str, Any]]:
         if isinstance(args, dict):
             project_id = args.get("projectId")
@@ -376,6 +425,7 @@ class Api:
             content_type = args.get("contentType", "gaming")
             target_duration = args.get("targetDuration", "60s")
             enable_thinking = bool(args.get("enableThinking", False))
+            custom_prompt = args.get("customPrompt")
         else:
             project_id = args
             api_key = None
@@ -384,6 +434,7 @@ class Api:
             content_type = "gaming"
             target_duration = "60s"
             enable_thinking = False
+            custom_prompt = None
 
         self._cancel_candidates_flag = False
 
@@ -424,7 +475,8 @@ class Api:
             enable_thinking=enable_thinking,
             on_progress=on_chunk_progress,
             is_cancelled=lambda: self._cancel_candidates_flag,
-            audio_path=audio_path if os.path.exists(audio_path) else None
+            audio_path=audio_path if os.path.exists(audio_path) else None,
+            custom_prompt=custom_prompt
         )
 
         if self._cancel_candidates_flag:

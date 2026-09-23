@@ -25,6 +25,25 @@ import {
 } from "lucide-react";
 import "./styles.css";
 
+type WhisperModel = {
+  id: string;
+  name: string;
+  vram: string;
+  speed: string;
+  accuracy: string;
+  downloaded: boolean;
+  recommended: boolean;
+  description: string;
+};
+
+type CopyResult = {
+  hooks: string[];
+  caption: string;
+  cta: string;
+  hashtags: string[];
+  full_copy: string;
+};
+
 type EnvironmentStatus = {
   dataDir: string;
   hasFfmpeg: boolean;
@@ -41,6 +60,7 @@ type EnvironmentStatus = {
   hasOllama: boolean;
   hasYtdlp: boolean;
   installedOllamaModels?: string[];
+  whisperModels?: WhisperModel[];
 };
 
 type Project = {
@@ -211,6 +231,21 @@ function App() {
     return localStorage.getItem("autoshorts_openrouter_model") || "";
   });
 
+  const [whisperModel, setWhisperModel] = useState<string>(() => {
+    return localStorage.getItem("autoshorts_whisper_model") || "large-v3-turbo";
+  });
+  const [whisperModelsList, setWhisperModelsList] = useState<WhisperModel[]>([]);
+  const [customMomentsPrompt, setCustomMomentsPrompt] = useState<string>(() => {
+    return localStorage.getItem("autoshorts_custom_moments_prompt") || "";
+  });
+  const [defaultMomentsPrompt, setDefaultMomentsPrompt] = useState<string>("");
+
+  const [showCopyModal, setShowCopyModal] = useState(false);
+  const [isGeneratingCopy, setIsGeneratingCopy] = useState(false);
+  const [copyResult, setCopyResult] = useState<CopyResult | null>(null);
+  const [copiedField, setCopiedField] = useState<string | null>(null);
+  const [copyExtraContext, setCopyExtraContext] = useState<string>("");
+
   const [pullInputModel, setPullInputModel] = useState("");
 
   const syncConfig = (updates: Record<string, any>) => {
@@ -275,12 +310,29 @@ function App() {
   useEffect(() => {
     void refresh();
 
+    invoke<WhisperModel[]>("get_whisper_models").then((models) => {
+      if (Array.isArray(models) && models.length > 0) {
+        setWhisperModelsList(models);
+        const saved = localStorage.getItem("autoshorts_whisper_model");
+        if (!saved) {
+          const rec = models.find((m) => m.downloaded && m.id === "large-v3-turbo") || models.find((m) => m.downloaded) || models[0];
+          if (rec) setWhisperModel(rec.id);
+        }
+      }
+    }).catch(console.error);
+
+    invoke<string>("get_default_moments_prompt").then((prompt) => {
+      if (prompt) setDefaultMomentsPrompt(prompt);
+    }).catch(console.error);
+
     // Check both backend persistent config.json and localStorage
     invoke<any>("get_app_config").then((cfg) => {
       const localOnboarded = localStorage.getItem("autoshorts_onboarded");
       if (cfg?.onboarded || localOnboarded === "true") {
         setIsOnboarded(true);
         if (cfg?.transcriptionEngine) setTranscriptionEngine(cfg.transcriptionEngine);
+        if (cfg?.whisperModel) setWhisperModel(cfg.whisperModel);
+        if (cfg?.customMomentsPrompt !== undefined) setCustomMomentsPrompt(cfg.customMomentsPrompt);
         if (cfg?.llmEngine) setLlmEngine(cfg.llmEngine);
         if (cfg?.localLlmModel) setLocalLlmModel(cfg.localLlmModel);
         if (cfg?.deepseekKey) setDeepseekKey(cfg.deepseekKey);
@@ -319,6 +371,16 @@ function App() {
       if (unlistenSummary) unlistenSummary();
     };
   }, []);
+
+  useEffect(() => {
+    localStorage.setItem("autoshorts_whisper_model", whisperModel);
+    syncConfig({ whisperModel });
+  }, [whisperModel]);
+
+  useEffect(() => {
+    localStorage.setItem("autoshorts_custom_moments_prompt", customMomentsPrompt);
+    syncConfig({ customMomentsPrompt });
+  }, [customMomentsPrompt]);
 
   useEffect(() => {
     localStorage.setItem("autoshorts_transcription_engine", transcriptionEngine);
@@ -390,6 +452,47 @@ function App() {
     localStorage.setItem("autoshorts_openrouter_model", openrouterModel);
     syncConfig({ openrouterModel });
   }, [openrouterModel]);
+
+  async function generateSocialCopy(extraContextOverride?: string) {
+    if (!detail) return;
+    setIsGeneratingCopy(true);
+    setError(null);
+    try {
+      const activeLlmKey =
+        llmEngine === "claude" ? anthropicKey.trim() :
+          llmEngine === "deepseek" ? deepseekKey.trim() :
+            llmEngine === "gemini" ? geminiKey.trim() :
+              llmEngine === "openai" ? openaiKey.trim() :
+                llmEngine === "openrouter" ? openrouterKey.trim() :
+                  llmEngine === "groq" ? groqKey.trim() : "";
+      const activeLlmModel =
+        llmEngine === "local" ? localLlmModel.trim() :
+          llmEngine === "deepseek" ? (deepseekModel.trim() || null) :
+            llmEngine === "openrouter" ? (openrouterModel.trim() || null) : null;
+
+      const res = await invoke<CopyResult>("generate_project_copy", {
+        projectId: detail.project.id,
+        provider: llmEngine,
+        modelName: activeLlmModel,
+        apiKey: activeLlmKey || null,
+        enableThinking,
+        extraContext: (extraContextOverride !== undefined ? extraContextOverride : copyExtraContext).trim() || null,
+      });
+      setCopyResult(res);
+    } catch (err: any) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsGeneratingCopy(false);
+    }
+  }
+
+  function copyTextToClipboard(key: string, text: string) {
+    void navigator.clipboard.writeText(text);
+    setCopiedField(key);
+    setTimeout(() => {
+      setCopiedField((curr) => (curr === key ? null : curr));
+    }, 2000);
+  }
 
   const pullModelDirectly = async (modelName: string) => {
     setDownloadingModelName(modelName);
@@ -599,6 +702,7 @@ function App() {
         projectId,
         provider: transcriptionEngine,
         apiKey: transcriptionEngine === "deepgram" ? (deepgramKey.trim() || null) : null,
+        whisperModel,
         refineWithLlm: refineTranscriptWithLlm,
         llmEngine,
         llmModel: activeLlmModel,
@@ -636,6 +740,7 @@ function App() {
         targetDuration: durationTarget,
         allowDemo: false,
         enableThinking,
+        customPrompt: customMomentsPrompt.trim() || null,
       });
       await refresh(projectId);
     } catch (err) {
@@ -714,6 +819,7 @@ function App() {
         projectId: detail.project.id,
         provider: transcriptionEngine,
         apiKey: transcriptionEngine === "deepgram" ? (deepgramKey.trim() || null) : null,
+        whisperModel,
         refineWithLlm: refineTranscriptWithLlm,
         llmEngine,
         llmModel: activeLlmModel,
@@ -821,6 +927,7 @@ function App() {
           targetDuration,
           allowDemo,
           enableThinking,
+          customPrompt: customMomentsPrompt.trim() || null,
         });
         await refresh(detail.project.id);
       } catch (err) {
@@ -1011,10 +1118,40 @@ function App() {
             }}
             style={{ width: "100%", padding: "0.5rem", borderRadius: "6px" }}
           >
-            <option value="local">🎙️ Local Whisper (Offline - GPU CUDA)</option>
-            <option value="deepgram">⚡ Deepgram API (Cloud)</option>
+            <option value="local">Local Whisper (Offline - GPU CUDA)</option>
+            <option value="deepgram">Deepgram API (Cloud)</option>
           </select>
         </label>
+
+        {/* Whisper Model Selector (if local) */}
+        {transcriptionEngine === "local" && (
+          <label>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.4rem" }}>
+              <span style={{ fontWeight: 600, fontSize: "0.82rem" }}>MODELO WHISPER (LOCAL)</span>
+              <span style={{ fontSize: "0.72rem", color: "var(--accent-primary)", fontWeight: 600 }}>
+                {whisperModelsList.find((m) => m.id === whisperModel)?.vram || ""} VRAM
+              </span>
+            </div>
+            <select
+              className="form-select"
+              value={whisperModel}
+              onChange={(event) => {
+                setWhisperModel(event.target.value);
+                syncConfig({ whisperModel: event.target.value });
+              }}
+              style={{ width: "100%", padding: "0.5rem", borderRadius: "6px" }}
+            >
+              {whisperModelsList.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.name} ({m.vram} VRAM) {m.downloaded ? "[Descargado]" : "[Descargar al usar]"}
+                </option>
+              ))}
+            </select>
+            <span style={{ fontSize: "0.72rem", opacity: 0.7, marginTop: "4px", display: "block" }}>
+              {whisperModelsList.find((m) => m.id === whisperModel)?.description || "Modelos de alta precisión para GPU NVIDIA."}
+            </span>
+          </label>
+        )}
 
         {/* LLM Engine */}
         <label>
@@ -1029,13 +1166,13 @@ function App() {
             }}
             style={{ width: "100%", padding: "0.5rem", borderRadius: "6px" }}
           >
-            <option value="local">💻 Ollama (Offline Local en tu PC)</option>
-            <option value="openrouter">🌐 OpenRouter (Cloud - Modelos Libres / Pagos)</option>
-            <option value="deepseek">⚡ DeepSeek API (Cloud)</option>
-            <option value="claude">🧠 Claude Anthropic (Cloud)</option>
-            <option value="openai">🤖 OpenAI GPT-4o (Cloud)</option>
-            <option value="groq">🚀 Groq (Cloud - Ultra Rápido)</option>
-            <option value="gemini">✨ Google Gemini (Cloud)</option>
+            <option value="local">Ollama (Offline Local en tu PC)</option>
+            <option value="openrouter">OpenRouter (Cloud - Modelos Libres / Pagos)</option>
+            <option value="deepseek">DeepSeek API (Cloud)</option>
+            <option value="claude">Claude Anthropic (Cloud)</option>
+            <option value="openai">OpenAI GPT-4o (Cloud)</option>
+            <option value="groq">Groq (Cloud - Ultra Rápido)</option>
+            <option value="gemini">Google Gemini (Cloud)</option>
           </select>
         </label>
 
@@ -1299,6 +1436,48 @@ function App() {
         )}
       </div>
 
+      {/* Custom Prompt for Moments */}
+      <div style={{ marginTop: "1.25rem", padding: "1rem", borderRadius: "8px", background: "rgba(255,255,255,0.02)", border: "1px solid var(--border)" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
+          <div>
+            <span style={{ fontWeight: 600, fontSize: "0.85rem", display: "block" }}>
+              Prompt del Sistema para Detección de Momentos
+            </span>
+            <span style={{ fontSize: "0.74rem", opacity: 0.7 }}>
+              Instrucciones que guían a la IA para evaluar ganchos, interés y selección de candidatos.
+            </span>
+          </div>
+          <button
+            type="button"
+            className="icon-button"
+            style={{ fontSize: "0.75rem", padding: "4px 10px", height: "auto" }}
+            onClick={() => {
+              setCustomMomentsPrompt("");
+              syncConfig({ customMomentsPrompt: "" });
+            }}
+            title="Restablecer al prompt original por defecto"
+          >
+            Restablecer por Defecto
+          </button>
+        </div>
+        <textarea
+          className="form-input"
+          rows={6}
+          value={customMomentsPrompt || defaultMomentsPrompt}
+          onChange={(e) => {
+            setCustomMomentsPrompt(e.target.value);
+            syncConfig({ customMomentsPrompt: e.target.value });
+          }}
+          placeholder="Escribe o personaliza las instrucciones del sistema..."
+          style={{ width: "100%", fontSize: "0.78rem", fontFamily: "var(--font-mono, monospace)", lineHeight: "1.4", resize: "vertical" }}
+        />
+        {customMomentsPrompt && (
+          <div style={{ marginTop: "0.4rem", fontSize: "0.72rem", color: "var(--accent-primary)" }}>
+            Prompt personalizado activo. Haz clic en "Restablecer por Defecto" para volver a la configuración estándar.
+          </div>
+        )}
+      </div>
+
       <div style={{ marginTop: "1.5rem", paddingTop: "1rem", borderTop: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <button
           type="button"
@@ -1317,7 +1496,7 @@ function App() {
         </button>
 
         <span style={{ fontSize: "0.75rem", opacity: 0.6 }}>
-          💾 Las configuraciones se guardan automáticamente en tu sistema.
+          Las configuraciones se guardan automáticamente en tu sistema.
         </span>
       </div>
     </div>
@@ -1465,17 +1644,35 @@ function App() {
                     </div>
                     <div className="button-pair">
                       {detail?.transcript && (
-                        <button
-                          type="button"
-                          className="icon-button"
-                          style={{ fontSize: "0.78rem", padding: "0.35rem 0.65rem", display: "inline-flex", alignItems: "center", gap: "4px" }}
-                          onClick={refineTranscript}
-                          disabled={isRefiningTranscript || busy !== "idle"}
-                          title="Corregir ortografía, tildes y jerga gamer preservando los timestamps"
-                        >
-                          {isRefiningTranscript ? <Loader2 className="spin" size={13} /> : <Sparkles size={13} />}
-                          <span>{isRefiningTranscript ? "Puliendo..." : "Pulir con IA"}</span>
-                        </button>
+                        <>
+                          <button
+                            type="button"
+                            className="icon-button"
+                            style={{ fontSize: "0.78rem", padding: "0.35rem 0.65rem", display: "inline-flex", alignItems: "center", gap: "4px" }}
+                            onClick={() => {
+                              setShowCopyModal(true);
+                              if (!copyResult && !isGeneratingCopy) {
+                                void generateSocialCopy();
+                              }
+                            }}
+                            disabled={isGeneratingCopy || busy !== "idle"}
+                            title="Generar copy persuasivo, hooks, CTA y hashtags para redes sociales"
+                          >
+                            <Sparkles size={13} color="var(--accent-primary)" />
+                            <span>Generar Copy con IA</span>
+                          </button>
+                          <button
+                            type="button"
+                            className="icon-button"
+                            style={{ fontSize: "0.78rem", padding: "0.35rem 0.65rem", display: "inline-flex", alignItems: "center", gap: "4px" }}
+                            onClick={refineTranscript}
+                            disabled={isRefiningTranscript || busy !== "idle"}
+                            title="Corregir ortografía, tildes y jerga gamer preservando los timestamps"
+                          >
+                            {isRefiningTranscript ? <Loader2 className="spin" size={13} /> : <Sparkles size={13} />}
+                            <span>{isRefiningTranscript ? "Puliendo..." : "Pulir con IA"}</span>
+                          </button>
+                        </>
                       )}
                       {busy === "transcribe" ? (
                         <button
@@ -2255,6 +2452,36 @@ function App() {
                       Transcripción de Audio
                     </div>
 
+                    {/* Modelo Whisper */}
+                    {transcriptionEngine === "local" && (
+                      <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <label style={{ fontSize: "0.8rem", fontWeight: 600 }}>Modelo de Whisper (Precisión vs VRAM)</label>
+                          <span style={{ fontSize: "0.72rem", color: "var(--accent-primary)", fontWeight: 600 }}>
+                            {whisperModelsList.find((m) => m.id === whisperModel)?.vram || ""} VRAM
+                          </span>
+                        </div>
+                        <select
+                          className="form-select"
+                          value={whisperModel}
+                          onChange={(e) => {
+                            setWhisperModel(e.target.value);
+                            localStorage.setItem("autoshorts_whisper_model", e.target.value);
+                          }}
+                          style={{ width: "100%", padding: "0.45rem 0.6rem", fontSize: "0.82rem", borderRadius: "6px" }}
+                        >
+                          {whisperModelsList.map((m) => (
+                            <option key={m.id} value={m.id}>
+                              {m.name} ({m.vram} VRAM) {m.downloaded ? "[Descargado]" : "[Descargar al usar]"}
+                            </option>
+                          ))}
+                        </select>
+                        <span style={{ fontSize: "0.72rem", opacity: 0.75 }}>
+                          {whisperModelsList.find((m) => m.id === whisperModel)?.description || "Modelo de Whisper para transcripción en GPU."}
+                        </span>
+                      </div>
+                    )}
+
                     <div style={{ display: "flex", alignItems: "flex-start", gap: "0.65rem" }}>
                       <input
                         type="checkbox"
@@ -2287,6 +2514,9 @@ function App() {
                         </label>
                         <span style={{ fontSize: "0.75rem", opacity: 0.75, display: "block", marginTop: "2px" }}>
                           Corrige términos técnicos, jerga gamer y tildes preservando los timestamps exactos de cada palabra.
+                        </span>
+                        <span style={{ fontSize: "0.73rem", color: "#38bdf8", display: "block", marginTop: "4px", lineHeight: "1.4" }}>
+                          Nota de velocidad: En modo rápido añade solo unos segundos por minuto de audio. Si activas el modo razonamiento (thinking) tardará varios minutos adicionales. Desactívalo si buscas transcripción inmediata.
                         </span>
                       </div>
                     </div>
@@ -3089,6 +3319,270 @@ function App() {
                 </div>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {showCopyModal && detail && (
+        <div className="summary-modal-overlay" onClick={() => setShowCopyModal(false)}>
+          <div
+            className="summary-modal"
+            style={{ maxWidth: "760px", width: "95%" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="summary-modal-header">
+              <div>
+                <h3>Generador de Copy para Redes Sociales</h3>
+                <p>Titulares virales (hooks), descripción persuasiva, llamadas a la acción (CTA) y hashtags generados a partir del contenido de tu video.</p>
+              </div>
+              <button
+                type="button"
+                className="icon-button"
+                onClick={() => setShowCopyModal(false)}
+                disabled={isGeneratingCopy}
+                title="Cerrar"
+                style={{ padding: "4px 8px" }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Prompt context and generation bar */}
+            <div style={{ padding: "1rem", borderRadius: "10px", background: "rgba(255, 255, 255, 0.03)", border: "1px solid var(--border)", marginBottom: "1.25rem" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
+                <span style={{ fontSize: "0.82rem", fontWeight: 600 }}>
+                  Contexto o Enfoque Específico (Opcional):
+                </span>
+                <span style={{ fontSize: "0.74rem", opacity: 0.7 }}>
+                  Modelo activo: {llmEngine === "local" ? localLlmModel : llmEngine.toUpperCase()}
+                </span>
+              </div>
+              <div style={{ display: "flex", gap: "0.5rem" }}>
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="Ej: Enfoque para TikTok, tono humorístico gamer, invitar a seguir el stream..."
+                  value={copyExtraContext}
+                  onChange={(e) => setCopyExtraContext(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !isGeneratingCopy) {
+                      void generateSocialCopy();
+                    }
+                  }}
+                  style={{ flex: 1, padding: "0.5rem 0.75rem", fontSize: "0.84rem", borderRadius: "6px" }}
+                />
+                <button
+                  type="button"
+                  className="primary-action"
+                  onClick={() => void generateSocialCopy()}
+                  disabled={isGeneratingCopy}
+                  style={{ padding: "0.5rem 1rem", fontSize: "0.84rem", display: "inline-flex", alignItems: "center", gap: "6px", whiteSpace: "nowrap" }}
+                >
+                  {isGeneratingCopy ? <Loader2 className="spin" size={15} /> : <Sparkles size={15} />}
+                  <span>{isGeneratingCopy ? "Generando..." : copyResult ? "Regenerar Copy" : "Generar Copy"}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Loading state */}
+            {isGeneratingCopy && (
+              <div style={{ padding: "2.5rem 1rem", textAlign: "center" }}>
+                <Loader2 className="spin" size={40} style={{ color: "var(--accent-primary)", margin: "0 auto 1rem" }} />
+                <h4 style={{ margin: "0 0 0.5rem", fontSize: "1.05rem" }}>Analizando Transcripción con IA...</h4>
+                <p style={{ margin: 0, fontSize: "0.82rem", color: "var(--text-secondary)" }}>
+                  Extrayendo ganchos virales, resumen persuasivo, llamada a la acción y etiquetas relevantes...
+                </p>
+              </div>
+            )}
+
+            {/* Content Display */}
+            {!isGeneratingCopy && copyResult && (
+              <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+                {/* Hooks */}
+                <div style={{ padding: "1rem", borderRadius: "10px", background: "rgba(255,255,255,0.02)", border: "1px solid var(--border)" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.6rem" }}>
+                    <span style={{ fontSize: "0.85rem", fontWeight: 700, color: "var(--accent-primary)" }}>
+                      Ganchos Virales (Titulares / Hooks)
+                    </span>
+                    <button
+                      type="button"
+                      className="desc-copy-btn"
+                      style={{ padding: "3px 8px", fontSize: "0.72rem", display: "inline-flex", alignItems: "center", gap: "4px" }}
+                      onClick={() => copyTextToClipboard("hooks", copyResult.hooks.join("\n"))}
+                    >
+                      <Copy size={12} />
+                      <span>{copiedField === "hooks" ? "Copiados" : "Copiar Todos"}</span>
+                    </button>
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "0.45rem" }}>
+                    {copyResult.hooks.map((hook, idx) => (
+                      <div
+                        key={idx}
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                          padding: "0.5rem 0.75rem",
+                          borderRadius: "6px",
+                          background: "rgba(0,0,0,0.25)",
+                          border: "1px solid rgba(255,255,255,0.05)",
+                          fontSize: "0.82rem"
+                        }}
+                      >
+                        <span style={{ flex: 1, marginRight: "0.5rem" }}>{hook}</span>
+                        <button
+                          type="button"
+                          className="icon-button"
+                          style={{ padding: "2px 8px", fontSize: "0.72rem", height: "auto" }}
+                          onClick={() => copyTextToClipboard(`hook-${idx}`, hook)}
+                        >
+                          {copiedField === `hook-${idx}` ? "Copiado" : "Copiar"}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Caption / Descripción */}
+                <div style={{ padding: "1rem", borderRadius: "10px", background: "rgba(255,255,255,0.02)", border: "1px solid var(--border)" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
+                    <span style={{ fontSize: "0.85rem", fontWeight: 700, color: "var(--text-primary)" }}>
+                      Descripción Persuasiva (Caption)
+                    </span>
+                    <button
+                      type="button"
+                      className="desc-copy-btn"
+                      style={{ padding: "3px 8px", fontSize: "0.72rem", display: "inline-flex", alignItems: "center", gap: "4px" }}
+                      onClick={() => copyTextToClipboard("caption", copyResult.caption)}
+                    >
+                      <Copy size={12} />
+                      <span>{copiedField === "caption" ? "Copiado" : "Copiar Descripción"}</span>
+                    </button>
+                  </div>
+                  <p style={{ margin: 0, fontSize: "0.83rem", lineHeight: "1.55", opacity: 0.9, whiteSpace: "pre-wrap" }}>
+                    {copyResult.caption}
+                  </p>
+                </div>
+
+                {/* Call To Action */}
+                <div style={{ padding: "0.85rem 1rem", borderRadius: "10px", background: "rgba(255,255,255,0.02)", border: "1px solid var(--border)" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.4rem" }}>
+                    <span style={{ fontSize: "0.82rem", fontWeight: 700, color: "var(--text-primary)" }}>
+                      Llamada a la Acción (CTA)
+                    </span>
+                    <button
+                      type="button"
+                      className="desc-copy-btn"
+                      style={{ padding: "3px 8px", fontSize: "0.72rem", display: "inline-flex", alignItems: "center", gap: "4px" }}
+                      onClick={() => copyTextToClipboard("cta", copyResult.cta)}
+                    >
+                      <Copy size={12} />
+                      <span>{copiedField === "cta" ? "Copiado" : "Copiar CTA"}</span>
+                    </button>
+                  </div>
+                  <div style={{ fontSize: "0.82rem", color: "var(--accent-primary)", fontWeight: 500 }}>
+                    {copyResult.cta}
+                  </div>
+                </div>
+
+                {/* Hashtags */}
+                <div style={{ padding: "0.85rem 1rem", borderRadius: "10px", background: "rgba(255,255,255,0.02)", border: "1px solid var(--border)" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
+                    <span style={{ fontSize: "0.82rem", fontWeight: 700, color: "var(--text-primary)" }}>
+                      Hashtags Optimizados
+                    </span>
+                    <button
+                      type="button"
+                      className="desc-copy-btn"
+                      style={{ padding: "3px 8px", fontSize: "0.72rem", display: "inline-flex", alignItems: "center", gap: "4px" }}
+                      onClick={() => copyTextToClipboard("hashtags", copyResult.hashtags.join(" "))}
+                    >
+                      <Copy size={12} />
+                      <span>{copiedField === "hashtags" ? "Copiados" : "Copiar Hashtags"}</span>
+                    </button>
+                  </div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "0.4rem" }}>
+                    {copyResult.hashtags.map((tag, idx) => (
+                      <span
+                        key={idx}
+                        style={{
+                          fontSize: "0.76rem",
+                          padding: "2px 8px",
+                          borderRadius: "12px",
+                          background: "rgba(142, 230, 199, 0.12)",
+                          color: "var(--accent-primary)",
+                          border: "1px solid rgba(142, 230, 199, 0.25)"
+                        }}
+                      >
+                        {tag.startsWith("#") ? tag : `#${tag}`}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Full copy */}
+                <div style={{ padding: "1rem", borderRadius: "10px", background: "rgba(0,0,0,0.3)", border: "1px solid var(--border)" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
+                    <span style={{ fontSize: "0.82rem", fontWeight: 700, color: "var(--text-primary)" }}>
+                      Copy Completo Listo para Publicar
+                    </span>
+                    <button
+                      type="button"
+                      className="primary-action"
+                      style={{ padding: "4px 12px", fontSize: "0.78rem", display: "inline-flex", alignItems: "center", gap: "5px" }}
+                      onClick={() => copyTextToClipboard("full", copyResult.full_copy)}
+                    >
+                      <Copy size={13} />
+                      <span>{copiedField === "full" ? "Copiado al Portapapeles" : "Copiar Todo"}</span>
+                    </button>
+                  </div>
+                  <pre
+                    style={{
+                      margin: 0,
+                      padding: "0.75rem",
+                      borderRadius: "6px",
+                      background: "rgba(0,0,0,0.4)",
+                      fontSize: "0.78rem",
+                      fontFamily: "var(--font-mono, monospace)",
+                      whiteSpace: "pre-wrap",
+                      lineHeight: "1.45",
+                      color: "var(--foreground)"
+                    }}
+                  >
+                    {copyResult.full_copy}
+                  </pre>
+                </div>
+              </div>
+            )}
+
+            {!isGeneratingCopy && !copyResult && (
+              <div style={{ padding: "2rem 1rem", textAlign: "center", opacity: 0.75 }}>
+                <p style={{ fontSize: "0.85rem", margin: "0 0 1rem" }}>
+                  Haz clic en el botón para que la IA redacte automáticamente el copy comercial y viral de este video.
+                </p>
+                <button
+                  type="button"
+                  className="primary-action"
+                  onClick={() => void generateSocialCopy()}
+                  style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}
+                >
+                  <Sparkles size={16} />
+                  <span>Generar Copy con IA Ahora</span>
+                </button>
+              </div>
+            )}
+
+            {/* Footer */}
+            <div style={{ marginTop: "1.25rem", paddingTop: "0.9rem", borderTop: "1px solid var(--border)", display: "flex", justifyContent: "flex-end" }}>
+              <button
+                type="button"
+                className="btn-cancel"
+                onClick={() => setShowCopyModal(false)}
+                style={{ padding: "0.45rem 1.2rem", fontSize: "0.84rem" }}
+              >
+                Cerrar
+              </button>
+            </div>
           </div>
         </div>
       )}

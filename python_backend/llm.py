@@ -39,29 +39,44 @@ DURATION_SPECS = {
 }
 
 
-def build_system_prompt(content_type: str = "gaming", target_duration: str = "60s", has_thinking: bool = False) -> str:
+DEFAULT_MOMENTS_PROMPT = """Eres un editor profesional de clips virales para TikTok, YouTube Shorts y Reels.
+Tu misión es encontrar los mejores momentos del video o stream:
+- Jugadas destacadas, clutches, partidas épicas o acción intensa.
+- Momentos divertidos, risas, gritos, enfados, sustos o celebraciones.
+- Fails cómicos, anécdotas, debates, discusiones o explicaciones clave.
+- Remates y frases de alto impacto que enganchen desde el primer segundo."""
+
+
+def build_system_prompt(
+    content_type: str = "gaming",
+    target_duration: str = "60s",
+    has_thinking: bool = False,
+    custom_prompt: Optional[str] = None
+) -> str:
     dur_info = DURATION_SPECS.get(target_duration, DURATION_SPECS["60s"])
     dur_rule = dur_info["instruction"]
 
-    focus_dict = {
-        "gaming": """Eres un editor profesional de clips de GAMING para TikTok, YouTube Shorts y Reels virales.
+    if custom_prompt and custom_prompt.strip():
+        focus_text = custom_prompt.strip()
+    else:
+        focus_dict = {
+            "gaming": """Eres un editor profesional de clips de GAMING para TikTok, YouTube Shorts y Reels virales.
 Tu misión es encontrar los mejores momentos de gameplays, directos o torneos:
 - Jugadas destacadas, clutches, kills o partidas épicas.
 - Momentos divertidos, risas, gritos, enfados (rage), sustos o celebraciones.
 - Fails cómicos, bugs o troleos.
 - Anuncios de torneos, retos 1v1, fechas o reglas del juego.
 - Remates y anécdotas entretenidas.""",
-        "tutorial": """Eres un editor profesional de contenido educativo, tutoriales y avisos para Shorts/Reels/TikTok.
+            "tutorial": """Eres un editor profesional de contenido educativo, tutoriales y avisos para Shorts/Reels/TikTok.
 Tu misión es encontrar los mejores segmentos con valor informativo:
 - Explicaciones claras de cómo hacer algo o resolver un problema.
 - Trucos (tips, hacks) o configuraciones clave.
 - Anuncios oficiales, convocatorias o fechas importantes.""",
-        "podcast": """Eres un estratega de redes sociales buscando momentos virales en podcasts, entrevistas y charlas.
+            "podcast": """Eres un estratega de redes sociales buscando momentos virales en podcasts, entrevistas y charlas.
 Tu misión es encontrar historias fascinantes, opiniones controvertidas o lecciones impactantes.""",
-        "general": """Eres un editor profesional de videos cortos virales para TikTok, Shorts y Reels.
-Tu misión es identificar los fragmentos más entretenidos, dinámicos y compartibles."""
-    }
-    focus_text = focus_dict.get(content_type, focus_dict["gaming"])
+            "general": DEFAULT_MOMENTS_PROMPT
+        }
+        focus_text = focus_dict.get(content_type, focus_dict["gaming"])
 
     thinking_guide = ""
     if has_thinking:
@@ -341,10 +356,11 @@ def call_ollama(
     model_name: str = "qwen2.5:7b",
     content_type: str = "gaming",
     target_duration: str = "60s",
-    enable_thinking: bool = False
+    enable_thinking: bool = False,
+    custom_prompt: Optional[str] = None
 ) -> str:
     has_thinking = enable_thinking and detect_model_thinking_capability(model_name)
-    system_prompt = build_system_prompt(content_type, target_duration, has_thinking=has_thinking)
+    system_prompt = build_system_prompt(content_type, target_duration, has_thinking=has_thinking, custom_prompt=custom_prompt)
     url = "http://127.0.0.1:11434/api/chat"
 
     payload: Dict[str, Any] = {
@@ -447,9 +463,10 @@ def call_cloud_llm(
     prompt: str,
     model_name: Optional[str] = None,
     content_type: str = "gaming",
-    target_duration: str = "60s"
+    target_duration: str = "60s",
+    custom_prompt: Optional[str] = None
 ) -> str:
-    system_prompt = build_system_prompt(content_type, target_duration)
+    system_prompt = build_system_prompt(content_type, target_duration, custom_prompt=custom_prompt)
     full_prompt = f"{system_prompt}\n\n{prompt}"
 
     if provider == "openrouter":
@@ -644,7 +661,8 @@ def detect_candidates_pipeline(
     enable_thinking: bool = False,
     on_progress: Optional[Callable[[str, int, int], None]] = None,
     is_cancelled: Optional[Callable[[], bool]] = None,
-    audio_path: Optional[str] = None
+    audio_path: Optional[str] = None,
+    custom_prompt: Optional[str] = None
 ) -> List[Dict[str, Any]]:
     """
     Main detection pipeline using Chunking ("Divide y Vencerás").
@@ -717,7 +735,8 @@ def detect_candidates_pipeline(
                         model_name=model,
                         content_type=content_type,
                         target_duration=target_duration,
-                        enable_thinking=enable_thinking
+                        enable_thinking=enable_thinking,
+                        custom_prompt=custom_prompt
                     )
                 else:
                     resp_text = call_cloud_llm(
@@ -726,7 +745,8 @@ def detect_candidates_pipeline(
                         prompt_text,
                         model_name=model_name,
                         content_type=content_type,
-                        target_duration=target_duration
+                        target_duration=target_duration,
+                        custom_prompt=custom_prompt
                     )
 
                 print(f"LLM Response:\n{resp_text}")
@@ -1142,3 +1162,99 @@ def refine_transcript_with_llm(
             unload_all_ollama_models(model_name)
 
     return refined_segments
+
+
+def generate_social_copy_with_llm(
+    transcript_text: str,
+    model_name: str = "qwen2.5:7b",
+    provider: str = "local",
+    api_key: Optional[str] = None,
+    enable_thinking: bool = False,
+    extra_context: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Generates high-retention viral social media copy (hooks, main post caption, CTA, hashtags)
+    from a video transcript using Ollama or Cloud LLM.
+    """
+    has_thinking = enable_thinking and detect_model_thinking_capability(model_name)
+
+    system_prompt = """Eres un estratega senior de contenido viral y copywriter profesional para TikTok, Instagram Reels, YouTube Shorts y X.
+Tu objetivo es analizar la transcripción del video y redactar un paquete de copywriting irresistible, diseñado para maximizar visualizaciones, retención y comentarios.
+
+Responde estrictamente en formato JSON con la siguiente estructura:
+{
+  "hooks": [
+    "Gancho 1: Pregunta intrigante o afirmación impactante",
+    "Gancho 2: Curiosidad extrema o sorpresa",
+    "Gancho 3: Frase directa con llamado de atención"
+  ],
+  "caption": "Texto persuasivo de 2 a 4 líneas que resuma lo más interesante sin hacer spoiler del final, listo para pegar en la descripción del post.",
+  "cta": "Llamado a la acción invitando a opinar en comentarios o compartir con un amigo.",
+  "hashtags": ["#gaming", "#clipviral", "#shorts", "#tendencia", "#humor"],
+  "full_copy": "Texto completo formateado listo para copiar y pegar en redes (incluyendo el mejor gancho, descripción, CTA y hashtags)."
+}
+
+IMPORTANTE: Escribe en Español natural, convincente y sin rodeos."""
+
+    user_prompt = f"Transcripción del video:\n{transcript_text[:6000]}"
+    if extra_context:
+        user_prompt += f"\n\nContexto adicional: {extra_context}"
+
+    content = ""
+    try:
+        if provider in ["local", "ollama"]:
+            url = "http://127.0.0.1:11434/api/chat"
+            payload = {
+                "model": model_name,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                "stream": False,
+                "options": {"temperature": 0.5, "num_ctx": 8192}
+            }
+            if not has_thinking:
+                payload["think"] = False
+                payload["format"] = "json"
+            else:
+                payload["think"] = True
+
+            resp = requests.post(url, json=payload, timeout=120)
+            if not resp.ok:
+                raise RuntimeError(f"Ollama call failed ({resp.status_code}): {resp.text}")
+            content = resp.json().get("message", {}).get("content", "")
+        else:
+            content = call_cloud_llm(
+                provider=provider,
+                api_key=api_key or "",
+                prompt=user_prompt,
+                model_name=model_name
+            )
+    finally:
+        if provider in ["local", "ollama"]:
+            unload_all_ollama_models(model_name)
+
+    # Clean and parse JSON
+    if "<think>" in content:
+        content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
+    if "<think>" in content:
+        content = re.sub(r"<think>.*$", "", content, flags=re.DOTALL).strip()
+
+    # Extract JSON block
+    m = re.search(r"(\{.*\})", content, re.DOTALL)
+    if m:
+        try:
+            return json.loads(m.group(1))
+        except Exception:
+            pass
+
+    # Fallback if raw text returned
+    lines = [l.strip() for l in content.splitlines() if l.strip()]
+    return {
+        "hooks": lines[:3] if len(lines) >= 3 else ["¡No te pierdas este momento!", "Mira lo que pasó aquí", "El final te va a sorprender"],
+        "caption": content[:300] if content else "¡Mira este increíble clip recién salido del horno! Cuéntanos qué opinas.",
+        "cta": "¿Tú qué hubieras hecho en esta situación? Déjamelo en los comentarios.",
+        "hashtags": ["#viral", "#shorts", "#video", "#fyp", "#clips"],
+        "full_copy": content or "¡Increíble momento! ¿Qué opinas? Déjamelo en los comentarios 👇 #viral #shorts"
+    }
+

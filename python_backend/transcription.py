@@ -7,6 +7,40 @@ import requests
 warnings.filterwarnings("ignore", message=".*Triton.*")
 
 
+WHISPER_SPECS = {
+    "tiny": {"vram": "~1 GB", "desc": "Ultra rápido, precisión básica", "recommended": False},
+    "base": {"vram": "~1.5 GB", "desc": "Rápido y ligero", "recommended": False},
+    "small": {"vram": "~2.5 GB", "desc": "Equilibrado", "recommended": False},
+    "medium": {"vram": "~5 GB", "desc": "Buena precisión", "recommended": False},
+    "large-v3-turbo": {"vram": "~6 GB", "desc": "Alta precisión y velocidad optimizada (Recomendado para RTX 2060 12GB)", "recommended": True},
+    "large-v3": {"vram": "~10 GB", "desc": "Máxima precisión en español y jerga (Alto consumo de VRAM)", "recommended": False},
+}
+
+
+def get_installed_whisper_models() -> List[Dict[str, Any]]:
+    cache_dir = os.path.expanduser("~/.cache/whisper")
+    installed_files = set()
+    if os.path.exists(cache_dir):
+        for f in os.listdir(cache_dir):
+            if f.endswith(".pt"):
+                installed_files.add(f[:-3])
+
+    models = []
+    ordered_ids = ["base", "large-v3-turbo", "large-v3", "small", "medium", "tiny"]
+    for mid in ordered_ids:
+        spec = WHISPER_SPECS.get(mid, {"vram": "~2 GB", "desc": "Modelo estándar", "recommended": False})
+        is_installed = mid in installed_files or (mid == "large-v3-turbo" and "turbo" in installed_files)
+        models.append({
+            "id": mid,
+            "name": mid,
+            "vram": spec["vram"],
+            "desc": spec["desc"],
+            "recommended": spec["recommended"],
+            "downloaded": is_installed
+        })
+    return models
+
+
 def whisper_available() -> bool:
     try:
         import whisper
