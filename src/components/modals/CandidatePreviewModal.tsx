@@ -67,22 +67,22 @@ export function CandidatePreviewModal({
           </div>
 
           {/* Ajuste Fino de Recorte (Trim Controls) */}
-          <div style={{ marginTop: "1rem", padding: "0.85rem", borderRadius: "8px", background: "rgba(255,255,255,0.03)", border: "1px solid var(--border)" }}>
+          <div style={{ marginTop: "1rem", padding: "0.85rem", borderRadius: "8px", background: "var(--bg-surface)", border: "1px solid var(--border-default)" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.6rem" }}>
-              <span style={{ fontWeight: 600, fontSize: "0.82rem", letterSpacing: "0.02em" }}>
+              <span style={{ fontWeight: 600, fontSize: "0.82rem", letterSpacing: "0.02em", color: "var(--text-secondary)" }}>
                 AJUSTE FINO DE RECORTE (TRIM)
               </span>
-              <span style={{ fontSize: "0.78rem", color: "var(--accent-primary)", fontWeight: 600 }}>
+              <span style={{ fontSize: "0.78rem", color: "#fafafa", fontWeight: 600, fontFamily: "var(--font-mono)", fontVariantNumeric: "tabular-nums" }}>
                 Duración: {Math.max(0, trimEnd - trimStart).toFixed(1)}s
               </span>
             </div>
 
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem", marginBottom: "0.75rem" }}>
               {/* Inicio */}
-              <div style={{ background: "rgba(0,0,0,0.2)", padding: "0.5rem 0.65rem", borderRadius: "6px", border: "1px solid rgba(255,255,255,0.06)" }}>
+              <div style={{ background: "var(--bg-base)", padding: "0.5rem 0.65rem", borderRadius: "6px", border: "1px solid var(--border-default)" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.35rem" }}>
-                  <span style={{ fontSize: "0.75rem", opacity: 0.8 }}>Inicio: <strong>{formatTime(trimStart)}</strong></span>
-                  <span style={{ fontSize: "0.72rem", opacity: 0.6 }}>{trimStart.toFixed(1)}s</span>
+                  <span style={{ fontSize: "0.75rem", opacity: 0.8 }}>Inicio: <strong style={{ fontFamily: "var(--font-mono)", fontVariantNumeric: "tabular-nums" }}>{formatTime(trimStart)}</strong></span>
+                  <span style={{ fontSize: "0.72rem", opacity: 0.6, fontFamily: "var(--font-mono)", fontVariantNumeric: "tabular-nums" }}>{trimStart.toFixed(1)}s</span>
                 </div>
                 <div style={{ display: "flex", gap: "0.3rem" }}>
                   <button

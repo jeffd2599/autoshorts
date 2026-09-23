@@ -533,6 +533,7 @@ class Api:
     def render_flat_clip_for_candidate(self, args: Any) -> str:
         candidate_id = args.get("candidateId") if isinstance(args, dict) else args
         custom_dir = args.get("outputDir") if isinstance(args, dict) else None
+        aspect_ratio = args.get("aspectRatio", "original") if isinstance(args, dict) else "original"
 
         candidate, project = self.db.get_candidate_with_project(candidate_id)
         self.db.update_clip_for_candidate(candidate_id, "cutting")
@@ -573,7 +574,10 @@ class Api:
                     probe = probe_media(project["sourcePath"])
                     iw = probe.get("width") or 1920
                     ih = probe.get("height") or 1080
-                    cropped_width = int(round(min(iw, ih * 9 / 16)))
+                    if aspect_ratio == "9:16":
+                        cropped_width = int(round(min(iw, ih * 9 / 16)))
+                    else:
+                        cropped_width = int(iw)
                     drawtext_filters = build_drawtext_filters(
                         words=words,
                         start_sec=candidate["startSec"],
@@ -589,7 +593,8 @@ class Api:
             start_sec=candidate["startSec"],
             end_sec=candidate["endSec"],
             output_path=output_path,
-            drawtext_filters=drawtext_filters
+            drawtext_filters=drawtext_filters,
+            aspect_ratio=aspect_ratio
         )
 
         self.db.update_clip_for_candidate(

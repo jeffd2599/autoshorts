@@ -192,10 +192,10 @@ export function StyleModal({
                     onClick={() => setSelectedStyle("none")}
                   >
                     <div className="style-preview-box">
-                      <span style={{ fontSize: "0.75rem", fontWeight: "bold", opacity: 0.85, color: "var(--accent-primary)" }}>[VIDEO LIMPIO 9:16]</span>
+                      <span style={{ fontSize: "0.75rem", fontWeight: "bold", opacity: 0.85, color: "var(--accent-primary)" }}>[VIDEO LIMPIO RAW]</span>
                     </div>
                     <div className="style-card-title">Sin Subtítulos (Raw)</div>
-                    <div className="style-card-desc">Corte vertical limpio sin texto quemado. Incluye el archivo .SRT aparte para edición manual.</div>
+                    <div className="style-card-desc">Corte limpio sin texto quemado (conserva formato original o 9:16 vertical). Incluye el archivo .SRT aparte para edición manual.</div>
                   </div>
 
                   <div

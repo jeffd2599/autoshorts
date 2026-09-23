@@ -51,32 +51,18 @@ export function Sidebar({
       </div>
 
       <button className="primary-action" onClick={onImportMedia} disabled={busy !== "idle"}>
-        {busy === "import" ? <Loader2 className="spin" size={18} /> : <FileVideo size={18} />}
-        Import recording
+        {busy === "import" ? <Loader2 className="spin" size={16} /> : <FileVideo size={16} />}
+        <span>Importar Grabación</span>
       </button>
       <button
         className="secondary-action"
         onClick={onOpenYoutubeModal}
         disabled={busy !== "idle" || !hasYtdlp}
-        title={!hasYtdlp ? "Please install yt-dlp to use this feature" : "Download a video from YouTube"}
-        style={{
-          width: "100%",
-          padding: "0.75rem",
-          borderRadius: "10px",
-          marginTop: "0.5rem",
-          display: "flex",
-          gap: "0.5rem",
-          alignItems: "center",
-          justifyContent: "center",
-          border: "1px solid var(--border)",
-          background: "transparent",
-          color: "var(--foreground)",
-          cursor: "pointer",
-          fontSize: "0.95rem"
-        }}
+        title={!hasYtdlp ? "Instala yt-dlp para habilitar esta función" : "Descargar video desde YouTube"}
+        style={{ marginTop: "4px" }}
       >
-        <Youtube size={18} />
-        Import from YouTube
+        <Youtube size={16} />
+        <span>Importar de YouTube</span>
       </button>
 
       <section className="project-list" aria-label="Projects">
@@ -84,9 +70,9 @@ export function Sidebar({
           className={`project-row ${!activeProjectId ? "active" : ""}`}
           onClick={() => onSelectProject(null)}
         >
-          <Clapperboard size={15} />
-          <span>All Projects</span>
-          <ChevronRight size={14} />
+          <Clapperboard size={14} />
+          <span>Todos los Proyectos</span>
+          <ChevronRight size={13} />
         </button>
 
         {projects.map((project) => (

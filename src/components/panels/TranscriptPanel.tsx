@@ -73,16 +73,17 @@ export function TranscriptPanel({
               className="btn-cancel"
               onClick={onCancelTranscription}
               style={{
-                background: "#ef4444",
-                color: "#ffffff",
-                border: "none",
+                background: "rgba(239, 68, 68, 0.12)",
+                color: "#f87171",
+                border: "1px solid #ef4444",
                 fontWeight: 600,
                 cursor: "pointer",
                 display: "flex",
                 alignItems: "center",
                 gap: "0.4rem",
                 padding: "0.4rem 0.8rem",
-                borderRadius: "6px"
+                borderRadius: "6px",
+                fontSize: "0.82rem",
               }}
               title="Detener transcripción y liberar recursos"
             >
@@ -90,31 +91,40 @@ export function TranscriptPanel({
               Cancelar Transcripción
             </button>
           ) : (
-            <button onClick={onTranscribe} disabled={busy !== "idle" || !canTranscribe}>
+            <button
+              onClick={onTranscribe}
+              disabled={busy !== "idle" || !canTranscribe}
+              style={{
+                background: busy !== "idle" || !canTranscribe ? "var(--bg-surface-raised)" : "#fafafa",
+                color: busy !== "idle" || !canTranscribe ? "var(--text-muted)" : "#09090b",
+                border: busy !== "idle" || !canTranscribe ? "1px solid var(--border-default)" : "1px solid #fafafa",
+                fontWeight: 600,
+              }}
+            >
               <AudioLines size={16} />
-              Transcribe
+              Transcribir
             </button>
           )}
         </div>
       </div>
 
       {(busy === "transcribe" || isRefiningTranscript) && (
-        <div style={{ padding: "0.6rem 1rem", background: "rgba(99, 102, 241, 0.06)", borderBottom: "1px solid var(--border)" }}>
+        <div style={{ padding: "0.6rem 1rem", background: "var(--bg-surface-raised)", borderBottom: "1px solid var(--border-default)" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.35rem", fontSize: "0.78rem" }}>
-            <span style={{ color: "var(--foreground)", fontWeight: 600 }}>
+            <span style={{ color: "var(--text-primary)", fontWeight: 600 }}>
               {transcriptionProgress?.message || (isRefiningTranscript ? "Puliendo transcripción con IA..." : "Transcribiendo con Whisper...")}
             </span>
-            <span style={{ color: "var(--accent-primary)", fontWeight: 700 }}>
+            <span style={{ color: "#fafafa", fontWeight: 700, fontFamily: "var(--font-mono)", fontVariantNumeric: "tabular-nums" }}>
               {transcriptionProgress?.percentage ?? 0}%
             </span>
           </div>
-          <div style={{ width: "100%", height: "6px", background: "rgba(255,255,255,0.06)", borderRadius: "3px", overflow: "hidden" }}>
+          <div style={{ width: "100%", height: "4px", background: "var(--bg-base)", borderRadius: "2px", overflow: "hidden" }}>
             <div
               style={{
                 width: `${Math.min(100, Math.max(0, transcriptionProgress?.percentage ?? 0))}%`,
                 height: "100%",
-                background: "linear-gradient(90deg, #6366f1 0%, #10b981 100%)",
-                transition: "width 0.3s ease",
+                background: "#fafafa",
+                transition: "width 0.25s ease",
               }}
             />
           </div>

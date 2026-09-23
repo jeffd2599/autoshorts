@@ -40,56 +40,36 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
     <div className="home-dashboard">
       <header className="home-header">
         <div>
-          <h2>All Projects</h2>
-          <p>Select a project below or import a new media file to get started.</p>
+          <h2>Todos los Proyectos</h2>
+          <p>Selecciona un proyecto o importa un nuevo video para comenzar.</p>
         </div>
-        <button className="primary-action compact" onClick={importMedia} disabled={busy !== "idle"}>
-          {busy === "import" ? <Loader2 className="spin" size={18} /> : <FileVideo size={18} />}
-          Import recording
-        </button>
-        <button
-          className="secondary-action compact"
-          onClick={() => setYoutubeModalOpen(true)}
-          disabled={busy !== "idle" || !environment?.hasYtdlp}
-          title={!environment?.hasYtdlp ? "Please install yt-dlp to use this feature" : "Download a video from YouTube"}
-          style={{
-            display: "flex",
-            gap: "0.5rem",
-            alignItems: "center",
-            padding: "0.5rem 1rem",
-            borderRadius: "8px",
-            border: "1px solid var(--border)",
-            background: "transparent",
-            color: "var(--foreground)",
-            cursor: "pointer",
-            fontSize: "0.95rem",
-            marginLeft: "1rem",
-          }}
-        >
-          <Youtube size={18} />
-          Import from YouTube
-        </button>
-        <button
-          className={`secondary-action compact ${showSettings ? "active" : ""}`}
-          onClick={() => setShowSettings(!showSettings)}
-          title="Configuración de Modelos e Inteligencia Artificial"
-          style={{
-            display: "flex",
-            gap: "0.5rem",
-            alignItems: "center",
-            padding: "0.5rem 1rem",
-            borderRadius: "8px",
-            border: "1px solid var(--border)",
-            background: showSettings ? "rgba(16, 185, 129, 0.15)" : "transparent",
-            color: "var(--foreground)",
-            cursor: "pointer",
-            fontSize: "0.95rem",
-            marginLeft: "0.75rem",
-          }}
-        >
-          <SlidersHorizontal size={18} />
-          Configuración & APIs
-        </button>
+        <div style={{ display: "flex", alignItems: "center", gap: "8px", marginLeft: "auto" }}>
+          <button className="primary-action compact" onClick={importMedia} disabled={busy !== "idle"}>
+            {busy === "import" ? <Loader2 className="spin" size={16} /> : <FileVideo size={16} />}
+            <span>Importar Grabación</span>
+          </button>
+          <button
+            className="secondary-action compact"
+            onClick={() => setYoutubeModalOpen(true)}
+            disabled={busy !== "idle" || !environment?.hasYtdlp}
+            title={!environment?.hasYtdlp ? "Instala yt-dlp para habilitar esta función" : "Descargar video desde YouTube"}
+          >
+            <Youtube size={16} />
+            <span>Importar de YouTube</span>
+          </button>
+          <button
+            className={`secondary-action compact ${showSettings ? "active" : ""}`}
+            onClick={() => setShowSettings(!showSettings)}
+            title="Configuración de Modelos e Inteligencia Artificial"
+            style={{
+              background: showSettings ? "var(--bg-surface-hover)" : "var(--bg-surface-raised)",
+              borderColor: showSettings ? "var(--border-hover)" : "var(--border-default)",
+            }}
+          >
+            <SlidersHorizontal size={16} />
+            <span>Configuración & APIs</span>
+          </button>
+        </div>
       </header>
 
       {showSettings && settingsNode}
@@ -111,13 +91,13 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
                 </div>
                 <div className="project-card-actions">
                   <button className="action-btn open-btn" onClick={() => void selectProject(project.id)}>
-                    Open
+                    Abrir
                   </button>
                   <button className="action-btn rename-btn" onClick={() => void renameProject(project.id)}>
-                    Rename
+                    Renombrar
                   </button>
                   <button className="action-btn delete-btn" onClick={() => void deleteProject(project.id)}>
-                    Delete
+                    Eliminar
                   </button>
                 </div>
               </article>

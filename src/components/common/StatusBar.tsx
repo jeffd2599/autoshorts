@@ -20,28 +20,28 @@ export const StatusBar: React.FC<StatusBarProps> = ({
   return (
     <footer className="status-bar">
       <div className="status-bar-left" style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
-        <span className="app-status-indicator">System Ready</span>
+        <span className="app-status-indicator" style={{ fontFamily: "var(--font-mono)", fontSize: "0.72rem" }}>System Ready</span>
         {telemetry && (
-          <div style={{ display: "flex", alignItems: "center", gap: "0.85rem", fontSize: "0.74rem", opacity: 0.85 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "1rem", fontSize: "0.74rem", fontFamily: "var(--font-mono)", fontVariantNumeric: "tabular-nums", color: "var(--text-secondary)" }}>
             <span style={{ display: "inline-flex", alignItems: "center", gap: "4px" }} title="Uso de Procesador (CPU)">
-              <Cpu size={13} color="var(--accent-primary)" />
+              <Cpu size={12} color="#a1a1aa" />
               <span>CPU: {telemetry.cpuUsagePercent}%</span>
             </span>
             {telemetry.hasGpu && (
               <>
                 <span style={{ display: "inline-flex", alignItems: "center", gap: "4px" }} title={telemetry.gpuName}>
-                  <Activity size={13} color="#10b981" />
+                  <Activity size={12} color="#10b981" />
                   <span>GPU: {telemetry.gpuUsagePercent}%</span>
                 </span>
                 <span style={{ display: "inline-flex", alignItems: "center", gap: "4px" }} title="Memoria de Video VRAM Usada">
-                  <Database size={13} color="#f59e0b" />
+                  <Database size={12} color="#f59e0b" />
                   <span>
                     VRAM: {(telemetry.vramUsedMb / 1024).toFixed(1)} / {(telemetry.vramTotalMb / 1024).toFixed(1)} GB ({telemetry.vramUsagePercent}%)
                   </span>
                 </span>
                 {telemetry.gpuTempC > 0 && (
                   <span style={{ display: "inline-flex", alignItems: "center", gap: "4px" }} title="Temperatura de GPU">
-                    <Thermometer size={13} color={telemetry.gpuTempC > 75 ? "#ef4444" : "#10b981"} />
+                    <Thermometer size={12} color={telemetry.gpuTempC > 75 ? "#ef4444" : "#10b981"} />
                     <span>{telemetry.gpuTempC}°C</span>
                   </span>
                 )}

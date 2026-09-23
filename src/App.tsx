@@ -69,6 +69,7 @@ export function App() {
   const [showSummaryModal, setShowSummaryModal] = useState(false);
   const [summaryTargetMinutes, setSummaryTargetMinutes] = useState<number>(8);
   const [summaryAspectRatio, setSummaryAspectRatio] = useState<"original" | "9:16">("original");
+  const [clipAspectRatio, setClipAspectRatio] = useState<"original" | "9:16">("original");
   const [summaryVibe, setSummaryVibe] = useState<"balanced" | "tryhard" | "funny">("balanced");
   const [summaryStatus, setSummaryStatus] = useState<"idle" | "rendering" | "done">("idle");
   const [summaryProgressMsg, setSummaryProgressMsg] = useState<string>("");
@@ -1037,6 +1038,7 @@ export function App() {
       await invoke<string>("render_flat_clip_for_candidate", {
         candidateId,
         outputDir: customOutputDir || null,
+        aspectRatio: clipAspectRatio,
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -1057,6 +1059,7 @@ export function App() {
         await invoke<string>("render_flat_clip_for_candidate", {
           candidateId: candidate.id,
           outputDir: customOutputDir || null,
+          aspectRatio: clipAspectRatio,
         });
       }
     } catch (err) {
@@ -1246,6 +1249,8 @@ export function App() {
                   cutCandidate={cutCandidate}
                   renderingCandidateId={renderingCandidateId}
                   candidateProgress={candidateProgress}
+                  aspectRatio={clipAspectRatio}
+                  setAspectRatio={setClipAspectRatio}
                 />
               </div>
             </>

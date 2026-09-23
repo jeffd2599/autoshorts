@@ -43,11 +43,12 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
             <span
               style={{
                 fontSize: "0.72rem",
-                padding: "1px 8px",
-                borderRadius: "10px",
-                background: "rgba(99, 102, 241, 0.12)",
-                border: "1px solid rgba(99, 102, 241, 0.25)",
-                color: "var(--accent-primary)",
+                padding: "2px 8px",
+                borderRadius: "4px",
+                background: "var(--bg-surface-raised)",
+                border: "1px solid var(--border-default)",
+                color: "var(--text-secondary)",
+                fontFamily: "var(--font-mono)",
                 fontWeight: 500,
               }}
             >
@@ -70,18 +71,17 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
               display: "inline-flex",
               alignItems: "center",
               gap: "6px",
-              background: "linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)",
-              color: "#fff",
-              border: "none",
+              background: detail.candidates.length === 0 ? "var(--bg-surface-raised)" : "#fafafa",
+              color: detail.candidates.length === 0 ? "var(--text-muted)" : "#09090b",
+              border: detail.candidates.length === 0 ? "1px solid var(--border-default)" : "1px solid #fafafa",
               padding: "0.45rem 0.9rem",
-              borderRadius: "8px",
+              borderRadius: "6px",
               fontWeight: 600,
               fontSize: "0.85rem",
               cursor: detail.candidates.length === 0 ? "not-allowed" : "pointer",
-              opacity: detail.candidates.length === 0 ? 0.5 : 1,
             }}
           >
-            <Clapperboard size={16} />
+            <Clapperboard size={15} />
             <span>Autoeditar Resumen</span>
           </button>
           <button

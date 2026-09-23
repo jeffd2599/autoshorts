@@ -7,6 +7,7 @@ import {
   Play,
   Check,
   Copy,
+  Ratio,
 } from "lucide-react";
 import type {
   Candidate,
@@ -18,7 +19,6 @@ import type {
   EnvironmentStatus,
 } from "../../types";
 import { formatTime } from "../../utils/format";
-import { EmptyState } from "../common/EmptyState";
 
 interface CandidatePanelProps {
   detail: ProjectDetail;
@@ -30,6 +30,8 @@ interface CandidatePanelProps {
   canUseActiveLlm: boolean;
   targetDuration: TargetDuration;
   setTargetDuration: (dur: TargetDuration) => void;
+  aspectRatio: "original" | "9:16";
+  setAspectRatio: (val: "original" | "9:16") => void;
   enableThinking: boolean;
   setEnableThinking: (val: boolean) => void;
   cutSelected: () => void;
@@ -55,6 +57,8 @@ export const CandidatePanel: React.FC<CandidatePanelProps> = ({
   canUseActiveLlm,
   targetDuration,
   setTargetDuration,
+  aspectRatio,
+  setAspectRatio,
   enableThinking,
   setEnableThinking,
   cutSelected,
@@ -75,7 +79,7 @@ export const CandidatePanel: React.FC<CandidatePanelProps> = ({
         <div>
           <h3>Clip Candidates</h3>
           <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginTop: "2px" }}>
-            <span style={{ fontSize: "0.8rem", opacity: 0.75 }}>
+            <span style={{ fontSize: "0.8rem", color: "var(--text-secondary)", fontFamily: "var(--font-mono)", fontVariantNumeric: "tabular-nums" }}>
               {detail.candidates.length ? `${selectedCount} seleccionados` : "Sin candidatos"}
             </span>
             <span
@@ -83,9 +87,10 @@ export const CandidatePanel: React.FC<CandidatePanelProps> = ({
                 fontSize: "0.72rem",
                 padding: "1px 6px",
                 borderRadius: "4px",
-                background: "rgba(255,255,255,0.06)",
-                border: "1px solid var(--border)",
-                color: "var(--accent-primary)",
+                background: "var(--bg-surface)",
+                border: "1px solid var(--border-default)",
+                color: "var(--text-secondary)",
+                fontFamily: "var(--font-mono)",
               }}
             >
               IA: {llmEngine === "local" ? localLlmModel || "Ollama" : llmEngine.toUpperCase()}
@@ -93,7 +98,16 @@ export const CandidatePanel: React.FC<CandidatePanelProps> = ({
           </div>
         </div>
         <div className="button-pair">
-          <button onClick={cutSelected} disabled={busy !== "idle" || selectedCount === 0 || !environment?.hasFfmpeg}>
+          <button
+            onClick={cutSelected}
+            disabled={busy !== "idle" || selectedCount === 0 || !environment?.hasFfmpeg}
+            style={{
+              background: busy !== "idle" || selectedCount === 0 ? "var(--bg-surface-raised)" : "#fafafa",
+              color: busy !== "idle" || selectedCount === 0 ? "var(--text-muted)" : "#09090b",
+              border: busy !== "idle" || selectedCount === 0 ? "1px solid var(--border-default)" : "1px solid #fafafa",
+              fontWeight: 600,
+            }}
+          >
             {busy === "cut" ? <Loader2 className="spin" size={16} /> : <Scissors size={16} />}
             Cortar ({selectedCount})
           </button>
@@ -106,20 +120,30 @@ export const CandidatePanel: React.FC<CandidatePanelProps> = ({
               style={{
                 padding: "0.4rem 0.8rem",
                 fontSize: "0.82rem",
-                background: "rgba(239, 68, 68, 0.15)",
+                background: "rgba(239, 68, 68, 0.12)",
                 border: "1px solid #ef4444",
                 color: "#f87171",
                 cursor: "pointer",
                 display: "inline-flex",
                 alignItems: "center",
                 gap: "6px",
+                borderRadius: "6px",
+                fontWeight: 600,
               }}
             >
               <Loader2 className="spin" size={14} />
               Cancelar Búsqueda
             </button>
           ) : (
-            <button onClick={() => void moments(false)} disabled={busy !== "idle" || !detail.transcript || !canUseActiveLlm}>
+            <button
+              onClick={() => void moments(false)}
+              disabled={busy !== "idle" || !detail.transcript || !canUseActiveLlm}
+              style={{
+                background: "var(--bg-surface-raised)",
+                color: "var(--text-primary)",
+                border: "1px solid var(--border-default)",
+              }}
+            >
               <Sparkles size={16} />
               Buscar Momentos
             </button>
@@ -127,46 +151,102 @@ export const CandidatePanel: React.FC<CandidatePanelProps> = ({
         </div>
       </div>
 
+      {/* Control bar: Duration, Aspect Ratio, Thinking Mode */}
       <div
         style={{
           display: "flex",
+          flexWrap: "wrap",
           alignItems: "center",
           justifyContent: "space-between",
-          padding: "0.4rem 1rem",
-          background: "rgba(255,255,255,0.02)",
-          borderBottom: "1px solid var(--border)",
+          gap: "0.6rem",
+          padding: "0.5rem 1rem",
+          background: "var(--bg-surface)",
+          borderBottom: "1px solid var(--border-default)",
           fontSize: "0.78rem",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
-          <span style={{ opacity: 0.8 }}>Duración Objetivo:</span>
-          <div style={{ display: "flex", gap: "0.35rem" }}>
-            {(["30s", "60s", "2m", "3m", "5m"] as const).map((dur) => (
-              <button
-                key={dur}
-                type="button"
-                onClick={() => {
-                  setTargetDuration(dur);
-                  localStorage.setItem("autoshorts_target_duration", dur);
-                }}
-                disabled={busy !== "idle"}
-                style={{
-                  padding: "0.2rem 0.55rem",
-                  borderRadius: "4px",
-                  border: targetDuration === dur ? "1px solid var(--accent-primary)" : "1px solid var(--border)",
-                  background: targetDuration === dur ? "rgba(99, 102, 241, 0.2)" : "transparent",
-                  color: targetDuration === dur ? "var(--accent-primary)" : "var(--foreground)",
-                  cursor: "pointer",
-                  fontSize: "0.74rem",
-                  fontWeight: targetDuration === dur ? 600 : 400,
-                }}
-              >
-                {dur === "30s" ? "30 seg" : dur === "60s" ? "1 min" : dur === "2m" ? "2 min" : dur === "3m" ? "3 min" : "5 min"}
-              </button>
-            ))}
+        {/* Duración */}
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+          <span style={{ color: "var(--text-secondary)", fontSize: "0.75rem" }}>Duración:</span>
+          <div style={{ display: "flex", gap: "0.25rem" }}>
+            {(["30s", "60s", "2m", "3m", "5m"] as const).map((dur) => {
+              const active = targetDuration === dur;
+              return (
+                <button
+                  key={dur}
+                  type="button"
+                  onClick={() => {
+                    setTargetDuration(dur);
+                    localStorage.setItem("autoshorts_target_duration", dur);
+                  }}
+                  disabled={busy !== "idle"}
+                  style={{
+                    padding: "0.2rem 0.5rem",
+                    borderRadius: "4px",
+                    border: active ? "1px solid #fafafa" : "1px solid var(--border-default)",
+                    background: active ? "#fafafa" : "var(--bg-surface-raised)",
+                    color: active ? "#09090b" : "var(--text-secondary)",
+                    cursor: "pointer",
+                    fontSize: "0.72rem",
+                    fontWeight: active ? 600 : 400,
+                    fontFamily: "var(--font-mono)",
+                    fontVariantNumeric: "tabular-nums",
+                  }}
+                >
+                  {dur === "30s" ? "30s" : dur === "60s" ? "1m" : dur === "2m" ? "2m" : dur === "3m" ? "3m" : "5m"}
+                </button>
+              );
+            })}
           </div>
         </div>
 
+        {/* Formato de Relación de Aspecto */}
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+          <span style={{ color: "var(--text-secondary)", fontSize: "0.75rem", display: "inline-flex", alignItems: "center", gap: "3px" }}>
+            <Ratio size={12} />
+            <span>Formato:</span>
+          </span>
+          <div style={{ display: "flex", gap: "0.25rem" }}>
+            <button
+              type="button"
+              onClick={() => setAspectRatio("original")}
+              disabled={busy !== "idle"}
+              title="Conserva la relación de aspecto nativa del video (panorámico 16:9, etc.)"
+              style={{
+                padding: "0.2rem 0.55rem",
+                borderRadius: "4px",
+                border: aspectRatio === "original" ? "1px solid #fafafa" : "1px solid var(--border-default)",
+                background: aspectRatio === "original" ? "#fafafa" : "var(--bg-surface-raised)",
+                color: aspectRatio === "original" ? "#09090b" : "var(--text-secondary)",
+                cursor: "pointer",
+                fontSize: "0.72rem",
+                fontWeight: aspectRatio === "original" ? 600 : 400,
+              }}
+            >
+              Original (Nativo)
+            </button>
+            <button
+              type="button"
+              onClick={() => setAspectRatio("9:16")}
+              disabled={busy !== "idle"}
+              title="Recorte centrado 9:16 vertical para TikTok, Reels o YouTube Shorts"
+              style={{
+                padding: "0.2rem 0.55rem",
+                borderRadius: "4px",
+                border: aspectRatio === "9:16" ? "1px solid #fafafa" : "1px solid var(--border-default)",
+                background: aspectRatio === "9:16" ? "#fafafa" : "var(--bg-surface-raised)",
+                color: aspectRatio === "9:16" ? "#09090b" : "var(--text-secondary)",
+                cursor: "pointer",
+                fontSize: "0.72rem",
+                fontWeight: aspectRatio === "9:16" ? 600 : 400,
+              }}
+            >
+              9:16 Vertical
+            </button>
+          </div>
+        </div>
+
+        {/* Modo Thinking */}
         <label
           style={{ display: "flex", alignItems: "center", gap: "6px", cursor: "pointer", fontSize: "0.74rem" }}
           title="Desactívalo para análisis ultrarrápido (Recomendado para RTX 2060)"
@@ -178,7 +258,7 @@ export const CandidatePanel: React.FC<CandidatePanelProps> = ({
               setEnableThinking(e.target.checked);
               localStorage.setItem("autoshorts_enable_thinking", String(e.target.checked));
             }}
-            style={{ cursor: "pointer", width: "13px", height: "13px" }}
+            style={{ cursor: "pointer", width: "13px", height: "13px", accentColor: "#fafafa" }}
           />
           <span style={{ color: enableThinking ? "#f59e0b" : "var(--text-secondary)", fontWeight: enableThinking ? 600 : 400 }}>
             {enableThinking ? "Thinking CoT (Lento)" : "Modo Rápido"}
@@ -187,19 +267,19 @@ export const CandidatePanel: React.FC<CandidatePanelProps> = ({
       </div>
 
       {busy === "moments" && (
-        <div style={{ padding: "0.6rem 1rem", background: "rgba(99, 102, 241, 0.06)", borderBottom: "1px solid var(--border)" }}>
+        <div style={{ padding: "0.6rem 1rem", background: "var(--bg-surface-raised)", borderBottom: "1px solid var(--border-default)" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.35rem", fontSize: "0.78rem" }}>
-            <span style={{ color: "var(--foreground)", fontWeight: 600 }}>
+            <span style={{ color: "var(--text-primary)", fontWeight: 600 }}>
               {candidateProgress?.message || "Buscando momentos clave con IA..."}
             </span>
-            <span style={{ color: "var(--accent-primary)", fontWeight: 700 }}>
+            <span style={{ color: "#fafafa", fontWeight: 700, fontFamily: "var(--font-mono)", fontVariantNumeric: "tabular-nums" }}>
               {candidateProgress && candidateProgress.total > 0
                 ? Math.round((candidateProgress.current / candidateProgress.total) * 100)
                 : 0}
               %
             </span>
           </div>
-          <div style={{ width: "100%", height: "6px", background: "rgba(255,255,255,0.06)", borderRadius: "3px", overflow: "hidden" }}>
+          <div style={{ width: "100%", height: "4px", background: "var(--bg-base)", borderRadius: "2px", overflow: "hidden" }}>
             <div
               style={{
                 width: `${
@@ -208,8 +288,8 @@ export const CandidatePanel: React.FC<CandidatePanelProps> = ({
                     : 0
                 }%`,
                 height: "100%",
-                background: "linear-gradient(90deg, #6366f1 0%, #f59e0b 100%)",
-                transition: "width 0.3s ease",
+                background: "#fafafa",
+                transition: "width 0.25s ease",
               }}
             />
           </div>
@@ -219,42 +299,28 @@ export const CandidatePanel: React.FC<CandidatePanelProps> = ({
       {!canUseActiveLlm && (
         <div className="api-warning">
           {llmEngine === "local"
-            ? "Ollama local server is not running at http://localhost:11434. Moment detection will not work."
-            : `${
-                llmEngine === "claude"
-                  ? "Claude"
-                  : llmEngine === "deepseek"
-                  ? "DeepSeek"
-                  : llmEngine === "gemini"
-                  ? "Gemini"
-                  : llmEngine === "openai"
-                  ? "OpenAI"
-                  : llmEngine === "openrouter"
-                  ? "OpenRouter"
-                  : llmEngine === "groq"
-                  ? "Groq"
-                  : "LLM"
-              } API Key is missing. Viral moment identification will not work. Please add your key in API Settings.`}
+            ? "El servidor local de Ollama no está respondiendo en http://localhost:11434. La detección de momentos requiere iniciar Ollama."
+            : `Falta la clave API de ${llmEngine.toUpperCase()}. Configúrala en Ajustes para habilitar la identificación de momentos.`}
         </div>
       )}
 
       {detail.candidates.length > 0 && (
-        <div className="clip-control" style={{ display: "flex", alignItems: "center", gap: "0.75rem", padding: "0.5rem 0.8rem" }}>
-          <SlidersHorizontal size={17} />
+        <div className="clip-control" style={{ display: "flex", alignItems: "center", gap: "0.75rem", padding: "0.5rem 1rem", borderBottom: "1px solid var(--border-default)" }}>
+          <SlidersHorizontal size={16} color="var(--text-secondary)" />
           <input
             type="range"
             min="0"
             max={detail.candidates.length}
             value={selectedCount}
             onChange={(event) => void updateClipCount(Number(event.target.value))}
-            style={{ flex: 1 }}
+            style={{ flex: 1, accentColor: "#fafafa" }}
           />
-          <strong style={{ minWidth: "45px" }}>
+          <strong style={{ minWidth: "50px", fontFamily: "var(--font-mono)", fontVariantNumeric: "tabular-nums", fontSize: "0.82rem" }}>
             {selectedCount} / {detail.candidates.length}
           </strong>
           <button
             className="icon-button"
-            style={{ fontSize: "0.75rem", padding: "0.3rem 0.6rem", whiteSpace: "nowrap" }}
+            style={{ fontSize: "0.75rem", padding: "0.25rem 0.6rem", whiteSpace: "nowrap" }}
             onClick={() => void updateClipCount(selectedCount === detail.candidates.length ? 0 : detail.candidates.length)}
           >
             {selectedCount === detail.candidates.length ? "Deseleccionar" : "Seleccionar Todos"}
@@ -269,19 +335,22 @@ export const CandidatePanel: React.FC<CandidatePanelProps> = ({
           return (
             <article key={candidate.id} className={`candidate-card ${candidate.selected ? "selected" : ""}`}>
               <div
-                className="portrait-preview-container"
+                className="media-preview-container"
                 onClick={() => openCandidatePreview(candidate)}
                 style={{ cursor: "pointer" }}
                 title="Haz clic para previsualizar este fragmento"
               >
-                <div className="portrait-preview-mock">
+                <div className="media-preview-thumb">
                   <div className="mock-video-active" style={{ opacity: isCut ? 1 : 0.85 }}>
-                    <Play size={20} className="play-icon-mock" />
+                    <Play size={16} className="play-icon-mock" />
                   </div>
+                  <span className="media-preview-dur">
+                    {Math.round(candidate.endSec - candidate.startSec)}s
+                  </span>
                 </div>
                 <div className="candidate-rank">
                   <span>#{candidate.rank}</span>
-                  {candidate.selected && <Check size={14} />}
+                  {candidate.selected && <Check size={12} color="#fafafa" />}
                 </div>
               </div>
 
@@ -315,38 +384,40 @@ export const CandidatePanel: React.FC<CandidatePanelProps> = ({
 
                 <div className="candidate-actions">
                   <span className={`clip-status ${isCut ? "ready" : clip?.status === "error" ? "error" : ""}`}>
-                    {isCut ? "Cut ready" : clip?.status === "error" ? "Cut failed" : clip?.status ?? "Pending"}
+                    {isCut ? "Corte listo" : clip?.status === "error" ? "Error en corte" : clip?.status ?? "Pendiente"}
                   </span>
-                  <button
-                    className="icon-button"
-                    style={{ padding: "0.35rem 0.65rem", fontSize: "0.8rem", display: "inline-flex", alignItems: "center", gap: "4px" }}
-                    onClick={() => openCandidatePreview(candidate)}
-                    title="Previsualizar fragmento en reproductor"
-                  >
-                    <Play size={13} />
-                    <span>Ver</span>
-                  </button>
-                  <button
-                    className="cut-button"
-                    onClick={() => void cutCandidate(candidate.id)}
-                    disabled={busy !== "idle" || !environment?.hasFfmpeg}
-                  >
-                    {renderingCandidateId === candidate.id ? <Loader2 className="spin" size={14} /> : <Scissors size={14} />}
-                    {renderingCandidateId === candidate.id ? "Cutting..." : isCut ? "Re-cut" : "Cut"}
-                  </button>
+                  <div style={{ display: "flex", gap: "6px" }}>
+                    <button
+                      className="icon-button"
+                      style={{ padding: "0.25rem 0.6rem", fontSize: "0.78rem", display: "inline-flex", alignItems: "center", gap: "4px" }}
+                      onClick={() => openCandidatePreview(candidate)}
+                      title="Previsualizar fragmento en reproductor"
+                    >
+                      <Play size={12} />
+                      <span>Ver</span>
+                    </button>
+                    <button
+                      className="cut-button"
+                      onClick={() => void cutCandidate(candidate.id)}
+                      disabled={busy !== "idle" || !environment?.hasFfmpeg}
+                    >
+                      {renderingCandidateId === candidate.id ? <Loader2 className="spin" size={13} /> : <Scissors size={13} />}
+                      {renderingCandidateId === candidate.id ? "Cortando..." : isCut ? "Recortar" : "Cortar"}
+                    </button>
+                  </div>
                 </div>
                 {clip?.outputPath && <div className="output-path">{clip.outputPath}</div>}
                 {clip?.captionAssPath && (
                   <div
                     className="output-path"
                     style={{
-                      background: "rgba(142, 230, 199, 0.05)",
-                      borderColor: "var(--accent-primary)",
-                      color: "var(--accent-primary)",
+                      background: "var(--bg-surface)",
+                      borderColor: "var(--border-default)",
+                      color: "var(--text-secondary)",
                       marginTop: "4px",
                     }}
                   >
-                    Subtitles: {clip.captionAssPath}
+                    Subtítulos: {clip.captionAssPath}
                   </div>
                 )}
                 {clip?.renderLog && <div className="render-log">{clip.renderLog}</div>}
@@ -354,7 +425,18 @@ export const CandidatePanel: React.FC<CandidatePanelProps> = ({
             </article>
           );
         })}
-        {detail.candidates.length === 0 && <EmptyState icon={<Sparkles size={28} />} label="Moments pending" />}
+
+        {detail.candidates.length === 0 && (
+          <div className="empty-state">
+            <Sparkles size={28} style={{ opacity: 0.4 }} />
+            <p style={{ margin: 0, fontSize: "0.85rem", color: "var(--text-secondary)" }}>
+              No se han identificado momentos virales todavía.
+            </p>
+            <p style={{ margin: 0, fontSize: "0.76rem", color: "var(--text-muted)" }}>
+              Usa el botón "Buscar Momentos" para analizar la transcripción con IA.
+            </p>
+          </div>
+        )}
       </div>
     </section>
   );
