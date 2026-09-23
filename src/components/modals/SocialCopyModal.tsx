@@ -1,5 +1,5 @@
 import React from "react";
-import { Loader2, Sparkles, Copy } from "lucide-react";
+import { Loader2, Sparkles, Copy, X } from "lucide-react";
 import { CopyResult } from "../../types";
 
 interface SocialCopyModalProps {
@@ -45,13 +45,12 @@ export function SocialCopyModal({
           </div>
           <button
             type="button"
-            className="icon-button"
+            className="modal-close-btn"
             onClick={onClose}
             disabled={isGeneratingCopy}
-            title="Cerrar"
-            style={{ padding: "4px 8px" }}
+            aria-label="Cerrar"
           >
-            ✕
+            <X size={15} />
           </button>
         </div>
 
@@ -140,8 +139,8 @@ export function SocialCopyModal({
                     <span style={{ flex: 1, marginRight: "0.5rem" }}>{hook}</span>
                     <button
                       type="button"
-                      className="icon-button"
-                      style={{ padding: "2px 8px", fontSize: "0.72rem", height: "auto" }}
+                      className="btn-cancel"
+                      style={{ padding: "0 8px", fontSize: "0.72rem", height: "26px", minHeight: "26px" }}
                       onClick={() => onCopyText(`hook-${idx}`, hook)}
                     >
                       {copiedField === `hook-${idx}` ? "Copiado" : "Copiar"}
@@ -159,8 +158,8 @@ export function SocialCopyModal({
                 </span>
                 <button
                   type="button"
-                  className="desc-copy-btn"
-                  style={{ padding: "3px 8px", fontSize: "0.72rem", display: "inline-flex", alignItems: "center", gap: "4px" }}
+                  className="btn-cancel"
+                  style={{ padding: "0 10px", height: "26px", minHeight: "26px", fontSize: "0.72rem", display: "inline-flex", alignItems: "center", gap: "5px" }}
                   onClick={() => onCopyText("caption", copyResult.caption)}
                 >
                   <Copy size={12} />
@@ -180,15 +179,15 @@ export function SocialCopyModal({
                 </span>
                 <button
                   type="button"
-                  className="desc-copy-btn"
-                  style={{ padding: "3px 8px", fontSize: "0.72rem", display: "inline-flex", alignItems: "center", gap: "4px" }}
+                  className="btn-cancel"
+                  style={{ padding: "0 10px", height: "26px", minHeight: "26px", fontSize: "0.72rem", display: "inline-flex", alignItems: "center", gap: "5px" }}
                   onClick={() => onCopyText("cta", copyResult.cta)}
                 >
                   <Copy size={12} />
                   <span>{copiedField === "cta" ? "Copiado" : "Copiar CTA"}</span>
                 </button>
               </div>
-              <div style={{ fontSize: "0.82rem", color: "var(--accent-primary)", fontWeight: 500 }}>
+              <div style={{ fontSize: "0.82rem", color: "#fafafa", fontWeight: 500 }}>
                 {copyResult.cta}
               </div>
             </div>
@@ -201,8 +200,8 @@ export function SocialCopyModal({
                 </span>
                 <button
                   type="button"
-                  className="desc-copy-btn"
-                  style={{ padding: "3px 8px", fontSize: "0.72rem", display: "inline-flex", alignItems: "center", gap: "4px" }}
+                  className="btn-cancel"
+                  style={{ padding: "0 10px", height: "26px", minHeight: "26px", fontSize: "0.72rem", display: "inline-flex", alignItems: "center", gap: "5px" }}
                   onClick={() => onCopyText("hashtags", copyResult.hashtags.join(" "))}
                 >
                   <Copy size={12} />
@@ -214,12 +213,13 @@ export function SocialCopyModal({
                   <span
                     key={idx}
                     style={{
-                      fontSize: "0.76rem",
-                      padding: "2px 8px",
-                      borderRadius: "12px",
-                      background: "rgba(142, 230, 199, 0.12)",
-                      color: "var(--accent-primary)",
-                      border: "1px solid rgba(142, 230, 199, 0.25)"
+                      fontSize: "0.75rem",
+                      fontFamily: "var(--font-mono, monospace)",
+                      padding: "3px 8px",
+                      borderRadius: "4px",
+                      background: "rgba(255, 255, 255, 0.04)",
+                      color: "var(--text-primary)",
+                      border: "1px solid var(--border-default)"
                     }}
                   >
                     {tag.startsWith("#") ? tag : `#${tag}`}
@@ -229,15 +229,15 @@ export function SocialCopyModal({
             </div>
 
             {/* Full copy */}
-            <div style={{ padding: "1rem", borderRadius: "10px", background: "rgba(0,0,0,0.3)", border: "1px solid var(--border)" }}>
+            <div style={{ padding: "1rem", borderRadius: "10px", background: "var(--bg-surface)", border: "1px solid var(--border-default)" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
                 <span style={{ fontSize: "0.82rem", fontWeight: 700, color: "var(--text-primary)" }}>
                   Copy Completo Listo para Publicar
                 </span>
                 <button
                   type="button"
-                  className="primary-action"
-                  style={{ padding: "4px 12px", fontSize: "0.78rem", display: "inline-flex", alignItems: "center", gap: "5px" }}
+                  className="btn-confirm"
+                  style={{ padding: "0 12px", height: "28px", minHeight: "28px", fontSize: "0.78rem", display: "inline-flex", alignItems: "center", gap: "5px" }}
                   onClick={() => onCopyText("full", copyResult.full_copy)}
                 >
                   <Copy size={13} />

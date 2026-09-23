@@ -85,15 +85,15 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
             <span>Autoeditar Resumen</span>
           </button>
           <button
-            className={`icon-button settings-toggle ${showSettings ? "active" : ""}`}
+            className={`secondary-action settings-toggle ${showSettings ? "active" : ""}`}
             onClick={() => setShowSettings(!showSettings)}
             title="Configuración de Modelos & APIs"
           >
-            <SlidersHorizontal size={16} />
+            <SlidersHorizontal size={15} />
             <span>Configuración & APIs</span>
           </button>
-          <button className="icon-button" onClick={() => void refresh(detail.project.id)} title="Actualizar">
-            <RefreshCw size={18} />
+          <button className="secondary-action" onClick={() => void refresh(detail.project.id)} title="Actualizar" style={{ width: "36px", padding: 0 }}>
+            <RefreshCw size={15} />
           </button>
         </div>
       </header>

@@ -1,5 +1,5 @@
 import React from "react";
-import { Captions, Sparkles } from "lucide-react";
+import { Captions, Sparkles, X } from "lucide-react";
 import {
   ContentType,
   EnvironmentStatus,
@@ -106,14 +106,24 @@ export function StyleModal({
     <div className="style-modal-overlay">
       <div className="style-modal">
         {/* Modal Header */}
-        <div style={{ padding: "1.25rem 1.5rem 0.75rem", borderBottom: "1px solid var(--border-color)", background: "rgba(255,255,255,0.01)" }}>
+        <div style={{ padding: "1.25rem 1.5rem 0.75rem", borderBottom: "1px solid var(--border-default)", background: "var(--bg-surface-raised)" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.25rem" }}>
-            <h3 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 700, color: "var(--foreground)" }}>
+            <h3 style={{ margin: 0, fontSize: "1.05rem", fontWeight: 700, color: "var(--text-primary)" }}>
               Configuración de Importación
             </h3>
-            <span style={{ fontSize: "0.72rem", padding: "0.2rem 0.55rem", borderRadius: "6px", background: "rgba(255,255,255,0.06)", border: "1px solid var(--border-color)", opacity: 0.85 }}>
-              {importModalTab === "subtitles" ? "Pestaña 1 de 2: Subtítulos y Formato" : "Pestaña 2 de 2: Procesamiento e IA"}
-            </span>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <span style={{ fontSize: "0.72rem", padding: "0.2rem 0.55rem", borderRadius: "4px", background: "var(--bg-surface)", border: "1px solid var(--border-default)", color: "var(--text-secondary)", fontFamily: "var(--font-mono)" }}>
+                {importModalTab === "subtitles" ? "Pestaña 1 de 2: Subtítulos y Formato" : "Pestaña 2 de 2: Procesamiento e IA"}
+              </span>
+              <button
+                type="button"
+                className="modal-close-btn"
+                onClick={onClose}
+                title="Cerrar modal"
+              >
+                <X size={15} />
+              </button>
+            </div>
           </div>
           <p style={{ margin: "0.2rem 0 0.85rem", fontSize: "0.82rem", color: "var(--text-secondary)" }}>
             Personaliza el formato visual y las opciones de procesamiento para este proyecto.
@@ -129,19 +139,19 @@ export function StyleModal({
                 padding: "0.55rem 0.8rem",
                 fontSize: "0.84rem",
                 fontWeight: 600,
-                borderRadius: "8px",
-                border: importModalTab === "subtitles" ? "1px solid var(--accent-primary)" : "1px solid var(--border-color)",
-                background: importModalTab === "subtitles" ? "rgba(99, 102, 241, 0.16)" : "var(--bg-card)",
-                color: importModalTab === "subtitles" ? "var(--foreground)" : "var(--text-secondary)",
+                borderRadius: "6px",
+                border: importModalTab === "subtitles" ? "1px solid #fafafa" : "1px solid var(--border-default)",
+                background: importModalTab === "subtitles" ? "#fafafa" : "var(--bg-surface)",
+                color: importModalTab === "subtitles" ? "#09090b" : "var(--text-secondary)",
                 cursor: "pointer",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
                 gap: "0.5rem",
-                transition: "all 0.2s ease"
+                transition: "all 0.15s ease",
               }}
             >
-              <Captions size={15} color={importModalTab === "subtitles" ? "var(--accent-primary)" : "currentColor"} />
+              <Captions size={15} color={importModalTab === "subtitles" ? "#09090b" : "currentColor"} />
               Subtítulos y Formato
             </button>
 
@@ -153,19 +163,19 @@ export function StyleModal({
                 padding: "0.55rem 0.8rem",
                 fontSize: "0.84rem",
                 fontWeight: 600,
-                borderRadius: "8px",
-                border: importModalTab === "ai" ? "1px solid var(--accent-primary)" : "1px solid var(--border-color)",
-                background: importModalTab === "ai" ? "rgba(99, 102, 241, 0.16)" : "var(--bg-card)",
-                color: importModalTab === "ai" ? "var(--foreground)" : "var(--text-secondary)",
+                borderRadius: "6px",
+                border: importModalTab === "ai" ? "1px solid #fafafa" : "1px solid var(--border-default)",
+                background: importModalTab === "ai" ? "#fafafa" : "var(--bg-surface)",
+                color: importModalTab === "ai" ? "#09090b" : "var(--text-secondary)",
                 cursor: "pointer",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
                 gap: "0.5rem",
-                transition: "all 0.2s ease"
+                transition: "all 0.15s ease",
               }}
             >
-              <Sparkles size={15} color={importModalTab === "ai" ? "var(--accent-primary)" : "currentColor"} />
+              <Sparkles size={15} color={importModalTab === "ai" ? "#09090b" : "currentColor"} />
               Procesamiento e IA
             </button>
           </div>
@@ -279,110 +289,78 @@ export function StyleModal({
 
               {/* Selector de Duración Objetivo de Clips */}
               <div>
-                <label style={{ fontSize: "0.85rem", fontWeight: 600, display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem", color: "var(--foreground)" }}>
+                <label style={{ fontSize: "0.85rem", fontWeight: 600, display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem", color: "var(--text-primary)" }}>
                   <span>Objetivo de Duración de Clips:</span>
-                  <span style={{ fontSize: "0.72rem", color: "var(--accent-primary)", fontWeight: 500 }}>VRAM constante por fragmentos</span>
+                  <span style={{ fontSize: "0.72rem", color: "var(--text-secondary)", fontFamily: "var(--font-mono)" }}>VRAM constante por fragmentos</span>
                 </label>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: "0.4rem" }}>
-                  {(["30s", "60s", "2m", "3m", "5m"] as const).map((dur) => (
-                    <button
-                      key={dur}
-                      type="button"
-                      onClick={() => {
-                        setTargetDuration(dur);
-                        localStorage.setItem("autoshorts_target_duration", dur);
-                      }}
-                      style={{
-                        padding: "0.5rem 0.4rem",
-                        borderRadius: "8px",
-                        border: targetDuration === dur ? "2px solid var(--accent-primary)" : "1px solid var(--border-color)",
-                        background: targetDuration === dur ? "rgba(99, 102, 241, 0.2)" : "var(--bg-card)",
-                        color: "var(--foreground)",
-                        cursor: "pointer",
-                        textAlign: "center"
-                      }}
-                    >
-                      <div style={{ fontWeight: 600, fontSize: "0.82rem" }}>
-                        {dur === "30s" ? "30 seg" : dur === "60s" ? "1 min" : dur === "2m" ? "2 min" : dur === "3m" ? "3 min" : "5 min"}
-                      </div>
-                      <div style={{ fontSize: "0.68rem", opacity: 0.7 }}>
-                        {dur === "60s" ? "Recomendado" : dur === "30s" ? "Rápido" : "Formato Largo"}
-                      </div>
-                    </button>
-                  ))}
+                  {(["30s", "60s", "2m", "3m", "5m"] as const).map((dur) => {
+                    const active = targetDuration === dur;
+                    return (
+                      <button
+                        key={dur}
+                        type="button"
+                        onClick={() => {
+                          setTargetDuration(dur);
+                          localStorage.setItem("autoshorts_target_duration", dur);
+                        }}
+                        style={{
+                          padding: "0.5rem 0.4rem",
+                          borderRadius: "6px",
+                          border: active ? "1px solid #fafafa" : "1px solid var(--border-default)",
+                          background: active ? "#fafafa" : "var(--bg-surface)",
+                          color: active ? "#09090b" : "var(--text-secondary)",
+                          cursor: "pointer",
+                          textAlign: "center",
+                          transition: "all 0.15s ease",
+                        }}
+                      >
+                        <div style={{ fontWeight: 600, fontSize: "0.82rem", fontFamily: "var(--font-mono)", fontVariantNumeric: "tabular-nums" }}>
+                          {dur === "30s" ? "30 seg" : dur === "60s" ? "1 min" : dur === "2m" ? "2 min" : dur === "3m" ? "3 min" : "5 min"}
+                        </div>
+                        <div style={{ fontSize: "0.68rem", opacity: 0.75 }}>
+                          {dur === "60s" ? "Recomendado" : dur === "30s" ? "Rápido" : "Formato Largo"}
+                        </div>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
               {/* Selector de Tipo de Video / Enfoque */}
               <div>
-                <label style={{ fontSize: "0.85rem", fontWeight: 600, display: "block", marginBottom: "0.5rem", color: "var(--foreground)" }}>
+                <label style={{ fontSize: "0.85rem", fontWeight: 600, display: "block", marginBottom: "0.5rem", color: "var(--text-primary)" }}>
                   Tipo de Video / Enfoque de la IA:
                 </label>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: "0.5rem" }}>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedContentType("gaming")}
-                    style={{
-                      padding: "0.6rem 0.8rem",
-                      borderRadius: "8px",
-                      border: selectedContentType === "gaming" ? "2px solid #10b981" : "1px solid var(--border-color)",
-                      background: selectedContentType === "gaming" ? "rgba(16, 185, 129, 0.15)" : "var(--bg-card)",
-                      color: "var(--foreground)",
-                      cursor: "pointer",
-                      textAlign: "left"
-                    }}
-                  >
-                    <div style={{ fontWeight: 600, fontSize: "0.9rem" }}>Gaming</div>
-                    <div style={{ fontSize: "0.72rem", opacity: 0.75 }}>Kills, fails, torneos</div>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedContentType("tutorial")}
-                    style={{
-                      padding: "0.6rem 0.8rem",
-                      borderRadius: "8px",
-                      border: selectedContentType === "tutorial" ? "2px solid #3b82f6" : "1px solid var(--border-color)",
-                      background: selectedContentType === "tutorial" ? "rgba(59, 130, 246, 0.15)" : "var(--bg-card)",
-                      color: "var(--foreground)",
-                      cursor: "pointer",
-                      textAlign: "left"
-                    }}
-                  >
-                    <div style={{ fontWeight: 600, fontSize: "0.9rem" }}>Tutorial</div>
-                    <div style={{ fontSize: "0.72rem", opacity: 0.75 }}>Tips, avisos, trucos</div>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedContentType("podcast")}
-                    style={{
-                      padding: "0.6rem 0.8rem",
-                      borderRadius: "8px",
-                      border: selectedContentType === "podcast" ? "2px solid #8b5cf6" : "1px solid var(--border-color)",
-                      background: selectedContentType === "podcast" ? "rgba(139, 92, 246, 0.15)" : "var(--bg-card)",
-                      color: "var(--foreground)",
-                      cursor: "pointer",
-                      textAlign: "left"
-                    }}
-                  >
-                    <div style={{ fontWeight: 600, fontSize: "0.9rem" }}>Charla</div>
-                    <div style={{ fontSize: "0.72rem", opacity: 0.75 }}>Historias, debates</div>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedContentType("general")}
-                    style={{
-                      padding: "0.6rem 0.8rem",
-                      borderRadius: "8px",
-                      border: selectedContentType === "general" ? "2px solid #f59e0b" : "1px solid var(--border-color)",
-                      background: selectedContentType === "general" ? "rgba(245, 158, 11, 0.15)" : "var(--bg-card)",
-                      color: "var(--foreground)",
-                      cursor: "pointer",
-                      textAlign: "left"
-                    }}
-                  >
-                    <div style={{ fontWeight: 600, fontSize: "0.9rem" }}>General</div>
-                    <div style={{ fontSize: "0.72rem", opacity: 0.75 }}>Detección mixta</div>
-                  </button>
+                  {[
+                    { id: "gaming", label: "Gaming", desc: "Kills, fails, torneos" },
+                    { id: "tutorial", label: "Tutorial", desc: "Tips, avisos, trucos" },
+                    { id: "podcast", label: "Charla", desc: "Historias, debates" },
+                    { id: "general", label: "General", desc: "Detección mixta" },
+                  ].map((ct) => {
+                    const active = selectedContentType === ct.id;
+                    return (
+                      <button
+                        key={ct.id}
+                        type="button"
+                        onClick={() => setSelectedContentType(ct.id as ContentType)}
+                        style={{
+                          padding: "0.6rem 0.8rem",
+                          borderRadius: "6px",
+                          border: active ? "1.5px solid #fafafa" : "1px solid var(--border-default)",
+                          background: active ? "var(--bg-surface-hover)" : "var(--bg-surface)",
+                          color: active ? "#fafafa" : "var(--text-secondary)",
+                          cursor: "pointer",
+                          textAlign: "left",
+                          transition: "all 0.15s ease",
+                        }}
+                      >
+                        <div style={{ fontWeight: 600, fontSize: "0.88rem" }}>{ct.label}</div>
+                        <div style={{ fontSize: "0.72rem", opacity: 0.75 }}>{ct.desc}</div>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             </>
@@ -635,23 +613,24 @@ export function StyleModal({
                     fontSize: "0.72rem",
                     fontWeight: 600,
                     padding: "0.2rem 0.6rem",
-                    borderRadius: "12px",
-                    background: enableThinking ? "rgba(245, 158, 11, 0.15)" : "rgba(16, 185, 129, 0.15)",
-                    color: enableThinking ? "#f59e0b" : "#10b981",
-                    border: enableThinking ? "1px solid rgba(245, 158, 11, 0.3)" : "1px solid rgba(16, 185, 129, 0.3)"
+                    borderRadius: "4px",
+                    background: "var(--bg-surface)",
+                    color: enableThinking ? "#f59e0b" : "var(--text-secondary)",
+                    border: "1px solid var(--border-default)",
+                    fontFamily: "var(--font-mono)"
                   }}>
                     {enableThinking ? "Modo Razonamiento Profundo" : "Modo Rápido"}
                   </span>
                 </div>
 
-                <div style={{ fontSize: "0.78rem", lineHeight: "1.45", opacity: 0.85, paddingLeft: "1.7rem" }}>
+                <div style={{ fontSize: "0.78rem", lineHeight: "1.45", color: "var(--text-secondary)", paddingLeft: "1.7rem" }}>
                   {enableThinking ? (
                     <div>
-                      <strong style={{ color: "#f59e0b" }}>Activado:</strong> La IA genera una cadena de pensamiento antes de dar la respuesta. Proporciona mayor análisis contextual pero incrementa considerablemente el tiempo y el uso de VRAM.
+                      <strong style={{ color: "#fafafa" }}>Activado:</strong> La IA genera una cadena de pensamiento antes de dar la respuesta. Proporciona mayor análisis contextual pero incrementa el tiempo y el uso de VRAM.
                     </div>
                   ) : (
                     <div>
-                      <strong style={{ color: "#10b981" }}>Desactivado (Recomendado):</strong> La IA responde de forma directa sin cadena de razonamiento previa. Recomendado para tu NVIDIA RTX 2060 (12GB) con procesamiento hasta 30 veces más ágil.
+                      <strong style={{ color: "#fafafa" }}>Desactivado (Recomendado):</strong> La IA responde de forma directa sin cadena de razonamiento previa. Recomendado para tu NVIDIA RTX 2060 (12GB) con procesamiento hasta 30 veces más ágil.
                     </div>
                   )}
                 </div>
@@ -661,7 +640,7 @@ export function StyleModal({
         </div>
 
         {/* Modal Footer */}
-        <div style={{ padding: "0.9rem 1.5rem", borderTop: "1px solid var(--border-color)", background: "rgba(0, 0, 0, 0.2)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div style={{ padding: "0.9rem 1.5rem", borderTop: "1px solid var(--border-default)", background: "var(--bg-surface-raised)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div>
             {importModalTab === "subtitles" ? (
               <button
@@ -676,7 +655,6 @@ export function StyleModal({
                 type="button"
                 className="btn-cancel"
                 onClick={() => setImportModalTab("subtitles")}
-                style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}
               >
                 Atrás: Subtítulos
               </button>
@@ -687,17 +665,8 @@ export function StyleModal({
             {importModalTab === "subtitles" ? (
               <button
                 type="button"
+                className="btn-cancel"
                 onClick={() => setImportModalTab("ai")}
-                style={{
-                  padding: "0.55rem 1rem",
-                  borderRadius: "8px",
-                  background: "rgba(255, 255, 255, 0.08)",
-                  border: "1px solid var(--border-color)",
-                  color: "var(--foreground)",
-                  fontWeight: 600,
-                  fontSize: "0.85rem",
-                  cursor: "pointer"
-                }}
               >
                 Opciones de IA
               </button>
@@ -715,13 +684,6 @@ export function StyleModal({
               type="button"
               className="btn-confirm"
               onClick={onConfirm}
-              style={{
-                padding: "0.55rem 1.25rem",
-                borderRadius: "8px",
-                fontWeight: 600,
-                fontSize: "0.85rem",
-                cursor: "pointer"
-              }}
             >
               Confirmar e Importar
             </button>

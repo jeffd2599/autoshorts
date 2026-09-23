@@ -1,5 +1,5 @@
 import React from "react";
-import { BadgeCheck, Clapperboard, Copy, Loader2 } from "lucide-react";
+import { BadgeCheck, Clapperboard, Copy, Loader2, X } from "lucide-react";
 import { ProjectDetail, SummaryResult } from "../../types";
 import { formatTime, fileName } from "../../utils/format";
 import { invoke } from "../../apiBridge";
@@ -49,15 +49,15 @@ export function SummaryModal({
 
   return (
     <div className="summary-modal-overlay">
-      <div className="summary-modal">
-        <div className="summary-modal-header">
+      <div className="summary-modal" style={{ background: "var(--bg-surface-raised)", border: "1px solid var(--border-default)", borderRadius: "12px" }}>
+        <div className="summary-modal-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid var(--border-default)", padding: "1.25rem 1.5rem" }}>
           <div>
-            <h3>Autoedición y Resumen de Stream</h3>
-            <p>Compila y une automáticamente los mejores momentos en un único video listo para subir a YouTube o editar.</p>
+            <h3 style={{ margin: 0, fontSize: "1.05rem", fontWeight: 700, color: "var(--text-primary)" }}>Autoedición y Resumen de Stream</h3>
+            <p style={{ margin: "4px 0 0", fontSize: "0.82rem", color: "var(--text-secondary)" }}>Compila y une automáticamente los mejores momentos en un único video listo para subir a YouTube o editar.</p>
           </div>
           <button
             type="button"
-            className="icon-button"
+            className="modal-close-btn"
             onClick={() => {
               if (summaryStatus !== "rendering") {
                 onClose();
@@ -65,33 +65,33 @@ export function SummaryModal({
               }
             }}
             disabled={summaryStatus === "rendering"}
-            title="Cerrar"
+            title="Cerrar modal"
           >
-            ✕
+            <X size={15} />
           </button>
         </div>
 
-        <div className="summary-stats-box">
+        <div className="summary-stats-box" style={{ background: "var(--bg-surface)", borderBottom: "1px solid var(--border-default)" }}>
           <div className="summary-stat-item">
-            <div className="stat-val">{detail.candidates.length}</div>
+            <div className="stat-val" style={{ fontFamily: "var(--font-mono)", fontVariantNumeric: "tabular-nums" }}>{detail.candidates.length}</div>
             <div className="stat-lbl">Momentos Detectados</div>
           </div>
           <div className="summary-stat-item">
-            <div className="stat-val">
+            <div className="stat-val" style={{ fontFamily: "var(--font-mono)", fontVariantNumeric: "tabular-nums" }}>
               {formatTime(detail.candidates.reduce((acc, c) => acc + (c.endSec - c.startSec), 0))}
             </div>
             <div className="stat-lbl">Duración Total Momentos</div>
           </div>
           <div className="summary-stat-item">
-            <div className="stat-val">{summaryTargetMinutes} min</div>
+            <div className="stat-val" style={{ fontFamily: "var(--font-mono)", fontVariantNumeric: "tabular-nums" }}>{summaryTargetMinutes} min</div>
             <div className="stat-lbl">Objetivo Resumen</div>
           </div>
         </div>
 
         {summaryStatus === "idle" && (
-          <>
+          <div style={{ padding: "1.25rem 1.5rem" }}>
             <div style={{ marginBottom: "1.25rem" }}>
-              <label style={{ display: "block", fontSize: "0.85rem", fontWeight: 600, marginBottom: "0.5rem" }}>
+              <label style={{ display: "block", fontSize: "0.85rem", fontWeight: 600, marginBottom: "0.5rem", color: "var(--text-primary)" }}>
                 Duración Objetivo del Video Resumen:
               </label>
               <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
@@ -101,25 +101,31 @@ export function SummaryModal({
                   { val: 8, label: "8 min (YouTube Estándar)" },
                   { val: 10, label: "10 min (Extendido)" },
                   { val: 15, label: "15 min (Completo)" },
-                ].map((opt) => (
-                  <button
-                    key={opt.val}
-                    type="button"
-                    onClick={() => setSummaryTargetMinutes(opt.val)}
-                    style={{
-                      padding: "0.45rem 0.85rem",
-                      borderRadius: "8px",
-                      border: summaryTargetMinutes === opt.val ? "1.5px solid var(--accent-primary)" : "1px solid var(--border)",
-                      background: summaryTargetMinutes === opt.val ? "rgba(99, 102, 241, 0.2)" : "rgba(255,255,255,0.03)",
-                      color: summaryTargetMinutes === opt.val ? "var(--accent-primary)" : "var(--foreground)",
-                      cursor: "pointer",
-                      fontWeight: summaryTargetMinutes === opt.val ? 600 : 400,
-                      fontSize: "0.82rem",
-                    }}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
+                ].map((opt) => {
+                  const active = summaryTargetMinutes === opt.val;
+                  return (
+                    <button
+                      key={opt.val}
+                      type="button"
+                      onClick={() => setSummaryTargetMinutes(opt.val)}
+                      style={{
+                        padding: "0.45rem 0.85rem",
+                        borderRadius: "6px",
+                        border: active ? "1px solid #fafafa" : "1px solid var(--border-default)",
+                        background: active ? "#fafafa" : "var(--bg-surface)",
+                        color: active ? "#09090b" : "var(--text-secondary)",
+                        cursor: "pointer",
+                        fontWeight: active ? 600 : 400,
+                        fontSize: "0.82rem",
+                        fontFamily: "var(--font-mono)",
+                        fontVariantNumeric: "tabular-nums",
+                        transition: "all 0.15s ease",
+                      }}
+                    >
+                      {opt.label}
+                    </button>
+                  );
+                })}
               </div>
               <p style={{ margin: "0.4rem 0 0", fontSize: "0.78rem", color: "var(--text-secondary)" }}>
                 La IA elegirá el momento con mayor impacto como intro teaser y concatenará cronológicamente los mejores momentos del stream hasta alcanzar la duración deseada.
@@ -127,7 +133,7 @@ export function SummaryModal({
             </div>
 
             <div style={{ marginBottom: "1.25rem" }}>
-              <label style={{ display: "block", fontSize: "0.85rem", fontWeight: 600, marginBottom: "0.5rem" }}>
+              <label style={{ display: "block", fontSize: "0.85rem", fontWeight: 600, marginBottom: "0.5rem", color: "var(--text-primary)" }}>
                 Estilo de Autoedición (Vibe de la IA):
               </label>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.6rem" }}>
@@ -135,33 +141,37 @@ export function SummaryModal({
                   { id: "balanced", title: "Equilibrado", desc: "Mezcla fluida de jugadas, humor y narrativa del stream." },
                   { id: "tryhard", title: "Tryhard / Épico", desc: "Prioriza kills, clutches y máxima tensión con silencios de concentración." },
                   { id: "funny", title: "Risas y Fails", desc: "Prioriza risas, troleos, fallos cómicos e interacciones con el chat." },
-                ].map((v) => (
-                  <button
-                    key={v.id}
-                    type="button"
-                    onClick={() => setSummaryVibe(v.id as any)}
-                    style={{
-                      padding: "0.6rem 0.75rem",
-                      borderRadius: "8px",
-                      border: summaryVibe === v.id ? "1.5px solid var(--accent-primary)" : "1px solid var(--border)",
-                      background: summaryVibe === v.id ? "rgba(99, 102, 241, 0.2)" : "rgba(255,255,255,0.03)",
-                      color: summaryVibe === v.id ? "var(--accent-primary)" : "var(--foreground)",
-                      cursor: "pointer",
-                      textAlign: "left",
-                      display: "flex",
-                      flexDirection: "column",
-                      gap: "2px",
-                    }}
-                  >
-                    <span style={{ fontWeight: 600, fontSize: "0.82rem" }}>{v.title}</span>
-                    <span style={{ fontSize: "0.72rem", opacity: 0.75, lineHeight: 1.25 }}>{v.desc}</span>
-                  </button>
-                ))}
+                ].map((v) => {
+                  const active = summaryVibe === v.id;
+                  return (
+                    <button
+                      key={v.id}
+                      type="button"
+                      onClick={() => setSummaryVibe(v.id as any)}
+                      style={{
+                        padding: "0.6rem 0.75rem",
+                        borderRadius: "6px",
+                        border: active ? "1.5px solid #fafafa" : "1px solid var(--border-default)",
+                        background: active ? "var(--bg-surface-hover)" : "var(--bg-surface)",
+                        color: active ? "#fafafa" : "var(--text-secondary)",
+                        cursor: "pointer",
+                        textAlign: "left",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "2px",
+                        transition: "all 0.15s ease",
+                      }}
+                    >
+                      <span style={{ fontWeight: 600, fontSize: "0.82rem" }}>{v.title}</span>
+                      <span style={{ fontSize: "0.72rem", opacity: 0.75, lineHeight: 1.25 }}>{v.desc}</span>
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
             <div style={{ marginBottom: "1.25rem" }}>
-              <label style={{ display: "block", fontSize: "0.85rem", fontWeight: 600, marginBottom: "0.5rem" }}>
+              <label style={{ display: "block", fontSize: "0.85rem", fontWeight: 600, marginBottom: "0.5rem", color: "var(--text-primary)" }}>
                 Relación de Aspecto del Video:
               </label>
               <div style={{ display: "flex", gap: "0.75rem" }}>
@@ -171,14 +181,15 @@ export function SummaryModal({
                   style={{
                     flex: 1,
                     padding: "0.6rem 0.8rem",
-                    borderRadius: "8px",
-                    border: summaryAspectRatio === "original" ? "1.5px solid var(--accent-primary)" : "1px solid var(--border)",
-                    background: summaryAspectRatio === "original" ? "rgba(99, 102, 241, 0.2)" : "rgba(255,255,255,0.03)",
-                    color: summaryAspectRatio === "original" ? "var(--accent-primary)" : "var(--foreground)",
+                    borderRadius: "6px",
+                    border: summaryAspectRatio === "original" ? "1.5px solid #fafafa" : "1px solid var(--border-default)",
+                    background: summaryAspectRatio === "original" ? "var(--bg-surface-hover)" : "var(--bg-surface)",
+                    color: summaryAspectRatio === "original" ? "#fafafa" : "var(--text-secondary)",
                     cursor: "pointer",
                     fontSize: "0.82rem",
                     fontWeight: summaryAspectRatio === "original" ? 600 : 400,
                     textAlign: "left",
+                    transition: "all 0.15s ease",
                   }}
                 >
                   <div style={{ fontWeight: 600 }}>16:9 Original (YouTube)</div>
@@ -190,14 +201,15 @@ export function SummaryModal({
                   style={{
                     flex: 1,
                     padding: "0.6rem 0.8rem",
-                    borderRadius: "8px",
-                    border: summaryAspectRatio === "9:16" ? "1.5px solid var(--accent-primary)" : "1px solid var(--border)",
-                    background: summaryAspectRatio === "9:16" ? "rgba(99, 102, 241, 0.2)" : "rgba(255,255,255,0.03)",
-                    color: summaryAspectRatio === "9:16" ? "var(--accent-primary)" : "var(--foreground)",
+                    borderRadius: "6px",
+                    border: summaryAspectRatio === "9:16" ? "1.5px solid #fafafa" : "1px solid var(--border-default)",
+                    background: summaryAspectRatio === "9:16" ? "var(--bg-surface-hover)" : "var(--bg-surface)",
+                    color: summaryAspectRatio === "9:16" ? "#fafafa" : "var(--text-secondary)",
                     cursor: "pointer",
                     fontSize: "0.82rem",
                     fontWeight: summaryAspectRatio === "9:16" ? 600 : 400,
                     textAlign: "left",
+                    transition: "all 0.15s ease",
                   }}
                 >
                   <div style={{ fontWeight: 600 }}>9:16 Vertical (Shorts / Reels)</div>
@@ -206,17 +218,17 @@ export function SummaryModal({
               </div>
             </div>
 
-            <div style={{ marginBottom: "1.5rem", padding: "0.75rem", borderRadius: "8px", background: "rgba(255,255,255,0.02)", border: "1px solid var(--border)", fontSize: "0.8rem" }}>
-              <div style={{ fontWeight: 600, marginBottom: "0.25rem" }}>Carpeta de destino:</div>
-              <div style={{ color: "var(--accent-primary)", wordBreak: "break-all" }}>
+            <div style={{ marginBottom: "1.5rem", padding: "0.75rem", borderRadius: "6px", background: "var(--bg-surface)", border: "1px solid var(--border-default)", fontSize: "0.8rem" }}>
+              <div style={{ fontWeight: 600, marginBottom: "0.25rem", color: "var(--text-secondary)" }}>Carpeta de destino:</div>
+              <div style={{ color: "#fafafa", wordBreak: "break-all", fontFamily: "var(--font-mono)" }}>
                 {customOutputDir || `Documentos/AutoShorts/${detail.project.name || fileName(detail.project.sourcePath)}`}
               </div>
-              <div style={{ fontSize: "0.75rem", opacity: 0.7, marginTop: "4px" }}>
+              <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: "4px" }}>
                 El ensamblaje se realiza de forma directa en FFmpeg con micro-fades de audio entre cortes (0% de consumo de VRAM).
               </div>
             </div>
 
-            <div className="style-modal-actions" style={{ display: "flex", justifyContent: "flex-end", gap: "0.75rem" }}>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.75rem", paddingTop: "0.75rem", borderTop: "1px solid var(--border-default)" }}>
               <button
                 type="button"
                 className="btn-cancel"
@@ -226,15 +238,14 @@ export function SummaryModal({
               </button>
               <button
                 type="button"
-                className="primary-action"
+                className="btn-confirm"
                 onClick={onGenerateSummary}
-                style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}
               >
-                <Clapperboard size={16} />
+                <Clapperboard size={15} />
                 <span>Autoeditar y Generar Video</span>
               </button>
             </div>
-          </>
+          </div>
         )}
 
         {summaryStatus === "rendering" && (

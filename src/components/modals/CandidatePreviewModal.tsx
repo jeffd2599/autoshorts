@@ -1,7 +1,12 @@
 import React from "react";
-import { Scissors } from "lucide-react";
+import { Scissors, X } from "lucide-react";
 import { Candidate, Clip, ProjectDetail } from "../../types";
 import { formatTime } from "../../utils/format";
+
+// Strips any emojis that the LLM may output
+function cleanHook(text: string): string {
+  return text.replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F900}-\u{1F9FF}\u{1FA70}-\u{1FAFF}]/gu, '').trim();
+}
 
 interface CandidatePreviewModalProps {
   candidate: Candidate | null;
@@ -37,21 +42,26 @@ export function CandidatePreviewModal({
   return (
     <div className="style-modal-overlay" onClick={onClose}>
       <div className="style-modal" style={{ maxWidth: "680px" }} onClick={(e) => e.stopPropagation()}>
-        <div className="style-modal-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div className="style-modal-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "1.25rem 1.5rem", borderBottom: "1px solid var(--border-default)" }}>
           <div>
-            <h3>Previsualizar Clip #{candidate.rank}</h3>
-            <p style={{ margin: 0 }}>
+            <h3 style={{ margin: 0, fontSize: "1.05rem", fontWeight: 700, color: "var(--text-primary)" }}>Previsualizar Clip #{candidate.rank}</h3>
+            <p style={{ margin: "4px 0 0", fontSize: "0.82rem", color: "var(--text-secondary)", fontFamily: "var(--font-mono)", fontVariantNumeric: "tabular-nums" }}>
               {formatTime(candidate.startSec)} - {formatTime(candidate.endSec)} ({Math.round(candidate.endSec - candidate.startSec)}s)
             </p>
           </div>
-          <button className="btn-cancel" onClick={onClose} style={{ padding: "0.4rem 0.8rem" }}>
-            Cerrar
+          <button
+            type="button"
+            className="modal-close-btn"
+            onClick={onClose}
+            title="Cerrar modal"
+          >
+            <X size={15} />
           </button>
         </div>
 
-        <div style={{ padding: "1rem" }}>
-          <h4 style={{ color: "var(--accent-primary)", marginBottom: "0.75rem", fontSize: "1.05rem" }}>
-            "{candidate.hook}"
+        <div style={{ padding: "1.25rem 1.5rem" }}>
+          <h4 style={{ color: "#fafafa", marginBottom: "0.75rem", fontSize: "1.05rem", fontWeight: 600 }}>
+            "{cleanHook(candidate.hook)}"
           </h4>
 
           <div style={{ background: "#000", borderRadius: "8px", overflow: "hidden", maxHeight: "400px", display: "flex", justifyContent: "center" }}>
@@ -79,16 +89,16 @@ export function CandidatePreviewModal({
 
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem", marginBottom: "0.75rem" }}>
               {/* Inicio */}
-              <div style={{ background: "var(--bg-base)", padding: "0.5rem 0.65rem", borderRadius: "6px", border: "1px solid var(--border-default)" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.35rem" }}>
-                  <span style={{ fontSize: "0.75rem", opacity: 0.8 }}>Inicio: <strong style={{ fontFamily: "var(--font-mono)", fontVariantNumeric: "tabular-nums" }}>{formatTime(trimStart)}</strong></span>
-                  <span style={{ fontSize: "0.72rem", opacity: 0.6, fontFamily: "var(--font-mono)", fontVariantNumeric: "tabular-nums" }}>{trimStart.toFixed(1)}s</span>
+              <div style={{ background: "var(--bg-surface)", padding: "0.6rem 0.75rem", borderRadius: "6px", border: "1px solid var(--border-default)" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.45rem" }}>
+                  <span style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>Inicio: <strong style={{ color: "var(--text-primary)", fontFamily: "var(--font-mono, monospace)", fontVariantNumeric: "tabular-nums" }}>{formatTime(trimStart)}</strong></span>
+                  <span style={{ fontSize: "0.72rem", color: "var(--text-muted)", fontFamily: "var(--font-mono, monospace)", fontVariantNumeric: "tabular-nums" }}>{trimStart.toFixed(1)}s</span>
                 </div>
                 <div style={{ display: "flex", gap: "0.3rem" }}>
                   <button
                     type="button"
-                    className="icon-button"
-                    style={{ flex: 1, padding: "0.25rem 0", fontSize: "0.72rem", minHeight: "26px" }}
+                    className="btn-cancel"
+                    style={{ flex: 1, padding: 0, height: "26px", minHeight: "26px", fontSize: "0.72rem", fontFamily: "var(--font-mono, monospace)" }}
                     onClick={() => setTrimStart((curr) => Math.max(0, Number((curr - 5).toFixed(1))))}
                     title="Retroceder 5 segundos"
                   >
@@ -96,8 +106,8 @@ export function CandidatePreviewModal({
                   </button>
                   <button
                     type="button"
-                    className="icon-button"
-                    style={{ flex: 1, padding: "0.25rem 0", fontSize: "0.72rem", minHeight: "26px" }}
+                    className="btn-cancel"
+                    style={{ flex: 1, padding: 0, height: "26px", minHeight: "26px", fontSize: "0.72rem", fontFamily: "var(--font-mono, monospace)" }}
                     onClick={() => setTrimStart((curr) => Math.max(0, Number((curr - 1).toFixed(1))))}
                     title="Retroceder 1 segundo"
                   >
@@ -105,8 +115,8 @@ export function CandidatePreviewModal({
                   </button>
                   <button
                     type="button"
-                    className="icon-button"
-                    style={{ flex: 1, padding: "0.25rem 0", fontSize: "0.72rem", minHeight: "26px" }}
+                    className="btn-cancel"
+                    style={{ flex: 1, padding: 0, height: "26px", minHeight: "26px", fontSize: "0.72rem", fontFamily: "var(--font-mono, monospace)" }}
                     onClick={() => setTrimStart((curr) => Math.min(trimEnd - 1, Number((curr + 1).toFixed(1))))}
                     title="Avanzar 1 segundo"
                   >
@@ -114,8 +124,8 @@ export function CandidatePreviewModal({
                   </button>
                   <button
                     type="button"
-                    className="icon-button"
-                    style={{ flex: 1, padding: "0.25rem 0", fontSize: "0.72rem", minHeight: "26px" }}
+                    className="btn-cancel"
+                    style={{ flex: 1, padding: 0, height: "26px", minHeight: "26px", fontSize: "0.72rem", fontFamily: "var(--font-mono, monospace)" }}
                     onClick={() => setTrimStart((curr) => Math.min(trimEnd - 1, Number((curr + 5).toFixed(1))))}
                     title="Avanzar 5 segundos"
                   >
@@ -125,16 +135,16 @@ export function CandidatePreviewModal({
               </div>
 
               {/* Fin */}
-              <div style={{ background: "rgba(0,0,0,0.2)", padding: "0.5rem 0.65rem", borderRadius: "6px", border: "1px solid rgba(255,255,255,0.06)" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.35rem" }}>
-                  <span style={{ fontSize: "0.75rem", opacity: 0.8 }}>Fin: <strong>{formatTime(trimEnd)}</strong></span>
-                  <span style={{ fontSize: "0.72rem", opacity: 0.6 }}>{trimEnd.toFixed(1)}s</span>
+              <div style={{ background: "var(--bg-surface)", padding: "0.6rem 0.75rem", borderRadius: "6px", border: "1px solid var(--border-default)" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.45rem" }}>
+                  <span style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>Fin: <strong style={{ color: "var(--text-primary)", fontFamily: "var(--font-mono, monospace)", fontVariantNumeric: "tabular-nums" }}>{formatTime(trimEnd)}</strong></span>
+                  <span style={{ fontSize: "0.72rem", color: "var(--text-muted)", fontFamily: "var(--font-mono, monospace)", fontVariantNumeric: "tabular-nums" }}>{trimEnd.toFixed(1)}s</span>
                 </div>
                 <div style={{ display: "flex", gap: "0.3rem" }}>
                   <button
                     type="button"
-                    className="icon-button"
-                    style={{ flex: 1, padding: "0.25rem 0", fontSize: "0.72rem", minHeight: "26px" }}
+                    className="btn-cancel"
+                    style={{ flex: 1, padding: 0, height: "26px", minHeight: "26px", fontSize: "0.72rem", fontFamily: "var(--font-mono, monospace)" }}
                     onClick={() => setTrimEnd((curr) => Math.max(trimStart + 1, Number((curr - 5).toFixed(1))))}
                     title="Acortar 5 segundos"
                   >
@@ -142,8 +152,8 @@ export function CandidatePreviewModal({
                   </button>
                   <button
                     type="button"
-                    className="icon-button"
-                    style={{ flex: 1, padding: "0.25rem 0", fontSize: "0.72rem", minHeight: "26px" }}
+                    className="btn-cancel"
+                    style={{ flex: 1, padding: 0, height: "26px", minHeight: "26px", fontSize: "0.72rem", fontFamily: "var(--font-mono, monospace)" }}
                     onClick={() => setTrimEnd((curr) => Math.max(trimStart + 1, Number((curr - 1).toFixed(1))))}
                     title="Acortar 1 segundo"
                   >
@@ -151,8 +161,8 @@ export function CandidatePreviewModal({
                   </button>
                   <button
                     type="button"
-                    className="icon-button"
-                    style={{ flex: 1, padding: "0.25rem 0", fontSize: "0.72rem", minHeight: "26px" }}
+                    className="btn-cancel"
+                    style={{ flex: 1, padding: 0, height: "26px", minHeight: "26px", fontSize: "0.72rem", fontFamily: "var(--font-mono, monospace)" }}
                     onClick={() => setTrimEnd((curr) => Number((curr + 1).toFixed(1)))}
                     title="Extender 1 segundo"
                   >
@@ -160,8 +170,8 @@ export function CandidatePreviewModal({
                   </button>
                   <button
                     type="button"
-                    className="icon-button"
-                    style={{ flex: 1, padding: "0.25rem 0", fontSize: "0.72rem", minHeight: "26px" }}
+                    className="btn-cancel"
+                    style={{ flex: 1, padding: 0, height: "26px", minHeight: "26px", fontSize: "0.72rem", fontFamily: "var(--font-mono, monospace)" }}
                     onClick={() => setTrimEnd((curr) => Number((curr + 5).toFixed(1)))}
                     title="Extender 5 segundos"
                   >
@@ -179,8 +189,8 @@ export function CandidatePreviewModal({
               )}
               <button
                 type="button"
-                className="icon-button"
-                style={{ fontSize: "0.76rem", padding: "0.3rem 0.6rem" }}
+                className="btn-cancel"
+                style={{ minHeight: "32px", fontSize: "0.78rem", padding: "0 10px" }}
                 onClick={() => {
                   setTrimStart(candidate.startSec);
                   setTrimEnd(candidate.endSec);
@@ -191,8 +201,8 @@ export function CandidatePreviewModal({
               </button>
               <button
                 type="button"
-                className="primary-action"
-                style={{ fontSize: "0.78rem", padding: "0.35rem 0.75rem", minHeight: "28px" }}
+                className="btn-confirm"
+                style={{ minHeight: "32px", fontSize: "0.78rem", padding: "0 14px" }}
                 onClick={onSaveTrim}
                 disabled={isSavingTrim || trimStart >= trimEnd}
               >
@@ -202,10 +212,11 @@ export function CandidatePreviewModal({
           </div>
 
           <div style={{ marginTop: "1rem", display: "flex", justifyContent: "space-between", alignItems: "center", gap: "1rem" }}>
-            <p style={{ margin: 0, fontSize: "0.85rem", opacity: 0.8, flex: 1 }}>
+            <p style={{ margin: 0, fontSize: "0.82rem", color: "var(--text-secondary)", flex: 1 }}>
               {candidate.rationale}
             </p>
             <button
+              type="button"
               className="btn-confirm"
               onClick={() => {
                 const id = candidate.id;
@@ -215,7 +226,8 @@ export function CandidatePreviewModal({
               disabled={busy !== "idle"}
               style={{ whiteSpace: "nowrap" }}
             >
-              <Scissors size={15} /> Cortar este Clip
+              <Scissors size={14} />
+              <span>Cortar este Clip</span>
             </button>
           </div>
         </div>

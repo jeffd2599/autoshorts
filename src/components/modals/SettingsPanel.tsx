@@ -1,5 +1,5 @@
 import React from "react";
-import { Download, RefreshCw, SlidersHorizontal } from "lucide-react";
+import { Download, RefreshCw, RotateCcw, SlidersHorizontal, X } from "lucide-react";
 import {
   EnvironmentStatus,
   HardwareTelemetry,
@@ -111,26 +111,26 @@ export function SettingsPanel({
   if (!isOpen) return null;
 
   return (
-    <div className="settings-panel" style={{ margin: "1rem 0", padding: "1.25rem", background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: "12px", boxShadow: "0 8px 24px rgba(0,0,0,0.3)" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem", paddingBottom: "0.75rem", borderBottom: "1px solid var(--border)" }}>
+    <div className="settings-panel" style={{ margin: "1rem 0", padding: "1.25rem", background: "var(--bg-card)", border: "1px solid var(--border-default)", borderRadius: "10px", boxShadow: "0 8px 24px rgba(0,0,0,0.4)" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.25rem", paddingBottom: "0.85rem", borderBottom: "1px solid var(--border-default)" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-          <SlidersHorizontal size={18} color="var(--accent-primary)" />
-          <h3 style={{ margin: 0, fontSize: "1rem", fontWeight: 700 }}>Configuración del Estudio (Modelos & APIs)</h3>
+          <SlidersHorizontal size={16} color="#fafafa" />
+          <h3 style={{ margin: 0, fontSize: "0.95rem", fontWeight: 600, color: "var(--text-primary)" }}>Configuración del Estudio (Modelos & APIs)</h3>
         </div>
         <button
           type="button"
-          className="icon-button"
-          style={{ minHeight: "28px", height: "28px", padding: "2px 10px", fontSize: "0.8rem" }}
+          className="modal-close-btn"
           onClick={onClose}
+          aria-label="Cerrar configuración"
         >
-          Cerrar
+          <X size={15} />
         </button>
       </div>
 
       <div className="key-stack-horizontal" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "1.25rem" }}>
         {/* Transcription Engine */}
         <label>
-          <span style={{ fontWeight: 600, fontSize: "0.82rem", display: "block", marginBottom: "0.4rem" }}>MOTOR DE TRANSCRIPCIÓN</span>
+          <span style={{ fontWeight: 600, fontSize: "0.78rem", color: "var(--text-secondary)", letterSpacing: "0.04em", display: "block", marginBottom: "0.4rem" }}>MOTOR DE TRANSCRIPCIÓN</span>
           <select
             className="form-select"
             value={transcriptionEngine}
@@ -139,7 +139,7 @@ export function SettingsPanel({
               setTranscriptionEngine(eng);
               syncConfig({ transcriptionEngine: eng });
             }}
-            style={{ width: "100%", padding: "0.5rem", borderRadius: "6px" }}
+            style={{ width: "100%" }}
           >
             <option value="local">Local Whisper (Offline - GPU CUDA)</option>
             <option value="deepgram">Deepgram API (Cloud)</option>
@@ -151,13 +151,13 @@ export function SettingsPanel({
           <label>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.4rem" }}>
               <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                <span style={{ fontWeight: 600, fontSize: "0.82rem" }}>MODELO WHISPER (LOCAL)</span>
+                <span style={{ fontWeight: 600, fontSize: "0.78rem", color: "var(--text-secondary)", letterSpacing: "0.04em" }}>MODELO WHISPER (LOCAL)</span>
                 {(() => {
                   const traf = getWhisperTrafficLevel(whisperModel, telemetry?.vramTotalMb);
                   return <ModelBadge level={traf.level} label={traf.label} note={traf.note} />;
                 })()}
               </div>
-              <span style={{ fontSize: "0.72rem", color: "var(--accent-primary)", fontWeight: 600 }}>
+              <span style={{ fontSize: "0.72rem", color: "var(--text-secondary)", fontFamily: "var(--font-mono, monospace)" }}>
                 {whisperModelsList.find((m) => m.id === whisperModel)?.vram || ""} VRAM
               </span>
             </div>
@@ -168,7 +168,7 @@ export function SettingsPanel({
                 setWhisperModel(event.target.value);
                 syncConfig({ whisperModel: event.target.value });
               }}
-              style={{ width: "100%", padding: "0.5rem", borderRadius: "6px" }}
+              style={{ width: "100%" }}
             >
               {whisperModelsList.map((m) => {
                 const traf = getWhisperTrafficLevel(m.id, telemetry?.vramTotalMb);
@@ -179,7 +179,7 @@ export function SettingsPanel({
                 );
               })}
             </select>
-            <span style={{ fontSize: "0.72rem", opacity: 0.7, marginTop: "4px", display: "block" }}>
+            <span style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginTop: "4px", display: "block" }}>
               {whisperModelsList.find((m) => m.id === whisperModel)?.description || "Modelos de alta precisión para GPU NVIDIA."}
             </span>
           </label>
@@ -187,7 +187,7 @@ export function SettingsPanel({
 
         {/* LLM Engine */}
         <label>
-          <span style={{ fontWeight: 600, fontSize: "0.82rem", display: "block", marginBottom: "0.4rem" }}>MOTOR DE IA (DETECCIÓN DE MOMENTOS)</span>
+          <span style={{ fontWeight: 600, fontSize: "0.78rem", color: "var(--text-secondary)", letterSpacing: "0.04em", display: "block", marginBottom: "0.4rem" }}>MOTOR DE IA (DETECCIÓN DE MOMENTOS)</span>
           <select
             className="form-select"
             value={llmEngine}
@@ -196,7 +196,7 @@ export function SettingsPanel({
               setLlmEngine(eng);
               syncConfig({ llmEngine: eng });
             }}
-            style={{ width: "100%", padding: "0.5rem", borderRadius: "6px" }}
+            style={{ width: "100%" }}
           >
             <option value="local">Ollama (Offline Local en tu PC)</option>
             <option value="openrouter">OpenRouter (Cloud - Modelos Libres / Pagos)</option>
@@ -210,11 +210,11 @@ export function SettingsPanel({
 
         {/* Conditional Fields based on LLM Engine */}
         {llmEngine === "local" && (
-          <div style={{ gridColumn: "1 / -1", padding: "1rem", borderRadius: "8px", background: "rgba(255,255,255,0.02)", border: "1px solid var(--border)" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
+          <div style={{ gridColumn: "1 / -1", padding: "1rem", borderRadius: "8px", background: "var(--bg-surface)", border: "1px solid var(--border-default)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem" }}>
               <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                <span style={{ fontWeight: 600, fontSize: "0.85rem" }}>
-                  Modelos Instalados en tu Ollama Local:
+                <span style={{ fontWeight: 600, fontSize: "0.82rem", color: "var(--text-primary)" }}>
+                  Modelos instalados en tu Ollama local:
                 </span>
                 {localLlmModel && (() => {
                   const traf = getOllamaTrafficLevel(localLlmModel, telemetry?.vramTotalMb);
@@ -223,12 +223,12 @@ export function SettingsPanel({
               </div>
               <button
                 type="button"
-                className="icon-button"
-                style={{ minHeight: "26px", height: "26px", padding: "2px 8px", fontSize: "0.75rem" }}
+                className="btn-cancel"
+                style={{ height: "28px", padding: "0 10px", fontSize: "0.75rem", display: "inline-flex", alignItems: "center", gap: "6px" }}
                 onClick={() => void onRefreshEnv()}
                 title="Actualizar lista de modelos desde Ollama"
               >
-                <RefreshCw size={12} /> Refrescar Lista
+                <RefreshCw size={12} /> Refrescar lista
               </button>
             </div>
 
@@ -241,7 +241,7 @@ export function SettingsPanel({
                     setLocalLlmModel(event.target.value);
                     syncConfig({ localLlmModel: event.target.value });
                   }}
-                  style={{ flex: 1, padding: "0.55rem", fontSize: "0.88rem", borderRadius: "6px" }}
+                  style={{ flex: 1, padding: "0.5rem 0.75rem" }}
                 >
                   {environment.installedOllamaModels.map((m) => {
                     const traf = getOllamaTrafficLevel(m, telemetry?.vramTotalMb);
@@ -252,17 +252,17 @@ export function SettingsPanel({
                     );
                   })}
                 </select>
-                <span style={{ fontSize: "0.78rem", color: "#10b981", fontWeight: 600, whiteSpace: "nowrap" }}>
-                  ● {environment.installedOllamaModels.length} modelo(s) listo(s) en PC
+                <span style={{ fontSize: "0.75rem", fontFamily: "var(--font-mono, monospace)", color: "var(--text-secondary)", background: "rgba(255, 255, 255, 0.03)", border: "1px solid var(--border-default)", padding: "6px 10px", borderRadius: "6px", whiteSpace: "nowrap" }}>
+                  {environment.installedOllamaModels.length} modelos detectados
                 </span>
               </div>
             ) : (
-              <div style={{ fontSize: "0.8rem", color: "#f59e0b", padding: "0.4rem 0", marginBottom: "0.6rem" }}>
+              <div style={{ fontSize: "0.8rem", color: "var(--text-secondary)", padding: "0.4rem 0", marginBottom: "0.6rem" }}>
                 No se detectaron modelos activos en Ollama (http://127.0.0.1:11434). Asegúrate de tener la app de Ollama abierta.
               </div>
             )}
 
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "0.6rem 0", padding: "0.5rem 0.75rem", background: "rgba(255,255,255,0.02)", borderRadius: "6px", border: "1px solid var(--border)" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "0.6rem 0", padding: "0.6rem 0.85rem", background: "rgba(255, 255, 255, 0.02)", borderRadius: "6px", border: "1px solid var(--border-default)" }}>
               <label style={{ display: "flex", alignItems: "center", gap: "8px", cursor: "pointer", fontSize: "0.82rem" }}>
                 <input
                   type="checkbox"
@@ -271,19 +271,19 @@ export function SettingsPanel({
                     setEnableThinking(e.target.checked);
                     localStorage.setItem("autoshorts_enable_thinking", String(e.target.checked));
                   }}
-                  style={{ cursor: "pointer", width: "15px", height: "15px" }}
+                  style={{ cursor: "pointer", width: "15px", height: "15px", accentColor: "#fafafa" }}
                 />
-                <span>Activar modo razonamiento (Thinking / CoT en Ollama)</span>
+                <span style={{ color: "var(--text-primary)" }}>Activar modo razonamiento (Thinking / CoT en Ollama)</span>
               </label>
-              <span style={{ fontSize: "0.72rem", color: enableThinking ? "#f59e0b" : "#10b981", fontWeight: 600 }}>
-                {enableThinking ? "Más lento (análisis profundo)" : "Modo rápido (Recomendado para RTX 2060)"}
+              <span style={{ fontSize: "0.72rem", color: enableThinking ? "#e4e4e7" : "var(--text-muted)", fontFamily: "var(--font-mono, monospace)", fontWeight: 500 }}>
+                {enableThinking ? "Modo razonamiento (análisis profundo)" : "Modo estándar (rápido)"}
               </span>
             </div>
 
             {/* Optional Pull another model */}
-            <div style={{ paddingTop: "0.6rem", borderTop: "1px dashed var(--border)" }}>
-              <span style={{ fontSize: "0.75rem", opacity: 0.8, display: "block", marginBottom: "0.3rem" }}>
-                ¿Quieres descargar otro modelo desde la biblioteca de Ollama?
+            <div style={{ paddingTop: "0.8rem", marginTop: "0.6rem", borderTop: "1px solid var(--border-default)" }}>
+              <span style={{ fontSize: "0.76rem", color: "var(--text-secondary)", display: "block", marginBottom: "0.4rem" }}>
+                Descargar otro modelo desde la biblioteca de Ollama:
               </span>
               <div style={{ display: "flex", gap: "8px" }}>
                 <input
@@ -292,12 +292,12 @@ export function SettingsPanel({
                   placeholder="Ej: llama3.2, mistral, deepseek-r1:8b"
                   value={pullInputModel}
                   onChange={(e) => setPullInputModel(e.target.value)}
-                  style={{ flex: 1, padding: "0.45rem 0.6rem", fontSize: "0.85rem", borderRadius: "6px" }}
+                  style={{ flex: 1, padding: "0.45rem 0.75rem", fontSize: "0.85rem" }}
                 />
                 <button
                   type="button"
-                  className="icon-button"
-                  style={{ minHeight: "34px", height: "34px", whiteSpace: "nowrap" }}
+                  className="btn-confirm"
+                  style={{ height: "36px", padding: "0 14px", fontSize: "0.8rem", whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", gap: "6px" }}
                   disabled={!pullInputModel.trim() || Boolean(downloadingModelName)}
                   onClick={() => {
                     if (pullInputModel.trim()) {
@@ -309,11 +309,11 @@ export function SettingsPanel({
                     }
                   }}
                 >
-                  <Download size={14} /> Descargar (Pull)
+                  <Download size={13} /> Descargar (Pull)
                 </button>
               </div>
               {downloadingModelName && (
-                <div style={{ marginTop: "0.5rem", fontSize: "0.78rem", color: "var(--accent-primary)" }}>
+                <div style={{ marginTop: "0.5rem", fontSize: "0.78rem", color: "var(--text-primary)", fontFamily: "var(--font-mono, monospace)" }}>
                   {modelDownloadStatus} ({modelDownloadProgress}%)
                 </div>
               )}
@@ -323,38 +323,40 @@ export function SettingsPanel({
 
         {/* OpenRouter */}
         {llmEngine === "openrouter" && (
-          <div style={{ gridColumn: "1 / -1", padding: "1rem", borderRadius: "8px", background: "rgba(255,255,255,0.02)", border: "1px solid var(--border)", display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+          <div style={{ gridColumn: "1 / -1", padding: "1rem", borderRadius: "8px", background: "var(--bg-surface)", border: "1px solid var(--border-default)", display: "flex", flexDirection: "column", gap: "0.75rem" }}>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
               <label>
-                <span style={{ fontWeight: 600, fontSize: "0.82rem", display: "block", marginBottom: "0.3rem" }}>OPENROUTER API KEY</span>
+                <span style={{ fontWeight: 600, fontSize: "0.78rem", color: "var(--text-secondary)", display: "block", marginBottom: "0.3rem" }}>OPENROUTER API KEY</span>
                 <input
                   type="password"
+                  className="form-input"
                   value={openrouterKey}
                   onChange={(event) => {
                     setOpenrouterKey(event.target.value);
                     syncConfig({ openrouterKey: event.target.value });
                   }}
                   placeholder={environment?.hasOpenrouterKey ? "Cargado desde variables de entorno" : "sk-or-v1-..."}
-                  style={{ width: "100%", padding: "0.5rem", borderRadius: "6px" }}
+                  style={{ width: "100%" }}
                 />
               </label>
               <label>
-                <span style={{ fontWeight: 600, fontSize: "0.82rem", display: "block", marginBottom: "0.3rem" }}>MODELO DE OPENROUTER</span>
+                <span style={{ fontWeight: 600, fontSize: "0.78rem", color: "var(--text-secondary)", display: "block", marginBottom: "0.3rem" }}>MODELO DE OPENROUTER</span>
                 <input
                   type="text"
+                  className="form-input"
                   value={openrouterModel}
                   onChange={(event) => {
                     setOpenrouterModel(event.target.value);
                     syncConfig({ openrouterModel: event.target.value });
                   }}
                   placeholder="meta-llama/llama-3.3-70b-instruct:free"
-                  style={{ width: "100%", padding: "0.5rem", borderRadius: "6px" }}
+                  style={{ width: "100%" }}
                 />
               </label>
             </div>
 
-            <div style={{ padding: "0.6rem 0.8rem", borderRadius: "6px", background: "rgba(16, 185, 129, 0.08)", border: "1px solid rgba(16, 185, 129, 0.2)", fontSize: "0.78rem", color: "var(--foreground)" }}>
-              <strong>Protección Anti-Saturación:</strong> AutoShorts incorpora pausas de 2.5s entre bloques y reintentos automáticos con espera exponencial ante códigos 429 (Rate Limit), para que los modelos gratuitos de OpenRouter no saturen la cuota ni congelen la aplicación.
+            <div style={{ padding: "0.6rem 0.8rem", borderRadius: "6px", background: "rgba(255, 255, 255, 0.02)", border: "1px solid var(--border-default)", fontSize: "0.78rem", color: "var(--text-secondary)" }}>
+              <strong style={{ color: "var(--text-primary)" }}>Protección Anti-Saturación:</strong> AutoShorts incorpora pausas de 2.5s entre bloques y reintentos automáticos con espera exponencial ante códigos 429 (Rate Limit).
             </div>
           </div>
         )}
@@ -363,29 +365,31 @@ export function SettingsPanel({
         {llmEngine === "deepseek" && (
           <div style={{ gridColumn: "1 / -1", display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
             <label>
-              <span style={{ fontWeight: 600, fontSize: "0.82rem", display: "block", marginBottom: "0.3rem" }}>DEEPSEEK API KEY</span>
+              <span style={{ fontWeight: 600, fontSize: "0.78rem", color: "var(--text-secondary)", display: "block", marginBottom: "0.3rem" }}>DEEPSEEK API KEY</span>
               <input
                 type="password"
+                className="form-input"
                 value={deepseekKey}
                 onChange={(event) => {
                   setDeepseekKey(event.target.value);
                   syncConfig({ deepseekKey: event.target.value });
                 }}
                 placeholder={environment?.hasDeepseekKey ? "Cargado desde variables de entorno" : "sk-..."}
-                style={{ width: "100%", padding: "0.5rem", borderRadius: "6px" }}
+                style={{ width: "100%" }}
               />
             </label>
             <label>
-              <span style={{ fontWeight: 600, fontSize: "0.82rem", display: "block", marginBottom: "0.3rem" }}>MODELO DE DEEPSEEK</span>
+              <span style={{ fontWeight: 600, fontSize: "0.78rem", color: "var(--text-secondary)", display: "block", marginBottom: "0.3rem" }}>MODELO DE DEEPSEEK</span>
               <input
                 type="text"
+                className="form-input"
                 value={deepseekModel}
                 onChange={(event) => {
                   setDeepseekModel(event.target.value);
                   syncConfig({ deepseekModel: event.target.value });
                 }}
                 placeholder="deepseek-chat (opcional)"
-                style={{ width: "100%", padding: "0.5rem", borderRadius: "6px" }}
+                style={{ width: "100%" }}
               />
             </label>
           </div>
@@ -394,16 +398,17 @@ export function SettingsPanel({
         {/* Claude */}
         {llmEngine === "claude" && (
           <label style={{ gridColumn: "1 / -1" }}>
-            <span style={{ fontWeight: 600, fontSize: "0.82rem", display: "block", marginBottom: "0.3rem" }}>CLAUDE (ANTHROPIC) API KEY</span>
+            <span style={{ fontWeight: 600, fontSize: "0.78rem", color: "var(--text-secondary)", display: "block", marginBottom: "0.3rem" }}>CLAUDE (ANTHROPIC) API KEY</span>
             <input
               type="password"
+              className="form-input"
               value={anthropicKey}
               onChange={(event) => {
                 setAnthropicKey(event.target.value);
                 syncConfig({ anthropicKey: event.target.value });
               }}
               placeholder={environment?.hasAnthropicKey ? "Cargado desde variables de entorno" : "sk-ant-..."}
-              style={{ width: "100%", padding: "0.5rem", borderRadius: "6px" }}
+              style={{ width: "100%" }}
             />
           </label>
         )}
@@ -411,16 +416,17 @@ export function SettingsPanel({
         {/* OpenAI */}
         {llmEngine === "openai" && (
           <label style={{ gridColumn: "1 / -1" }}>
-            <span style={{ fontWeight: 600, fontSize: "0.82rem", display: "block", marginBottom: "0.3rem" }}>OPENAI API KEY</span>
+            <span style={{ fontWeight: 600, fontSize: "0.78rem", color: "var(--text-secondary)", display: "block", marginBottom: "0.3rem" }}>OPENAI API KEY</span>
             <input
               type="password"
+              className="form-input"
               value={openaiKey}
               onChange={(event) => {
                 setOpenaiKey(event.target.value);
                 syncConfig({ openaiKey: event.target.value });
               }}
               placeholder={environment?.hasOpenaiKey ? "Cargado desde variables de entorno" : "sk-..."}
-              style={{ width: "100%", padding: "0.5rem", borderRadius: "6px" }}
+              style={{ width: "100%" }}
             />
           </label>
         )}
@@ -428,16 +434,17 @@ export function SettingsPanel({
         {/* Groq */}
         {llmEngine === "groq" && (
           <label style={{ gridColumn: "1 / -1" }}>
-            <span style={{ fontWeight: 600, fontSize: "0.82rem", display: "block", marginBottom: "0.3rem" }}>GROQ API KEY</span>
+            <span style={{ fontWeight: 600, fontSize: "0.78rem", color: "var(--text-secondary)", display: "block", marginBottom: "0.3rem" }}>GROQ API KEY</span>
             <input
               type="password"
+              className="form-input"
               value={groqKey}
               onChange={(event) => {
                 setGroqKey(event.target.value);
                 syncConfig({ groqKey: event.target.value });
               }}
               placeholder={environment?.hasGroqKey ? "Cargado desde variables de entorno" : "gsk_..."}
-              style={{ width: "100%", padding: "0.5rem", borderRadius: "6px" }}
+              style={{ width: "100%" }}
             />
           </label>
         )}
@@ -445,16 +452,17 @@ export function SettingsPanel({
         {/* Gemini */}
         {llmEngine === "gemini" && (
           <label style={{ gridColumn: "1 / -1" }}>
-            <span style={{ fontWeight: 600, fontSize: "0.82rem", display: "block", marginBottom: "0.3rem" }}>GEMINI API KEY</span>
+            <span style={{ fontWeight: 600, fontSize: "0.78rem", color: "var(--text-secondary)", display: "block", marginBottom: "0.3rem" }}>GEMINI API KEY</span>
             <input
               type="password"
+              className="form-input"
               value={geminiKey}
               onChange={(event) => {
                 setGeminiKey(event.target.value);
                 syncConfig({ geminiKey: event.target.value });
               }}
               placeholder={environment?.hasGeminiKey ? "Cargado desde variables de entorno" : "AIzaSy..."}
-              style={{ width: "100%", padding: "0.5rem", borderRadius: "6px" }}
+              style={{ width: "100%" }}
             />
           </label>
         )}
@@ -462,43 +470,44 @@ export function SettingsPanel({
         {/* Deepgram Key if selected */}
         {transcriptionEngine === "deepgram" && (
           <label style={{ gridColumn: "1 / -1" }}>
-            <span style={{ fontWeight: 600, fontSize: "0.82rem", display: "block", marginBottom: "0.3rem" }}>DEEPGRAM API KEY</span>
+            <span style={{ fontWeight: 600, fontSize: "0.78rem", color: "var(--text-secondary)", display: "block", marginBottom: "0.3rem" }}>DEEPGRAM API KEY</span>
             <input
               type="password"
+              className="form-input"
               value={deepgramKey}
               onChange={(event) => {
                 setDeepgramKey(event.target.value);
                 syncConfig({ deepgramKey: event.target.value });
               }}
               placeholder={environment?.hasDeepgramKey ? "Cargado desde env" : "Token Deepgram..."}
-              style={{ width: "100%", padding: "0.5rem", borderRadius: "6px" }}
+              style={{ width: "100%" }}
             />
           </label>
         )}
       </div>
 
       {/* Custom Prompt for Moments */}
-      <div style={{ marginTop: "1.25rem", padding: "1rem", borderRadius: "8px", background: "rgba(255,255,255,0.02)", border: "1px solid var(--border)" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
+      <div style={{ marginTop: "1.25rem", padding: "1rem", borderRadius: "8px", background: "var(--bg-surface)", border: "1px solid var(--border-default)" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.6rem" }}>
           <div>
-            <span style={{ fontWeight: 600, fontSize: "0.85rem", display: "block" }}>
+            <span style={{ fontWeight: 600, fontSize: "0.82rem", display: "block", color: "var(--text-primary)" }}>
               Prompt del Sistema para Detección de Momentos
             </span>
-            <span style={{ fontSize: "0.74rem", opacity: 0.7 }}>
+            <span style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>
               Instrucciones que guían a la IA para evaluar ganchos, interés y selección de candidatos.
             </span>
           </div>
           <button
             type="button"
-            className="icon-button"
-            style={{ fontSize: "0.75rem", padding: "4px 10px", height: "auto" }}
+            className="btn-cancel"
+            style={{ fontSize: "0.75rem", padding: "0 10px", height: "28px", display: "inline-flex", alignItems: "center", gap: "6px" }}
             onClick={() => {
               setCustomMomentsPrompt("");
               syncConfig({ customMomentsPrompt: "" });
             }}
             title="Restablecer al prompt original por defecto"
           >
-            Restablecer por Defecto
+            <RotateCcw size={12} /> Restablecer por defecto
           </button>
         </div>
         <textarea
@@ -510,30 +519,30 @@ export function SettingsPanel({
             syncConfig({ customMomentsPrompt: e.target.value });
           }}
           placeholder="Escribe o personaliza las instrucciones del sistema..."
-          style={{ width: "100%", fontSize: "0.78rem", fontFamily: "var(--font-mono, monospace)", lineHeight: "1.4", resize: "vertical" }}
+          style={{ width: "100%", fontSize: "0.78rem", fontFamily: "var(--font-mono, monospace)", lineHeight: "1.5", resize: "vertical" }}
         />
         {customMomentsPrompt && (
-          <div style={{ marginTop: "0.4rem", fontSize: "0.72rem", color: "var(--accent-primary)" }}>
-            Prompt personalizado activo. Haz clic en "Restablecer por Defecto" para volver a la configuración estándar.
+          <div style={{ marginTop: "0.4rem", fontSize: "0.72rem", color: "var(--text-secondary)", fontFamily: "var(--font-mono, monospace)" }}>
+            Prompt personalizado activo. Haz clic en "Restablecer por defecto" para volver a la configuración estándar.
           </div>
         )}
       </div>
 
-      <div style={{ marginTop: "1.5rem", paddingTop: "1rem", borderTop: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+      <div style={{ marginTop: "1.5rem", paddingTop: "1rem", borderTop: "1px solid var(--border-default)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <button
           type="button"
-          className="icon-button btn-danger"
-          style={{ background: "rgba(239, 68, 68, 0.08)", borderColor: "rgba(239, 68, 68, 0.2)", color: "#f87171", padding: "6px 14px" }}
+          className="btn-cancel"
+          style={{ background: "rgba(239, 68, 68, 0.05)", borderColor: "rgba(239, 68, 68, 0.25)", color: "#f87171", padding: "0 14px", height: "32px", fontSize: "0.78rem" }}
           onClick={() => {
             if (window.confirm("¿Seguro que deseas reiniciar la configuración y volver al asistente inicial?")) {
               onResetConfig();
             }
           }}
         >
-          Reset App Configuration & Onboarding
+          Reiniciar configuración y asistente
         </button>
 
-        <span style={{ fontSize: "0.75rem", opacity: 0.6 }}>
+        <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
           Las configuraciones se guardan automáticamente en tu sistema.
         </span>
       </div>

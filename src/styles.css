@@ -174,6 +174,8 @@ button:disabled {
 
 .primary-action,
 .secondary-action,
+.btn-confirm,
+.btn-cancel,
 .button-pair button,
 .icon-button {
   display: inline-flex;
@@ -185,32 +187,85 @@ button:disabled {
   font-weight: 600;
   font-size: 13px;
   transition: all 0.15s ease;
+  cursor: pointer;
 }
 
-.primary-action {
-  width: 100%;
-  padding: 0 14px;
+.primary-action,
+.btn-confirm {
+  width: auto;
+  padding: 0 16px;
   color: #09090b;
   background: #fafafa;
   border: 1px solid #fafafa;
 }
 
-.primary-action:hover:not(:disabled) {
+.primary-action:hover:not(:disabled),
+.btn-confirm:hover:not(:disabled) {
   background: #e4e4e7;
   border-color: #e4e4e7;
 }
 
-.secondary-action {
-  width: 100%;
+.secondary-action,
+.btn-cancel {
+  width: auto;
   padding: 0 14px;
-  color: var(--text-primary);
+  color: var(--text-secondary);
   background: var(--bg-surface-raised);
   border: 1px solid var(--border-default);
 }
 
-.secondary-action:hover:not(:disabled) {
+.secondary-action:hover:not(:disabled),
+.btn-cancel:hover:not(:disabled) {
   background: var(--bg-surface-hover);
   border-color: var(--border-hover);
+  color: var(--text-primary);
+}
+
+.modal-close-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  min-height: 30px;
+  border-radius: 6px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  padding: 0;
+}
+
+.modal-close-btn:hover {
+  background: var(--bg-surface-hover);
+  border-color: var(--border-hover);
+  color: var(--text-primary);
+}
+
+select,
+.form-select,
+.form-input,
+input[type="text"],
+input[type="password"],
+textarea {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  color: var(--text-primary);
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+select:focus,
+.form-select:focus,
+.form-input:focus,
+input[type="text"]:focus,
+input[type="password"]:focus,
+textarea:focus {
+  border-color: var(--border-focus);
 }
 
 .primary-action.compact {
@@ -383,10 +438,11 @@ button:disabled {
   border-color: var(--border-color-focus);
 }
 
-.icon-button.settings-toggle.active {
-  background: rgba(142, 230, 199, 0.06);
-  border-color: var(--accent-primary);
-  color: var(--accent-primary);
+.icon-button.settings-toggle.active,
+.secondary-action.settings-toggle.active {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: #fafafa;
+  color: #fafafa;
 }
 
 .error-banner {

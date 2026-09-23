@@ -324,19 +324,19 @@ export function OnboardingModal({
             </div>
 
             <div className="onboarding-actions">
-              <button type="button" className="icon-button" onClick={() => setSetupMode("choose")}>Back</button>
+              <button type="button" className="btn-cancel" onClick={() => setSetupMode("choose")}>Volver</button>
               <button
                 type="button"
-                className="primary-action compact"
+                className="btn-confirm compact"
                 onClick={startLocalSetup}
                 disabled={checkingOllama}
               >
                 {checkingOllama ? <Loader2 className="spin" size={18} /> : null}
                 {checkingOllama
-                  ? "Checking Ollama..."
+                  ? "Verificando Ollama..."
                   : isModelDownloaded(selectedModel)
                     ? `Usar ${selectedModel} y Continuar`
-                    : "Download & Start Setup"}
+                    : "Descargar y Continuar"}
               </button>
             </div>
           </div>
@@ -395,8 +395,8 @@ export function OnboardingModal({
             </div>
 
             <div className="onboarding-actions">
-              <button type="button" className="icon-button" onClick={() => setSetupMode("choose")}>Back</button>
-              <button type="submit" className="primary-action compact">Save & Start</button>
+              <button type="button" className="btn-cancel" onClick={() => setSetupMode("choose")}>Volver</button>
+              <button type="submit" className="btn-confirm compact">Guardar y Continuar</button>
             </div>
           </form>
         )}

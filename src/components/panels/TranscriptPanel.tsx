@@ -46,24 +46,24 @@ export function TranscriptPanel({
             <>
               <button
                 type="button"
-                className="icon-button"
-                style={{ fontSize: "0.78rem", padding: "0.35rem 0.65rem", display: "inline-flex", alignItems: "center", gap: "4px" }}
+                className="secondary-action"
+                style={{ fontSize: "0.78rem", padding: "0 10px", height: "30px", minHeight: "30px", display: "inline-flex", alignItems: "center", gap: "5px" }}
                 onClick={onOpenCopyModal}
                 disabled={isGeneratingCopy || busy !== "idle"}
                 title="Generar copy persuasivo, hooks, CTA y hashtags para redes sociales"
               >
-                <Sparkles size={13} color="var(--accent-primary)" />
+                <Sparkles size={13} color="#fafafa" />
                 <span>Generar Copy con IA</span>
               </button>
               <button
                 type="button"
-                className="icon-button"
-                style={{ fontSize: "0.78rem", padding: "0.35rem 0.65rem", display: "inline-flex", alignItems: "center", gap: "4px" }}
+                className="secondary-action"
+                style={{ fontSize: "0.78rem", padding: "0 10px", height: "30px", minHeight: "30px", display: "inline-flex", alignItems: "center", gap: "5px" }}
                 onClick={onRefineTranscript}
                 disabled={isRefiningTranscript || busy !== "idle"}
                 title="Corregir ortografía, tildes y jerga gamer preservando los timestamps"
               >
-                {isRefiningTranscript ? <Loader2 className="spin" size={13} /> : <Sparkles size={13} />}
+                {isRefiningTranscript ? <Loader2 className="spin" size={13} /> : <Sparkles size={13} color="#fafafa" />}
                 <span>{isRefiningTranscript ? "Puliendo..." : "Pulir con IA"}</span>
               </button>
             </>
