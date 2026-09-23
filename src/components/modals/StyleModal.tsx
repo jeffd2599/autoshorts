@@ -1,0 +1,716 @@
+import React from "react";
+import { Captions, Sparkles } from "lucide-react";
+import {
+  ContentType,
+  EnvironmentStatus,
+  LlmEngine,
+  TargetDuration,
+  TranscriptionEngine,
+  WhisperModel,
+} from "../../types";
+
+interface StyleModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  selectedStyle: string;
+  setSelectedStyle: (style: string) => void;
+  selectedContentType: ContentType;
+  setSelectedContentType: (type: ContentType) => void;
+  targetDuration: TargetDuration;
+  setTargetDuration: (dur: TargetDuration) => void;
+  importModalTab: "subtitles" | "ai";
+  setImportModalTab: (tab: "subtitles" | "ai") => void;
+  llmEngine: LlmEngine;
+  setLlmEngine: (engine: LlmEngine) => void;
+  localLlmModel: string;
+  setLocalLlmModel: (model: string) => void;
+  deepseekModel: string;
+  setDeepseekModel: (model: string) => void;
+  openrouterModel: string;
+  setOpenrouterModel: (model: string) => void;
+  canUseDeepseek: boolean;
+  canUseClaude: boolean;
+  canUseOpenai: boolean;
+  canUseGroq: boolean;
+  canUseGemini: boolean;
+  canUseOpenrouter: boolean;
+  transcriptionEngine: TranscriptionEngine;
+  whisperModel: string;
+  setWhisperModel: (model: string) => void;
+  whisperModelsList: WhisperModel[];
+  autoTranscribeOnImport: boolean;
+  setAutoTranscribeOnImport: (val: boolean) => void;
+  refineTranscriptWithLlm: boolean;
+  setRefineTranscriptWithLlm: (val: boolean) => void;
+  autoDetectMoments: boolean;
+  setAutoDetectMoments: (val: boolean) => void;
+  enableThinking: boolean;
+  setEnableThinking: (val: boolean) => void;
+  environment: EnvironmentStatus | null;
+  onOpenSettings: () => void;
+  onConfirm: () => Promise<void>;
+}
+
+export function StyleModal({
+  isOpen,
+  onClose,
+  selectedStyle,
+  setSelectedStyle,
+  selectedContentType,
+  setSelectedContentType,
+  targetDuration,
+  setTargetDuration,
+  importModalTab,
+  setImportModalTab,
+  llmEngine,
+  setLlmEngine,
+  localLlmModel,
+  setLocalLlmModel,
+  deepseekModel,
+  setDeepseekModel,
+  openrouterModel,
+  setOpenrouterModel,
+  canUseDeepseek,
+  canUseClaude,
+  canUseOpenai,
+  canUseGroq,
+  canUseGemini,
+  canUseOpenrouter,
+  transcriptionEngine,
+  whisperModel,
+  setWhisperModel,
+  whisperModelsList,
+  autoTranscribeOnImport,
+  setAutoTranscribeOnImport,
+  refineTranscriptWithLlm,
+  setRefineTranscriptWithLlm,
+  autoDetectMoments,
+  setAutoDetectMoments,
+  enableThinking,
+  setEnableThinking,
+  environment,
+  onOpenSettings,
+  onConfirm,
+}: StyleModalProps) {
+  if (!isOpen) return null;
+
+  return (
+    <div className="style-modal-overlay">
+      <div className="style-modal">
+        {/* Modal Header */}
+        <div style={{ padding: "1.25rem 1.5rem 0.75rem", borderBottom: "1px solid var(--border-color)", background: "rgba(255,255,255,0.01)" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.25rem" }}>
+            <h3 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 700, color: "var(--foreground)" }}>
+              Configuración de Importación
+            </h3>
+            <span style={{ fontSize: "0.72rem", padding: "0.2rem 0.55rem", borderRadius: "6px", background: "rgba(255,255,255,0.06)", border: "1px solid var(--border-color)", opacity: 0.85 }}>
+              {importModalTab === "subtitles" ? "Pestaña 1 de 2: Subtítulos y Formato" : "Pestaña 2 de 2: Procesamiento e IA"}
+            </span>
+          </div>
+          <p style={{ margin: "0.2rem 0 0.85rem", fontSize: "0.82rem", color: "var(--text-secondary)" }}>
+            Personaliza el formato visual y las opciones de procesamiento para este proyecto.
+          </p>
+
+          {/* Tabs Navigation */}
+          <div style={{ display: "flex", gap: "0.5rem" }}>
+            <button
+              type="button"
+              onClick={() => setImportModalTab("subtitles")}
+              style={{
+                flex: 1,
+                padding: "0.55rem 0.8rem",
+                fontSize: "0.84rem",
+                fontWeight: 600,
+                borderRadius: "8px",
+                border: importModalTab === "subtitles" ? "1px solid var(--accent-primary)" : "1px solid var(--border-color)",
+                background: importModalTab === "subtitles" ? "rgba(99, 102, 241, 0.16)" : "var(--bg-card)",
+                color: importModalTab === "subtitles" ? "var(--foreground)" : "var(--text-secondary)",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: "0.5rem",
+                transition: "all 0.2s ease"
+              }}
+            >
+              <Captions size={15} color={importModalTab === "subtitles" ? "var(--accent-primary)" : "currentColor"} />
+              Subtítulos y Formato
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setImportModalTab("ai")}
+              style={{
+                flex: 1,
+                padding: "0.55rem 0.8rem",
+                fontSize: "0.84rem",
+                fontWeight: 600,
+                borderRadius: "8px",
+                border: importModalTab === "ai" ? "1px solid var(--accent-primary)" : "1px solid var(--border-color)",
+                background: importModalTab === "ai" ? "rgba(99, 102, 241, 0.16)" : "var(--bg-card)",
+                color: importModalTab === "ai" ? "var(--foreground)" : "var(--text-secondary)",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: "0.5rem",
+                transition: "all 0.2s ease"
+              }}
+            >
+              <Sparkles size={15} color={importModalTab === "ai" ? "var(--accent-primary)" : "currentColor"} />
+              Procesamiento e IA
+            </button>
+          </div>
+        </div>
+
+        {/* Scrollable Tab Content Area */}
+        <div style={{ padding: "1.25rem 1.5rem", overflowY: "auto", flex: 1, display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+          {importModalTab === "subtitles" ? (
+            <>
+              {/* Estilo de Subtítulos */}
+              <div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.6rem" }}>
+                  <label style={{ fontSize: "0.86rem", fontWeight: 600, color: "var(--foreground)" }}>
+                    Estilo de Subtítulos:
+                  </label>
+                  <span style={{ fontSize: "0.72rem", opacity: 0.7 }}>
+                    Desplaza la lista para ver todos los estilos
+                  </span>
+                </div>
+
+                <div className="style-grid">
+                  <div
+                    className={`style-card ${selectedStyle === "none" ? "selected" : ""}`}
+                    onClick={() => setSelectedStyle("none")}
+                  >
+                    <div className="style-preview-box">
+                      <span style={{ fontSize: "0.75rem", fontWeight: "bold", opacity: 0.85, color: "var(--accent-primary)" }}>[VIDEO LIMPIO 9:16]</span>
+                    </div>
+                    <div className="style-card-title">Sin Subtítulos (Raw)</div>
+                    <div className="style-card-desc">Corte vertical limpio sin texto quemado. Incluye el archivo .SRT aparte para edición manual.</div>
+                  </div>
+
+                  <div
+                    className={`style-card ${selectedStyle === "modern-box" ? "selected" : ""}`}
+                    onClick={() => setSelectedStyle("modern-box")}
+                  >
+                    <div className="style-preview-box">
+                      <span className="preview-text-box">BRAINFOOD BECAUSE</span>
+                    </div>
+                    <div className="style-card-title">Modern Box</div>
+                    <div className="style-card-desc">Texto blanco nítido dentro de una caja oscura semitransparente. Alta legibilidad.</div>
+                  </div>
+
+                  <div
+                    className={`style-card ${selectedStyle === "classic-outline" ? "selected" : ""}`}
+                    onClick={() => setSelectedStyle("classic-outline")}
+                  >
+                    <div className="style-preview-box">
+                      <span className="preview-text-outline">BRAINFOOD BECAUSE</span>
+                    </div>
+                    <div className="style-card-title">Classic Outline</div>
+                    <div className="style-card-desc">Texto amarillo con trazo negro marcado. Formato dinámico estilo CapCut.</div>
+                  </div>
+
+                  <div
+                    className={`style-card ${selectedStyle === "minimal-shadow" ? "selected" : ""}`}
+                    onClick={() => setSelectedStyle("minimal-shadow")}
+                  >
+                    <div className="style-preview-box">
+                      <span className="preview-text-shadow">BRAINFOOD BECAUSE</span>
+                    </div>
+                    <div className="style-card-title">Minimal Shadow</div>
+                    <div className="style-card-desc">Texto blanco limpio con sombra suave y elegante sin recargar la imagen.</div>
+                  </div>
+
+                  <div
+                    className={`style-card ${selectedStyle === "vibrant-cyan" ? "selected" : ""}`}
+                    onClick={() => setSelectedStyle("vibrant-cyan")}
+                  >
+                    <div className="style-preview-box">
+                      <span className="preview-text-cyan">BRAINFOOD BECAUSE</span>
+                    </div>
+                    <div className="style-card-title">Vibrant Cyan</div>
+                    <div className="style-card-desc">Tono cian tecnológico con sombra oscura para un look fresco y moderno.</div>
+                  </div>
+
+                  <div
+                    className={`style-card ${selectedStyle === "vibrant-yellow-box" ? "selected" : ""}`}
+                    onClick={() => setSelectedStyle("vibrant-yellow-box")}
+                  >
+                    <div className="style-preview-box">
+                      <span className="preview-text-yellow-box">BRAINFOOD BECAUSE</span>
+                    </div>
+                    <div className="style-card-title">Vibrant Yellow Box</div>
+                    <div className="style-card-desc">Texto negro dentro de una caja amarilla sólida. Máxima visibilidad e impacto.</div>
+                  </div>
+
+                  <div
+                    className={`style-card ${selectedStyle === "vibrant-green" ? "selected" : ""}`}
+                    onClick={() => setSelectedStyle("vibrant-green")}
+                  >
+                    <div className="style-preview-box">
+                      <span className="preview-text-green">BRAINFOOD BECAUSE</span>
+                    </div>
+                    <div className="style-card-title">Vibrant Green</div>
+                    <div className="style-card-desc">Verde neón enérgico con contorno negro (estilo Hormozi).</div>
+                  </div>
+
+                  <div
+                    className={`style-card ${selectedStyle === "vibrant-red" ? "selected" : ""}`}
+                    onClick={() => setSelectedStyle("vibrant-red")}
+                  >
+                    <div className="style-preview-box">
+                      <span className="preview-text-red">BRAINFOOD BECAUSE</span>
+                    </div>
+                    <div className="style-card-title">Vibrant Red</div>
+                    <div className="style-card-desc">Rojo carmesí con relieve para momentos de acción, tensión o gaming.</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Selector de Duración Objetivo de Clips */}
+              <div>
+                <label style={{ fontSize: "0.85rem", fontWeight: 600, display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem", color: "var(--foreground)" }}>
+                  <span>Objetivo de Duración de Clips:</span>
+                  <span style={{ fontSize: "0.72rem", color: "var(--accent-primary)", fontWeight: 500 }}>VRAM constante por fragmentos</span>
+                </label>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: "0.4rem" }}>
+                  {(["30s", "60s", "2m", "3m", "5m"] as const).map((dur) => (
+                    <button
+                      key={dur}
+                      type="button"
+                      onClick={() => {
+                        setTargetDuration(dur);
+                        localStorage.setItem("autoshorts_target_duration", dur);
+                      }}
+                      style={{
+                        padding: "0.5rem 0.4rem",
+                        borderRadius: "8px",
+                        border: targetDuration === dur ? "2px solid var(--accent-primary)" : "1px solid var(--border-color)",
+                        background: targetDuration === dur ? "rgba(99, 102, 241, 0.2)" : "var(--bg-card)",
+                        color: "var(--foreground)",
+                        cursor: "pointer",
+                        textAlign: "center"
+                      }}
+                    >
+                      <div style={{ fontWeight: 600, fontSize: "0.82rem" }}>
+                        {dur === "30s" ? "30 seg" : dur === "60s" ? "1 min" : dur === "2m" ? "2 min" : dur === "3m" ? "3 min" : "5 min"}
+                      </div>
+                      <div style={{ fontSize: "0.68rem", opacity: 0.7 }}>
+                        {dur === "60s" ? "Recomendado" : dur === "30s" ? "Rápido" : "Formato Largo"}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Selector de Tipo de Video / Enfoque */}
+              <div>
+                <label style={{ fontSize: "0.85rem", fontWeight: 600, display: "block", marginBottom: "0.5rem", color: "var(--foreground)" }}>
+                  Tipo de Video / Enfoque de la IA:
+                </label>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: "0.5rem" }}>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedContentType("gaming")}
+                    style={{
+                      padding: "0.6rem 0.8rem",
+                      borderRadius: "8px",
+                      border: selectedContentType === "gaming" ? "2px solid #10b981" : "1px solid var(--border-color)",
+                      background: selectedContentType === "gaming" ? "rgba(16, 185, 129, 0.15)" : "var(--bg-card)",
+                      color: "var(--foreground)",
+                      cursor: "pointer",
+                      textAlign: "left"
+                    }}
+                  >
+                    <div style={{ fontWeight: 600, fontSize: "0.9rem" }}>Gaming</div>
+                    <div style={{ fontSize: "0.72rem", opacity: 0.75 }}>Kills, fails, torneos</div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedContentType("tutorial")}
+                    style={{
+                      padding: "0.6rem 0.8rem",
+                      borderRadius: "8px",
+                      border: selectedContentType === "tutorial" ? "2px solid #3b82f6" : "1px solid var(--border-color)",
+                      background: selectedContentType === "tutorial" ? "rgba(59, 130, 246, 0.15)" : "var(--bg-card)",
+                      color: "var(--foreground)",
+                      cursor: "pointer",
+                      textAlign: "left"
+                    }}
+                  >
+                    <div style={{ fontWeight: 600, fontSize: "0.9rem" }}>Tutorial</div>
+                    <div style={{ fontSize: "0.72rem", opacity: 0.75 }}>Tips, avisos, trucos</div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedContentType("podcast")}
+                    style={{
+                      padding: "0.6rem 0.8rem",
+                      borderRadius: "8px",
+                      border: selectedContentType === "podcast" ? "2px solid #8b5cf6" : "1px solid var(--border-color)",
+                      background: selectedContentType === "podcast" ? "rgba(139, 92, 246, 0.15)" : "var(--bg-card)",
+                      color: "var(--foreground)",
+                      cursor: "pointer",
+                      textAlign: "left"
+                    }}
+                  >
+                    <div style={{ fontWeight: 600, fontSize: "0.9rem" }}>Charla</div>
+                    <div style={{ fontSize: "0.72rem", opacity: 0.75 }}>Historias, debates</div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedContentType("general")}
+                    style={{
+                      padding: "0.6rem 0.8rem",
+                      borderRadius: "8px",
+                      border: selectedContentType === "general" ? "2px solid #f59e0b" : "1px solid var(--border-color)",
+                      background: selectedContentType === "general" ? "rgba(245, 158, 11, 0.15)" : "var(--bg-card)",
+                      color: "var(--foreground)",
+                      cursor: "pointer",
+                      textAlign: "left"
+                    }}
+                  >
+                    <div style={{ fontWeight: 600, fontSize: "0.9rem" }}>General</div>
+                    <div style={{ fontSize: "0.72rem", opacity: 0.75 }}>Detección mixta</div>
+                  </button>
+                </div>
+              </div>
+            </>
+          ) : (
+            <>
+              {/* Selector de Motor & Modelo de IA */}
+              <div style={{ padding: "0.9rem 1rem", borderRadius: "10px", background: "rgba(255, 255, 255, 0.02)", border: "1px solid var(--border-color)" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.6rem" }}>
+                  <label style={{ fontSize: "0.85rem", fontWeight: 600, color: "var(--foreground)", display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                    <Sparkles size={16} color="var(--accent-primary)" />
+                    Motor & Modelo de IA para Analizar Momentos:
+                  </label>
+                  <span style={{ fontSize: "0.75rem", opacity: 0.75 }}>
+                    {llmEngine === "local" ? "Local y Privado" : "API Cloud"}
+                  </span>
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "160px 1fr", gap: "0.75rem", alignItems: "center" }}>
+                  {/* Engine Selector */}
+                  <div>
+                    <label style={{ fontSize: "0.72rem", opacity: 0.7, display: "block", marginBottom: "0.2rem" }}>Proveedor</label>
+                    <select
+                      className="form-select"
+                      value={llmEngine}
+                      onChange={(e) => {
+                        const eng = e.target.value as any;
+                        setLlmEngine(eng);
+                        localStorage.setItem("autoshorts_llm_engine", eng);
+                      }}
+                      style={{ width: "100%", padding: "0.45rem 0.6rem", fontSize: "0.82rem", borderRadius: "6px" }}
+                    >
+                      <option value="local">Ollama (Local)</option>
+                      <option value="deepseek">DeepSeek API</option>
+                      <option value="claude">Claude (Anthropic)</option>
+                      <option value="openai">OpenAI (GPT-4o)</option>
+                      <option value="groq">Groq</option>
+                      <option value="gemini">Gemini</option>
+                      <option value="openrouter">OpenRouter</option>
+                    </select>
+                  </div>
+
+                  {/* Model Selector / Input */}
+                  <div>
+                    <label style={{ fontSize: "0.72rem", opacity: 0.7, display: "block", marginBottom: "0.2rem" }}>
+                      {llmEngine === "local" ? "Modelo de Ollama instalado" : "Modelo / Clave"}
+                    </label>
+
+                    {llmEngine === "local" ? (
+                      environment?.installedOllamaModels && environment.installedOllamaModels.length > 0 ? (
+                        <select
+                          className="form-select"
+                          value={localLlmModel}
+                          onChange={(e) => {
+                            setLocalLlmModel(e.target.value);
+                            localStorage.setItem("autoshorts_local_llm_model", e.target.value);
+                          }}
+                          style={{ width: "100%", padding: "0.45rem 0.6rem", fontSize: "0.82rem", borderRadius: "6px" }}
+                        >
+                          {environment.installedOllamaModels.map((m) => (
+                            <option key={m} value={m}>
+                              {m} {m.includes("qwen") ? "(Recomendado)" : ""}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <input
+                          type="text"
+                          className="form-input"
+                          value={localLlmModel}
+                          onChange={(e) => {
+                            setLocalLlmModel(e.target.value);
+                            localStorage.setItem("autoshorts_local_llm_model", e.target.value);
+                          }}
+                          placeholder="Ej: qwen3.5:9b o qwen2.5:7b"
+                          style={{ width: "100%", padding: "0.45rem 0.6rem", fontSize: "0.82rem", borderRadius: "6px" }}
+                        />
+                      )
+                    ) : (
+                      <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+                        <input
+                          type="text"
+                          className="form-input"
+                          value={
+                            llmEngine === "deepseek" ? (deepseekModel || "deepseek-chat") :
+                            llmEngine === "openrouter" ? (openrouterModel || "anthropic/claude-3.5-sonnet") :
+                            llmEngine === "claude" ? "claude-3-5-sonnet-20241022" :
+                            llmEngine === "openai" ? "gpt-4o" :
+                            llmEngine === "groq" ? "llama-3.3-70b-versatile" : "gemini-1.5-flash"
+                          }
+                          onChange={(e) => {
+                            if (llmEngine === "deepseek") setDeepseekModel(e.target.value);
+                            if (llmEngine === "openrouter") setOpenrouterModel(e.target.value);
+                          }}
+                          readOnly={llmEngine !== "deepseek" && llmEngine !== "openrouter"}
+                          style={{ flex: 1, padding: "0.45rem 0.6rem", fontSize: "0.82rem", borderRadius: "6px" }}
+                        />
+                        <span style={{ fontSize: "0.75rem", whiteSpace: "nowrap" }}>
+                          {((llmEngine === "deepseek" && canUseDeepseek) ||
+                            (llmEngine === "claude" && canUseClaude) ||
+                            (llmEngine === "openai" && canUseOpenai) ||
+                            (llmEngine === "groq" && canUseGroq) ||
+                            (llmEngine === "gemini" && canUseGemini) ||
+                            (llmEngine === "openrouter" && canUseOpenrouter)) ? (
+                            <span style={{ color: "#10b981", fontWeight: 600 }}>API Key OK</span>
+                          ) : (
+                            <span
+                              onClick={onOpenSettings}
+                              style={{ color: "#ef4444", cursor: "pointer", textDecoration: "underline", fontWeight: 600 }}
+                              title="Haz clic para abrir ajustes y poner tu API Key"
+                            >
+                              Falta API Key (Configurar)
+                            </span>
+                          )}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Opciones de Transcripción de Audio */}
+              <div style={{ padding: "0.9rem 1rem", borderRadius: "10px", background: "rgba(255, 255, 255, 0.02)", border: "1px solid var(--border-color)", display: "flex", flexDirection: "column", gap: "0.85rem" }}>
+                <div style={{ fontSize: "0.85rem", fontWeight: 600, color: "var(--foreground)" }}>
+                  Transcripción de Audio
+                </div>
+
+                {/* Modelo Whisper */}
+                {transcriptionEngine === "local" && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <label style={{ fontSize: "0.8rem", fontWeight: 600 }}>Modelo de Whisper (Precisión vs VRAM)</label>
+                      <span style={{ fontSize: "0.72rem", color: "var(--accent-primary)", fontWeight: 600 }}>
+                        {whisperModelsList.find((m) => m.id === whisperModel)?.vram || ""} VRAM
+                      </span>
+                    </div>
+                    <select
+                      className="form-select"
+                      value={whisperModel}
+                      onChange={(e) => {
+                        setWhisperModel(e.target.value);
+                        localStorage.setItem("autoshorts_whisper_model", e.target.value);
+                      }}
+                      style={{ width: "100%", padding: "0.45rem 0.6rem", fontSize: "0.82rem", borderRadius: "6px" }}
+                    >
+                      {whisperModelsList.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.name} ({m.vram} VRAM) {m.downloaded ? "[Descargado]" : "[Descargar al usar]"}
+                        </option>
+                      ))}
+                    </select>
+                    <span style={{ fontSize: "0.72rem", opacity: 0.75 }}>
+                      {whisperModelsList.find((m) => m.id === whisperModel)?.description || "Modelo de Whisper para transcripción en GPU."}
+                    </span>
+                  </div>
+                )}
+
+                <div style={{ display: "flex", alignItems: "flex-start", gap: "0.65rem" }}>
+                  <input
+                    type="checkbox"
+                    id="autoTranscribeOnImport"
+                    checked={autoTranscribeOnImport}
+                    onChange={(e) => setAutoTranscribeOnImport(e.target.checked)}
+                    style={{ cursor: "pointer", width: "17px", height: "17px", marginTop: "2px", accentColor: "var(--accent-primary)" }}
+                  />
+                  <div>
+                    <label htmlFor="autoTranscribeOnImport" style={{ fontSize: "0.83rem", fontWeight: 600, cursor: "pointer", display: "block" }}>
+                      Transcribir audio automáticamente al importar
+                    </label>
+                    <span style={{ fontSize: "0.75rem", opacity: 0.75, display: "block", marginTop: "2px" }}>
+                      Desmárcalo si solo deseas cargar el video al proyecto y transcribirlo o revisarlo más tarde por si te equivocaste de archivo.
+                    </span>
+                  </div>
+                </div>
+
+                <div style={{ display: "flex", alignItems: "flex-start", gap: "0.65rem" }}>
+                  <input
+                    type="checkbox"
+                    id="refineTranscriptWithLlm"
+                    checked={refineTranscriptWithLlm}
+                    onChange={(e) => setRefineTranscriptWithLlm(e.target.checked)}
+                    style={{ cursor: "pointer", width: "17px", height: "17px", marginTop: "2px", accentColor: "var(--accent-primary)" }}
+                  />
+                  <div>
+                    <label htmlFor="refineTranscriptWithLlm" style={{ fontSize: "0.83rem", fontWeight: 600, cursor: "pointer", display: "block" }}>
+                      Perfeccionar ortografía y jerga con IA (ASR Refiner)
+                    </label>
+                    <span style={{ fontSize: "0.75rem", opacity: 0.75, display: "block", marginTop: "2px" }}>
+                      Corrige términos técnicos, jerga gamer y tildes preservando los timestamps exactos de cada palabra.
+                    </span>
+                    <span style={{ fontSize: "0.73rem", color: "#38bdf8", display: "block", marginTop: "4px", lineHeight: "1.4" }}>
+                      Nota de velocidad: En modo rápido añade solo unos segundos por minuto de audio. Si activas el modo razonamiento (thinking) tardará varios minutos adicionales. Desactívalo si buscas transcripción inmediata.
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Detección de Momentos */}
+              <div style={{ padding: "0.9rem 1rem", borderRadius: "10px", background: "rgba(255, 255, 255, 0.02)", border: "1px solid var(--border-color)", display: "flex", alignItems: "flex-start", gap: "0.65rem" }}>
+                <input
+                  type="checkbox"
+                  id="autoDetectMoments"
+                  checked={autoDetectMoments}
+                  onChange={(e) => setAutoDetectMoments(e.target.checked)}
+                  style={{ cursor: "pointer", width: "17px", height: "17px", marginTop: "2px", accentColor: "var(--accent-primary)" }}
+                />
+                <div>
+                  <label htmlFor="autoDetectMoments" style={{ fontSize: "0.83rem", fontWeight: 600, cursor: "pointer", display: "block" }}>
+                    Buscar momentos clave automáticamente tras transcribir
+                  </label>
+                  <span style={{ fontSize: "0.75rem", opacity: 0.75, display: "block", marginTop: "2px" }}>
+                    Desmárcalo para dejar enfriar la GPU entre pasos o revisar la transcripción antes de procesar candidatos.
+                  </span>
+                </div>
+              </div>
+
+              {/* Modo Razonamiento (Thinking / CoT en Ollama) */}
+              <div style={{
+                padding: "1rem",
+                borderRadius: "10px",
+                background: enableThinking ? "rgba(245, 158, 11, 0.05)" : "rgba(16, 185, 129, 0.05)",
+                border: enableThinking ? "1px solid rgba(245, 158, 11, 0.3)" : "1px solid rgba(16, 185, 129, 0.3)",
+                display: "flex",
+                flexDirection: "column",
+                gap: "0.6rem"
+              }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <label htmlFor="enableThinkingImport" style={{ fontSize: "0.86rem", fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: "0.6rem" }}>
+                    <input
+                      type="checkbox"
+                      id="enableThinkingImport"
+                      checked={enableThinking}
+                      onChange={(e) => {
+                        setEnableThinking(e.target.checked);
+                        localStorage.setItem("autoshorts_enable_thinking", String(e.target.checked));
+                      }}
+                      style={{ cursor: "pointer", width: "17px", height: "17px", accentColor: "var(--accent-primary)" }}
+                    />
+                    <span>Modo Razonamiento (Thinking / CoT en Ollama)</span>
+                  </label>
+                  <span style={{
+                    fontSize: "0.72rem",
+                    fontWeight: 600,
+                    padding: "0.2rem 0.6rem",
+                    borderRadius: "12px",
+                    background: enableThinking ? "rgba(245, 158, 11, 0.15)" : "rgba(16, 185, 129, 0.15)",
+                    color: enableThinking ? "#f59e0b" : "#10b981",
+                    border: enableThinking ? "1px solid rgba(245, 158, 11, 0.3)" : "1px solid rgba(16, 185, 129, 0.3)"
+                  }}>
+                    {enableThinking ? "Modo Razonamiento Profundo" : "Modo Rápido"}
+                  </span>
+                </div>
+
+                <div style={{ fontSize: "0.78rem", lineHeight: "1.45", opacity: 0.85, paddingLeft: "1.7rem" }}>
+                  {enableThinking ? (
+                    <div>
+                      <strong style={{ color: "#f59e0b" }}>Activado:</strong> La IA genera una cadena de pensamiento antes de dar la respuesta. Proporciona mayor análisis contextual pero incrementa considerablemente el tiempo y el uso de VRAM.
+                    </div>
+                  ) : (
+                    <div>
+                      <strong style={{ color: "#10b981" }}>Desactivado (Recomendado):</strong> La IA responde de forma directa sin cadena de razonamiento previa. Recomendado para tu NVIDIA RTX 2060 (12GB) con procesamiento hasta 30 veces más ágil.
+                    </div>
+                  )}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* Modal Footer */}
+        <div style={{ padding: "0.9rem 1.5rem", borderTop: "1px solid var(--border-color)", background: "rgba(0, 0, 0, 0.2)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div>
+            {importModalTab === "subtitles" ? (
+              <button
+                type="button"
+                className="btn-cancel"
+                onClick={onClose}
+              >
+                Cancelar
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="btn-cancel"
+                onClick={() => setImportModalTab("subtitles")}
+                style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}
+              >
+                Atrás: Subtítulos
+              </button>
+            )}
+          </div>
+
+          <div style={{ display: "flex", gap: "0.6rem" }}>
+            {importModalTab === "subtitles" ? (
+              <button
+                type="button"
+                onClick={() => setImportModalTab("ai")}
+                style={{
+                  padding: "0.55rem 1rem",
+                  borderRadius: "8px",
+                  background: "rgba(255, 255, 255, 0.08)",
+                  border: "1px solid var(--border-color)",
+                  color: "var(--foreground)",
+                  fontWeight: 600,
+                  fontSize: "0.85rem",
+                  cursor: "pointer"
+                }}
+              >
+                Opciones de IA
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="btn-cancel"
+                onClick={onClose}
+              >
+                Cancelar
+              </button>
+            )}
+
+            <button
+              type="button"
+              className="btn-confirm"
+              onClick={onConfirm}
+              style={{
+                padding: "0.55rem 1.25rem",
+                borderRadius: "8px",
+                fontWeight: 600,
+                fontSize: "0.85rem",
+                cursor: "pointer"
+              }}
+            >
+              Confirmar e Importar
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
