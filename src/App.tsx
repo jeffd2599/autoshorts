@@ -8,6 +8,7 @@ import type {
   ContentType,
   CopyResult,
   EnvironmentStatus,
+  HardwareTelemetry,
   LlmEngine,
   NormalizedTranscript,
   Project,
@@ -141,7 +142,9 @@ export function App() {
   const [downloadingModelName, setDownloadingModelName] = useState<string | null>(null);
   const [modelDownloadStatus, setModelDownloadStatus] = useState("");
   const [modelDownloadProgress, setModelDownloadProgress] = useState(0);
-  const [candidateProgress, setCandidateProgress] = useState<string | null>(null);
+  const [candidateProgress, setCandidateProgress] = useState<{ message: string; current: number; total: number } | null>(null);
+  const [transcriptionProgress, setTranscriptionProgress] = useState<{ percentage: number; message: string } | null>(null);
+  const [telemetry, setTelemetry] = useState<HardwareTelemetry | null>(null);
 
   const syncConfig = (updates: Record<string, any>) => {
     void invoke("save_app_config", updates);
@@ -219,9 +222,13 @@ export function App() {
       })
       .catch(console.error);
 
-    invoke<string>("get_default_moments_prompt")
+    invoke<any>("get_default_moments_prompt")
       .then((prompt) => {
-        if (prompt) setDefaultMomentsPrompt(prompt);
+        if (typeof prompt === "string") {
+          setDefaultMomentsPrompt(prompt);
+        } else if (prompt && typeof prompt === "object" && typeof prompt.defaultPrompt === "string") {
+          setDefaultMomentsPrompt(prompt.defaultPrompt);
+        }
       })
       .catch(console.error);
 
@@ -255,9 +262,16 @@ export function App() {
 
     let unlistenProgress: (() => void) | null = null;
     void listen<{ message: string; current: number; total: number }>("candidate-progress", (event) => {
-      setCandidateProgress(event.payload.message);
+      setCandidateProgress(event.payload);
     }).then((unsub) => {
       unlistenProgress = unsub;
+    });
+
+    let unlistenTranscribe: (() => void) | null = null;
+    void listen<{ percentage: number; message: string }>("transcription-progress", (event) => {
+      setTranscriptionProgress(event.payload);
+    }).then((unsub) => {
+      unlistenTranscribe = unsub;
     });
 
     let unlistenSummary: (() => void) | null = null;
@@ -267,9 +281,21 @@ export function App() {
       unlistenSummary = unsub;
     });
 
+    const fetchTelemetry = () => {
+      invoke<HardwareTelemetry>("get_hardware_telemetry")
+        .then((data) => {
+          if (data && typeof data === "object") setTelemetry(data);
+        })
+        .catch(() => {});
+    };
+    fetchTelemetry();
+    const intervalTelemetry = setInterval(fetchTelemetry, 2500);
+
     return () => {
       if (unlistenProgress) unlistenProgress();
+      if (unlistenTranscribe) unlistenTranscribe();
       if (unlistenSummary) unlistenSummary();
+      clearInterval(intervalTelemetry);
     };
   }, []);
 
@@ -860,7 +886,7 @@ export function App() {
   async function cancelTranscription() {
     try {
       await invoke("cancel_transcription");
-      setCandidateProgress("Cancelando transcripción...");
+      setCandidateProgress({ message: "Cancelando transcripción...", current: 0, total: 1 });
       setTimeout(() => {
         setBusy("idle");
         setCandidateProgress(null);
@@ -878,7 +904,7 @@ export function App() {
   async function cancelMoments() {
     try {
       await invoke("cancel_candidate_generation");
-      setCandidateProgress("Cancelando y liberando VRAM...");
+      setCandidateProgress({ message: "Cancelando y liberando VRAM...", current: 0, total: 1 });
       setTimeout(() => {
         setBusy("idle");
         setCandidateProgress(null);
@@ -1091,6 +1117,7 @@ export function App() {
     <SettingsPanel
       isOpen={showSettings}
       onClose={() => setShowSettings(false)}
+      telemetry={telemetry}
       transcriptionEngine={transcriptionEngine}
       setTranscriptionEngine={setTranscriptionEngine}
       whisperModel={whisperModel}
@@ -1184,6 +1211,7 @@ export function App() {
                   canTranscribe={canTranscribe}
                   isGeneratingCopy={isGeneratingCopy}
                   isRefiningTranscript={isRefiningTranscript}
+                  transcriptionProgress={transcriptionProgress}
                   onTranscribe={transcribe}
                   onCancelTranscription={cancelTranscription}
                   onRefineTranscript={refineTranscript}
@@ -1217,6 +1245,7 @@ export function App() {
                   openCandidatePreview={openCandidatePreview}
                   cutCandidate={cutCandidate}
                   renderingCandidateId={renderingCandidateId}
+                  candidateProgress={candidateProgress}
                 />
               </div>
             </>
@@ -1240,6 +1269,7 @@ export function App() {
 
       <StatusBar
         environment={environment}
+        telemetry={telemetry}
         canUseCloudKey={canUseCloudKey}
         canUseClaude={canUseClaude}
         canUseDeepseek={canUseDeepseek}
@@ -1251,6 +1281,7 @@ export function App() {
           setShowStyleModal(false);
           setMediaPathToImport(null);
         }}
+        telemetry={telemetry}
         selectedStyle={selectedStyle}
         setSelectedStyle={setSelectedStyle}
         selectedContentType={selectedContentType}

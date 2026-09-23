@@ -3,15 +3,22 @@ import { Captions, Sparkles } from "lucide-react";
 import {
   ContentType,
   EnvironmentStatus,
+  HardwareTelemetry,
   LlmEngine,
   TargetDuration,
   TranscriptionEngine,
   WhisperModel,
 } from "../../types";
+import {
+  ModelBadge,
+  getWhisperTrafficLevel,
+  getOllamaTrafficLevel,
+} from "../common/ModelBadge";
 
 interface StyleModalProps {
   isOpen: boolean;
   onClose: () => void;
+  telemetry?: HardwareTelemetry | null;
   selectedStyle: string;
   setSelectedStyle: (style: string) => void;
   selectedContentType: ContentType;
@@ -54,6 +61,7 @@ interface StyleModalProps {
 export function StyleModal({
   isOpen,
   onClose,
+  telemetry,
   selectedStyle,
   setSelectedStyle,
   selectedContentType,
@@ -505,7 +513,13 @@ export function StyleModal({
                 {transcriptionEngine === "local" && (
                   <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem" }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <label style={{ fontSize: "0.8rem", fontWeight: 600 }}>Modelo de Whisper (Precisión vs VRAM)</label>
+                      <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                        <label style={{ fontSize: "0.8rem", fontWeight: 600 }}>Modelo de Whisper (Precisión vs VRAM)</label>
+                        {(() => {
+                          const traf = getWhisperTrafficLevel(whisperModel, telemetry?.vramTotalMb);
+                          return <ModelBadge level={traf.level} label={traf.label} note={traf.note} />;
+                        })()}
+                      </div>
                       <span style={{ fontSize: "0.72rem", color: "var(--accent-primary)", fontWeight: 600 }}>
                         {whisperModelsList.find((m) => m.id === whisperModel)?.vram || ""} VRAM
                       </span>
@@ -519,11 +533,14 @@ export function StyleModal({
                       }}
                       style={{ width: "100%", padding: "0.45rem 0.6rem", fontSize: "0.82rem", borderRadius: "6px" }}
                     >
-                      {whisperModelsList.map((m) => (
-                        <option key={m.id} value={m.id}>
-                          {m.name} ({m.vram} VRAM) {m.downloaded ? "[Descargado]" : "[Descargar al usar]"}
-                        </option>
-                      ))}
+                      {whisperModelsList.map((m) => {
+                        const traf = getWhisperTrafficLevel(m.id, telemetry?.vramTotalMb);
+                        return (
+                          <option key={m.id} value={m.id}>
+                            {m.name} ({m.vram} VRAM) — {traf.label} {m.downloaded ? "[Descargado]" : "[Descargar al usar]"}
+                          </option>
+                        );
+                      })}
                     </select>
                     <span style={{ fontSize: "0.72rem", opacity: 0.75 }}>
                       {whisperModelsList.find((m) => m.id === whisperModel)?.description || "Modelo de Whisper para transcripción en GPU."}

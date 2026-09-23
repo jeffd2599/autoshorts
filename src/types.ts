@@ -129,3 +129,16 @@ export type SummaryResult = {
   thumbnailIdeas?: string[];
   descriptionPath?: string;
 };
+
+export type HardwareTelemetry = {
+  hasGpu: boolean;
+  gpuName: string;
+  gpuUsagePercent: number;
+  gpuTempC: number;
+  vramTotalMb: number;
+  vramUsedMb: number;
+  vramFreeMb: number;
+  vramUsagePercent: number;
+  cpuUsagePercent: number;
+};
+

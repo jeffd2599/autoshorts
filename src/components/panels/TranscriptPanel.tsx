@@ -13,6 +13,7 @@ interface TranscriptPanelProps {
   transcriptionEngine: string;
   isGeneratingCopy: boolean;
   isRefiningTranscript: boolean;
+  transcriptionProgress?: { percentage: number; message: string } | null;
   onOpenCopyModal: () => void;
   onRefineTranscript: () => Promise<void>;
   onCancelTranscription: () => Promise<void>;
@@ -27,6 +28,7 @@ export function TranscriptPanel({
   transcriptionEngine,
   isGeneratingCopy,
   isRefiningTranscript,
+  transcriptionProgress,
   onOpenCopyModal,
   onRefineTranscript,
   onCancelTranscription,
@@ -95,6 +97,29 @@ export function TranscriptPanel({
           )}
         </div>
       </div>
+
+      {(busy === "transcribe" || isRefiningTranscript) && (
+        <div style={{ padding: "0.6rem 1rem", background: "rgba(99, 102, 241, 0.06)", borderBottom: "1px solid var(--border)" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.35rem", fontSize: "0.78rem" }}>
+            <span style={{ color: "var(--foreground)", fontWeight: 600 }}>
+              {transcriptionProgress?.message || (isRefiningTranscript ? "Puliendo transcripción con IA..." : "Transcribiendo con Whisper...")}
+            </span>
+            <span style={{ color: "var(--accent-primary)", fontWeight: 700 }}>
+              {transcriptionProgress?.percentage ?? 0}%
+            </span>
+          </div>
+          <div style={{ width: "100%", height: "6px", background: "rgba(255,255,255,0.06)", borderRadius: "3px", overflow: "hidden" }}>
+            <div
+              style={{
+                width: `${Math.min(100, Math.max(0, transcriptionProgress?.percentage ?? 0))}%`,
+                height: "100%",
+                background: "linear-gradient(90deg, #6366f1 0%, #10b981 100%)",
+                transition: "width 0.3s ease",
+              }}
+            />
+          </div>
+        </div>
+      )}
 
       {!canTranscribe && (
         <div className="api-warning">

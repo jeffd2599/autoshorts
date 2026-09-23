@@ -2,14 +2,21 @@ import React from "react";
 import { Download, RefreshCw, SlidersHorizontal } from "lucide-react";
 import {
   EnvironmentStatus,
+  HardwareTelemetry,
   LlmEngine,
   TranscriptionEngine,
   WhisperModel,
 } from "../../types";
+import {
+  ModelBadge,
+  getWhisperTrafficLevel,
+  getOllamaTrafficLevel,
+} from "../common/ModelBadge";
 
 interface SettingsPanelProps {
   isOpen: boolean;
   onClose: () => void;
+  telemetry?: HardwareTelemetry | null;
   transcriptionEngine: TranscriptionEngine;
   setTranscriptionEngine: (engine: TranscriptionEngine) => void;
   whisperModel: string;
@@ -57,6 +64,7 @@ interface SettingsPanelProps {
 export function SettingsPanel({
   isOpen,
   onClose,
+  telemetry,
   transcriptionEngine,
   setTranscriptionEngine,
   whisperModel,
@@ -142,7 +150,13 @@ export function SettingsPanel({
         {transcriptionEngine === "local" && (
           <label>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.4rem" }}>
-              <span style={{ fontWeight: 600, fontSize: "0.82rem" }}>MODELO WHISPER (LOCAL)</span>
+              <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                <span style={{ fontWeight: 600, fontSize: "0.82rem" }}>MODELO WHISPER (LOCAL)</span>
+                {(() => {
+                  const traf = getWhisperTrafficLevel(whisperModel, telemetry?.vramTotalMb);
+                  return <ModelBadge level={traf.level} label={traf.label} note={traf.note} />;
+                })()}
+              </div>
               <span style={{ fontSize: "0.72rem", color: "var(--accent-primary)", fontWeight: 600 }}>
                 {whisperModelsList.find((m) => m.id === whisperModel)?.vram || ""} VRAM
               </span>
@@ -156,11 +170,14 @@ export function SettingsPanel({
               }}
               style={{ width: "100%", padding: "0.5rem", borderRadius: "6px" }}
             >
-              {whisperModelsList.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.name} ({m.vram} VRAM) {m.downloaded ? "[Descargado]" : "[Descargar al usar]"}
-                </option>
-              ))}
+              {whisperModelsList.map((m) => {
+                const traf = getWhisperTrafficLevel(m.id, telemetry?.vramTotalMb);
+                return (
+                  <option key={m.id} value={m.id}>
+                    {m.name} ({m.vram} VRAM) — {traf.label} {m.downloaded ? "[Descargado]" : "[Descargar al usar]"}
+                  </option>
+                );
+              })}
             </select>
             <span style={{ fontSize: "0.72rem", opacity: 0.7, marginTop: "4px", display: "block" }}>
               {whisperModelsList.find((m) => m.id === whisperModel)?.description || "Modelos de alta precisión para GPU NVIDIA."}
@@ -195,9 +212,15 @@ export function SettingsPanel({
         {llmEngine === "local" && (
           <div style={{ gridColumn: "1 / -1", padding: "1rem", borderRadius: "8px", background: "rgba(255,255,255,0.02)", border: "1px solid var(--border)" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
-              <span style={{ fontWeight: 600, fontSize: "0.85rem" }}>
-                Modelos Instalados en tu Ollama Local:
-              </span>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <span style={{ fontWeight: 600, fontSize: "0.85rem" }}>
+                  Modelos Instalados en tu Ollama Local:
+                </span>
+                {localLlmModel && (() => {
+                  const traf = getOllamaTrafficLevel(localLlmModel, telemetry?.vramTotalMb);
+                  return <ModelBadge level={traf.level} label={traf.label} note={traf.note} />;
+                })()}
+              </div>
               <button
                 type="button"
                 className="icon-button"
@@ -220,11 +243,14 @@ export function SettingsPanel({
                   }}
                   style={{ flex: 1, padding: "0.55rem", fontSize: "0.88rem", borderRadius: "6px" }}
                 >
-                  {environment.installedOllamaModels.map((m) => (
-                    <option key={m} value={m}>
-                      {m} {m.includes("qwen") ? "(Recomendado para AutoShorts)" : ""}
-                    </option>
-                  ))}
+                  {environment.installedOllamaModels.map((m) => {
+                    const traf = getOllamaTrafficLevel(m, telemetry?.vramTotalMb);
+                    return (
+                      <option key={m} value={m}>
+                        {m} — {traf.label} {m.includes("qwen") ? "(Recomendado para AutoShorts)" : ""}
+                      </option>
+                    );
+                  })}
                 </select>
                 <span style={{ fontSize: "0.78rem", color: "#10b981", fontWeight: 600, whiteSpace: "nowrap" }}>
                   ● {environment.installedOllamaModels.length} modelo(s) listo(s) en PC

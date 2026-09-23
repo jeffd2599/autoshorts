@@ -651,6 +651,21 @@ def generate_fallback_candidates(
     return fallbacks
 
 
+def calculate_chunk_salience(chunk: List[Dict[str, Any]], peaks: List[Dict[str, Any]]) -> float:
+    """Calculates information density to avoid wasting GPU cycles on silent / AFK sections."""
+    if not chunk:
+        return 0.0
+    text = " ".join([s.get("text", "") for s in chunk]).lower()
+    words = text.split()
+    word_count = len(words)
+    dur = max(1.0, chunk[-1]["end"] - chunk[0]["start"])
+    wpm = (word_count / dur) * 60.0
+
+    hype_tokens = ["!", "?", "no way", "dios", "mira", "vamos", "clutch", "headshot", "kill", "jaja", "lol", "increible", "wow", "partida", "cuidado"]
+    hype_count = sum(text.count(t) for t in hype_tokens)
+    return wpm + (hype_count * 10.0) + (len(peaks) * 25.0)
+
+
 def detect_candidates_pipeline(
     transcript: Dict[str, Any],
     provider: str = "local",
@@ -716,6 +731,12 @@ def detect_candidates_pipeline(
             chunk_start = chunk[0]["start"]
             chunk_end = chunk[-1]["end"]
             chunk_peaks = [p for p in action_peaks if p["end"] > chunk_start and p["start"] < chunk_end]
+
+            # NASA / Google tier Salience filter: avoid stalling GPU on barren silence/loading screens
+            word_count = sum(len(s.get("text", "").split()) for s in chunk)
+            if word_count < 12 and not chunk_peaks:
+                print(f"⏩ Omitiendo bloque {idx}/{total_chunks} ({chunk_start_fmt} - {chunk_end_fmt}): Tramo sin actividad vocal ni acción acústica.")
+                continue
 
             peak_cues = ""
             if chunk_peaks:

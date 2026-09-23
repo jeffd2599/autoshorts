@@ -29,6 +29,7 @@ from .llm import (
     DEFAULT_MOMENTS_PROMPT,
     generate_social_copy_with_llm
 )
+from .telemetry import get_hardware_telemetry
 
 
 def rebuild_words_from_segments(segments: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -246,13 +247,24 @@ class Api:
             self.db.update_project_status(project_id, "created")
             return {}
 
+        def on_whisper_progress(pct: int):
+            if self._window:
+                msg = f"Transcribiendo con Whisper ({pct}%)"
+                self._window.evaluate_js(
+                    f"window.__emitEvent && window.__emitEvent('transcription-progress', {{ percentage: {pct}, message: '{msg}' }})"
+                )
+
         if provider == "deepgram":
             key = api_key or os.getenv("DEEPGRAM_API_KEY")
             if not key:
                 raise ValueError("Deepgram API Key is required")
             transcript = transcribe_deepgram(str(audio_path), key)
         else:
-            transcript = transcribe_local(str(audio_path), model_name=whisper_model)
+            transcript = transcribe_local(
+                str(audio_path),
+                model_name=whisper_model,
+                progress_callback=on_whisper_progress
+            )
 
         if self._cancel_transcription_flag:
             self.db.update_project_status(project_id, "created")
@@ -262,7 +274,13 @@ class Api:
             try:
                 def on_refine_progress(msg, cur, tot):
                     if self._window:
-                        self._window.evaluate_js(f"window.__emitEvent && window.__emitEvent('candidate-progress', {{ message: '{msg}', current: {cur}, total: {tot} }})")
+                        pct = int(round((cur / max(1, tot)) * 100))
+                        self._window.evaluate_js(
+                            f"window.__emitEvent && window.__emitEvent('transcription-progress', {{ percentage: {pct}, message: '{msg}' }})"
+                        )
+                        self._window.evaluate_js(
+                            f"window.__emitEvent && window.__emitEvent('candidate-progress', {{ message: '{msg}', current: {cur}, total: {tot} }})"
+                        )
 
                 print(f"Perfeccionando transcripción con IA ({llm_engine}:{llm_model})...")
                 refined_segments = refine_transcript_with_llm(
@@ -377,11 +395,14 @@ class Api:
             pass
         return True
 
+    def get_hardware_telemetry(self, _args: Any = None) -> Dict[str, Any]:
+        return get_hardware_telemetry()
+
     def get_whisper_models(self, _args: Any = None) -> List[Dict[str, Any]]:
         return get_installed_whisper_models()
 
-    def get_default_moments_prompt(self, _args: Any = None) -> Dict[str, str]:
-        return {"defaultPrompt": DEFAULT_MOMENTS_PROMPT}
+    def get_default_moments_prompt(self, _args: Any = None) -> str:
+        return DEFAULT_MOMENTS_PROMPT
 
     def generate_project_copy(self, args: Any) -> Dict[str, Any]:
         if not isinstance(args, dict):

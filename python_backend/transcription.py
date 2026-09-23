@@ -49,12 +49,17 @@ def whisper_available() -> bool:
         return False
 
 
-def transcribe_local(audio_path: str, model_name: str = "base") -> Dict[str, Any]:
+def transcribe_local(
+    audio_path: str,
+    model_name: str = "base",
+    progress_callback: Optional[Any] = None
+) -> Dict[str, Any]:
     import torch
     import whisper
+    import tqdm
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    print(f"Loading Whisper model '{model_name}' on device: {device}...")
+    print(f"Loading Whisper model '{model_name}' on device: {device} (FP16: {device == 'cuda'})...")
     model = whisper.load_model(model_name, device=device)
 
     print(f"Transcribing audio '{audio_path}' in Spanish...")
@@ -63,12 +68,32 @@ def transcribe_local(audio_path: str, model_name: str = "base") -> Dict[str, Any
         "streamer, lag, ping, push, dault, noob, ace, pentakill, clip, directo, "
         "discord, twitch, youtube, shorts, partida, gameplay, sniper, kill"
     )
-    result = model.transcribe(
-        audio_path,
-        word_timestamps=True,
-        language="es",
-        initial_prompt=gamer_initial_prompt
-    )
+
+    orig_tqdm = tqdm.tqdm
+
+    class ProgressTqdm(orig_tqdm):
+        def update(self, n=1):
+            res = super().update(n)
+            if self.total and self.total > 0 and progress_callback:
+                try:
+                    pct = min(100, max(0, int(round((self.n / self.total) * 100))))
+                    progress_callback(pct)
+                except Exception:
+                    pass
+            return res
+
+    tqdm.tqdm = ProgressTqdm
+    try:
+        result = model.transcribe(
+            audio_path,
+            word_timestamps=True,
+            language="es",
+            initial_prompt=gamer_initial_prompt,
+            fp16=(device == "cuda"),
+            verbose=False,
+        )
+    finally:
+        tqdm.tqdm = orig_tqdm
 
     del model
     if torch.cuda.is_available():

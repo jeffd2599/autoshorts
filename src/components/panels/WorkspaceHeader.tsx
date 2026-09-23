@@ -3,15 +3,9 @@ import {
   Clapperboard,
   SlidersHorizontal,
   RefreshCw,
-  AudioLines,
-  Sparkles,
-  Scissors,
-  Captions,
-  Download,
 } from "lucide-react";
 import type { ProjectDetail } from "../../types";
 import { fileName } from "../../utils/format";
-import { PipelineStep } from "../common/PipelineStep";
 
 interface WorkspaceHeaderProps {
   detail: ProjectDetail;
@@ -20,9 +14,9 @@ interface WorkspaceHeaderProps {
   openSummaryModal: () => void;
   refresh: (projectId: string) => void;
   error: string | null;
-  selectedCount: number;
-  selectedCutCount: number;
-  selectedCaptionsCount: number;
+  selectedCount?: number;
+  selectedCutCount?: number;
+  selectedCaptionsCount?: number;
 }
 
 export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
@@ -32,15 +26,34 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
   openSummaryModal,
   refresh,
   error,
-  selectedCount,
-  selectedCutCount,
-  selectedCaptionsCount,
 }) => {
+  const statusLabel =
+    detail.candidates.length > 0
+      ? `${detail.candidates.length} Momentos detectados`
+      : detail.transcript
+      ? "Transcrito listo"
+      : "Audio pendiente de transcribir";
+
   return (
     <>
       <header className="topbar">
         <div className="project-info">
-          <div className="eyebrow">{detail.project.status}</div>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <div className="eyebrow">{detail.project.status}</div>
+            <span
+              style={{
+                fontSize: "0.72rem",
+                padding: "1px 8px",
+                borderRadius: "10px",
+                background: "rgba(99, 102, 241, 0.12)",
+                border: "1px solid rgba(99, 102, 241, 0.25)",
+                color: "var(--accent-primary)",
+                fontWeight: 500,
+              }}
+            >
+              {statusLabel}
+            </span>
+          </div>
           <h2>{detail.project.name || fileName(detail.project.sourcePath)}</h2>
         </div>
         <div className="topbar-actions">
@@ -74,38 +87,18 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
           <button
             className={`icon-button settings-toggle ${showSettings ? "active" : ""}`}
             onClick={() => setShowSettings(!showSettings)}
-            title="API Settings"
+            title="Configuración de Modelos & APIs"
           >
             <SlidersHorizontal size={16} />
-            <span>API Settings</span>
+            <span>Configuración & APIs</span>
           </button>
-          <button className="icon-button" onClick={() => void refresh(detail.project.id)} title="Refresh">
+          <button className="icon-button" onClick={() => void refresh(detail.project.id)} title="Actualizar">
             <RefreshCw size={18} />
           </button>
         </div>
       </header>
 
       {error && <div className="error-banner">{error}</div>}
-
-      <div className="pipeline-strip">
-        <PipelineStep icon={<AudioLines size={16} />} label="Transcript" done={Boolean(detail.transcript)} />
-        <PipelineStep icon={<Sparkles size={16} />} label="Moments" done={detail.candidates.length > 0} />
-        <PipelineStep
-          icon={<Scissors size={16} />}
-          label="Cut"
-          done={selectedCount > 0 && selectedCutCount === selectedCount}
-        />
-        <PipelineStep
-          icon={<Captions size={16} />}
-          label="Captions"
-          done={selectedCount > 0 && selectedCaptionsCount === selectedCount}
-        />
-        <PipelineStep
-          icon={<Download size={16} />}
-          label="Export"
-          done={selectedCount > 0 && selectedCutCount === selectedCount}
-        />
-      </div>
     </>
   );
 };

@@ -42,6 +42,7 @@ interface CandidatePanelProps {
   openCandidatePreview: (candidate: Candidate) => void;
   cutCandidate: (candidateId: string) => void;
   renderingCandidateId: string | null;
+  candidateProgress?: { message: string; current: number; total: number } | null;
 }
 
 export const CandidatePanel: React.FC<CandidatePanelProps> = ({
@@ -66,6 +67,7 @@ export const CandidatePanel: React.FC<CandidatePanelProps> = ({
   openCandidatePreview,
   cutCandidate,
   renderingCandidateId,
+  candidateProgress,
 }) => {
   return (
     <section className="panel candidate-panel">
@@ -183,6 +185,36 @@ export const CandidatePanel: React.FC<CandidatePanelProps> = ({
           </span>
         </label>
       </div>
+
+      {busy === "moments" && (
+        <div style={{ padding: "0.6rem 1rem", background: "rgba(99, 102, 241, 0.06)", borderBottom: "1px solid var(--border)" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.35rem", fontSize: "0.78rem" }}>
+            <span style={{ color: "var(--foreground)", fontWeight: 600 }}>
+              {candidateProgress?.message || "Buscando momentos clave con IA..."}
+            </span>
+            <span style={{ color: "var(--accent-primary)", fontWeight: 700 }}>
+              {candidateProgress && candidateProgress.total > 0
+                ? Math.round((candidateProgress.current / candidateProgress.total) * 100)
+                : 0}
+              %
+            </span>
+          </div>
+          <div style={{ width: "100%", height: "6px", background: "rgba(255,255,255,0.06)", borderRadius: "3px", overflow: "hidden" }}>
+            <div
+              style={{
+                width: `${
+                  candidateProgress && candidateProgress.total > 0
+                    ? Math.min(100, Math.round((candidateProgress.current / candidateProgress.total) * 100))
+                    : 0
+                }%`,
+                height: "100%",
+                background: "linear-gradient(90deg, #6366f1 0%, #f59e0b 100%)",
+                transition: "width 0.3s ease",
+              }}
+            />
+          </div>
+        </div>
+      )}
 
       {!canUseActiveLlm && (
         <div className="api-warning">

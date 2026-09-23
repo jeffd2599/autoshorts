@@ -1,8 +1,10 @@
 import React from "react";
-import type { EnvironmentStatus } from "../../types";
+import { Cpu, Activity, Database, Thermometer } from "lucide-react";
+import type { EnvironmentStatus, HardwareTelemetry } from "../../types";
 
 interface StatusBarProps {
   environment: EnvironmentStatus | null;
+  telemetry: HardwareTelemetry | null;
   canUseCloudKey: boolean;
   canUseClaude: boolean;
   canUseDeepseek: boolean;
@@ -10,14 +12,43 @@ interface StatusBarProps {
 
 export const StatusBar: React.FC<StatusBarProps> = ({
   environment,
+  telemetry,
   canUseCloudKey,
   canUseClaude,
   canUseDeepseek,
 }) => {
   return (
     <footer className="status-bar">
-      <div className="status-bar-left">
+      <div className="status-bar-left" style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
         <span className="app-status-indicator">System Ready</span>
+        {telemetry && (
+          <div style={{ display: "flex", alignItems: "center", gap: "0.85rem", fontSize: "0.74rem", opacity: 0.85 }}>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: "4px" }} title="Uso de Procesador (CPU)">
+              <Cpu size={13} color="var(--accent-primary)" />
+              <span>CPU: {telemetry.cpuUsagePercent}%</span>
+            </span>
+            {telemetry.hasGpu && (
+              <>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: "4px" }} title={telemetry.gpuName}>
+                  <Activity size={13} color="#10b981" />
+                  <span>GPU: {telemetry.gpuUsagePercent}%</span>
+                </span>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: "4px" }} title="Memoria de Video VRAM Usada">
+                  <Database size={13} color="#f59e0b" />
+                  <span>
+                    VRAM: {(telemetry.vramUsedMb / 1024).toFixed(1)} / {(telemetry.vramTotalMb / 1024).toFixed(1)} GB ({telemetry.vramUsagePercent}%)
+                  </span>
+                </span>
+                {telemetry.gpuTempC > 0 && (
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: "4px" }} title="Temperatura de GPU">
+                    <Thermometer size={13} color={telemetry.gpuTempC > 75 ? "#ef4444" : "#10b981"} />
+                    <span>{telemetry.gpuTempC}°C</span>
+                  </span>
+                )}
+              </>
+            )}
+          </div>
+        )}
       </div>
       <div className="status-bar-right">
         <div className="status-indicators">
