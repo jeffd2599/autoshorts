@@ -784,6 +784,15 @@ export function App() {
     }
   }
 
+  async function toggleProjectCompleted(projectId: string) {
+    try {
+      await invoke("toggle_project_completed", { projectId });
+      await refresh(detail?.project.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
   async function selectProject(projectId: string) {
     await run("idle", async () => {
       const nextDetail = await invoke<ProjectDetail>("get_project_detail", { projectId });
@@ -1197,6 +1206,7 @@ export function App() {
                   setSummaryProgressMsg("");
                 }}
                 refresh={refresh}
+                toggleProjectCompleted={toggleProjectCompleted}
                 error={error}
                 selectedCount={selectedCount}
                 selectedCutCount={selectedCutCount}
@@ -1266,6 +1276,7 @@ export function App() {
               selectProject={selectProject}
               renameProject={renameProject}
               deleteProject={deleteProject}
+              toggleProjectCompleted={toggleProjectCompleted}
               settingsNode={settingsNode}
             />
           )}

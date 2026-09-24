@@ -1061,6 +1061,57 @@ textarea:focus {
   margin: 4px 0 0 0;
 }
 
+/* Dashboard Filter Tabs */
+.dashboard-filter-tabs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 14px;
+  margin-bottom: 6px;
+}
+
+.dashboard-filter-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.dashboard-filter-tab:hover {
+  background: var(--bg-surface-hover);
+  border-color: var(--border-hover);
+  color: var(--text-primary);
+}
+
+.dashboard-filter-tab.active {
+  background: var(--bg-surface-active);
+  border-color: #fafafa;
+  color: #fafafa;
+}
+
+.dashboard-filter-count {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-secondary);
+}
+
+.dashboard-filter-tab.active .dashboard-filter-count {
+  background: rgba(255, 255, 255, 0.15);
+  color: #fafafa;
+}
+
 .projects-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
@@ -1083,6 +1134,15 @@ textarea:focus {
   border-color: var(--border-hover);
   background: var(--bg-surface-hover);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+.project-card.is-completed {
+  border-color: rgba(16, 185, 129, 0.28);
+}
+
+.project-card.is-completed:hover {
+  border-color: rgba(16, 185, 129, 0.5);
+  box-shadow: 0 4px 16px rgba(16, 185, 129, 0.08);
 }
 
 .project-card-header {
@@ -1108,6 +1168,15 @@ textarea:focus {
   font-family: var(--font-mono);
 }
 
+.project-card-status.is-completed {
+  background: rgba(16, 185, 129, 0.12);
+  border-color: rgba(16, 185, 129, 0.35);
+  color: #34d399;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
 .project-card-title {
   font-size: 14.5px;
   font-weight: 600;
@@ -1129,8 +1198,8 @@ textarea:focus {
 
 .project-card-actions {
   display: grid;
-  grid-template-columns: 2fr 1fr 1fr;
-  gap: 8px;
+  grid-template-columns: 1.2fr 1.1fr 1fr 1fr;
+  gap: 6px;
   margin-top: 4px;
 }
 
@@ -1142,7 +1211,9 @@ textarea:focus {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 4px;
   transition: all 0.15s ease;
+  padding: 0 4px;
 }
 
 .open-btn {
@@ -1154,6 +1225,30 @@ textarea:focus {
 .open-btn:hover {
   background: #e4e4e7;
   border-color: #e4e4e7;
+}
+
+.complete-toggle-btn {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  color: var(--text-secondary);
+}
+
+.complete-toggle-btn:hover {
+  background: var(--bg-surface-hover);
+  border-color: var(--border-hover);
+  color: var(--text-primary);
+}
+
+.complete-toggle-btn.is-completed {
+  background: rgba(16, 185, 129, 0.1);
+  border-color: rgba(16, 185, 129, 0.3);
+  color: #34d399;
+}
+
+.complete-toggle-btn.is-completed:hover {
+  background: rgba(16, 185, 129, 0.18);
+  border-color: rgba(16, 185, 129, 0.5);
+  color: #6ee7b7;
 }
 
 .rename-btn, .delete-btn {

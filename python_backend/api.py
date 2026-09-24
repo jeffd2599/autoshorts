@@ -814,6 +814,15 @@ class Api:
         name = args.get("name")
         return self.db.rename_project(project_id, name)
 
+    def toggle_project_completed(self, args: Any) -> Dict[str, Any]:
+        project_id = args.get("projectId") if isinstance(args, dict) else args
+        proj = self.db.get_project(project_id)
+        if not proj:
+            raise ValueError(f"Project not found: {project_id}")
+        new_status = "ready" if proj.get("status") == "completed" else "completed"
+        self.db.update_project_status(project_id, new_status)
+        return self.db.get_project(project_id)
+
     def update_transcript_segment(self, args: Any) -> Dict[str, Any]:
         project_id = args.get("projectId")
         index = int(args.get("index", 0))

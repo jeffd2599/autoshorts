@@ -1,5 +1,6 @@
 import React from "react";
 import {
+  Check,
   ChevronRight,
   Clapperboard,
   FileVideo,
@@ -75,17 +76,31 @@ export function Sidebar({
           <ChevronRight size={13} />
         </button>
 
-        {projects.map((project) => (
-          <button
-            key={project.id}
-            className={`project-row ${activeProjectId === project.id ? "active" : ""}`}
-            onClick={() => onSelectProject(project.id)}
-          >
-            <FileVideo size={15} />
-            <span>{project.name || fileName(project.sourcePath)}</span>
-            <ChevronRight size={14} />
-          </button>
-        ))}
+        {projects.map((project) => {
+          const isCompleted = project.status === "completed";
+          return (
+            <button
+              key={project.id}
+              className={`project-row ${activeProjectId === project.id ? "active" : ""}`}
+              onClick={() => onSelectProject(project.id)}
+            >
+              <FileVideo size={15} style={{ color: isCompleted ? "#34d399" : undefined }} />
+              <span style={{ display: "flex", alignItems: "center", gap: "6px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {project.name || fileName(project.sourcePath)}
+                </span>
+                {isCompleted && (
+                  <Check
+                    size={13}
+                    color="#34d399"
+                    style={{ flexShrink: 0 }}
+                  />
+                )}
+              </span>
+              <ChevronRight size={14} />
+            </button>
+          );
+        })}
       </section>
 
       <div style={{ marginTop: "auto", paddingTop: "0.75rem", borderTop: "1px solid var(--border)" }}>

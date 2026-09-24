@@ -3,6 +3,8 @@ import {
   Clapperboard,
   SlidersHorizontal,
   RefreshCw,
+  Check,
+  CheckCircle2,
 } from "lucide-react";
 import type { ProjectDetail } from "../../types";
 import { fileName } from "../../utils/format";
@@ -13,6 +15,7 @@ interface WorkspaceHeaderProps {
   setShowSettings: (val: boolean) => void;
   openSummaryModal: () => void;
   refresh: (projectId: string) => void;
+  toggleProjectCompleted: (projectId: string) => void;
   error: string | null;
   selectedCount?: number;
   selectedCutCount?: number;
@@ -25,8 +28,11 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
   setShowSettings,
   openSummaryModal,
   refresh,
+  toggleProjectCompleted,
   error,
 }) => {
+  const isCompleted = detail.project.status === "completed";
+
   const statusLabel =
     detail.candidates.length > 0
       ? `${detail.candidates.length} Momentos detectados`
@@ -39,7 +45,24 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
       <header className="topbar">
         <div className="project-info">
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-            <div className="eyebrow">{detail.project.status}</div>
+            {isCompleted ? (
+              <div
+                className="eyebrow"
+                style={{
+                  background: "rgba(16, 185, 129, 0.12)",
+                  borderColor: "rgba(16, 185, 129, 0.35)",
+                  color: "#34d399",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "4px",
+                }}
+              >
+                <CheckCircle2 size={11} />
+                <span>CULMINADO</span>
+              </div>
+            ) : (
+              <div className="eyebrow">{detail.project.status}</div>
+            )}
             <span
               style={{
                 fontSize: "0.72rem",
@@ -58,6 +81,33 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
           <h2>{detail.project.name || fileName(detail.project.sourcePath)}</h2>
         </div>
         <div className="topbar-actions">
+          <button
+            type="button"
+            className="secondary-action"
+            onClick={() => void toggleProjectCompleted(detail.project.id)}
+            title={isCompleted ? "Reabrir proyecto como en progreso" : "Marcar proyecto como culminado"}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "6px",
+              background: isCompleted ? "rgba(16, 185, 129, 0.1)" : undefined,
+              borderColor: isCompleted ? "rgba(16, 185, 129, 0.35)" : undefined,
+              color: isCompleted ? "#34d399" : undefined,
+            }}
+          >
+            {isCompleted ? (
+              <>
+                <CheckCircle2 size={14} />
+                <span>Culminado</span>
+              </>
+            ) : (
+              <>
+                <Check size={14} />
+                <span>Marcar Listo</span>
+              </>
+            )}
+          </button>
+
           <button
             className="primary-action compact"
             onClick={openSummaryModal}
