@@ -193,52 +193,57 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
                   <span>Created: {new Date(project.createdAt).toLocaleDateString()}</span>
                 </div>
                 <div className="project-card-actions">
-                  <button className="action-btn open-btn" onClick={() => void selectProject(project.id)}>
-                    Abrir
-                  </button>
-                  <button
-                    className="action-btn folder-btn"
-                    onClick={() => void openProjectFolder(project.id)}
-                    title="Abrir carpeta de archivos del proyecto en Windows Explorer"
-                  >
-                    <FolderOpen size={12} />
-                  </button>
-
-                  {isMissing ? (
-                    <button
-                      className="action-btn relink-btn"
-                      onClick={() => void relinkProjectVideo(project.id)}
-                      title="Localizar y reubicar este archivo de video en tu computadora"
-                    >
-                      <FolderSearch size={12} />
-                      <span>Localizar</span>
+                  <div className="card-actions-primary">
+                    <button className="action-btn open-btn" onClick={() => void selectProject(project.id)}>
+                      Abrir
                     </button>
-                  ) : (
                     <button
-                      className={`action-btn complete-toggle-btn ${isCompleted ? "is-completed" : ""}`}
-                      onClick={() => void toggleProjectCompleted(project.id)}
-                      title={isCompleted ? "Reabrir proyecto como en progreso" : "Marcar proyecto como culminado / terminado"}
+                      className="action-btn folder-btn"
+                      onClick={() => void openProjectFolder(project.id)}
+                      title="Abrir carpeta de archivos del proyecto en Windows Explorer"
                     >
-                      {isCompleted ? (
-                        <>
-                          <RotateCcw size={12} />
-                          <span>Reabrir</span>
-                        </>
-                      ) : (
-                        <>
-                          <Check size={12} />
-                          <span>Listo</span>
-                        </>
-                      )}
+                      <FolderOpen size={13} />
+                      <span>Carpeta</span>
                     </button>
-                  )}
+                  </div>
 
-                  <button className="action-btn rename-btn" onClick={() => void renameProject(project.id)}>
-                    Renombrar
-                  </button>
-                  <button className="action-btn delete-btn" onClick={() => void deleteProject(project.id)}>
-                    Eliminar
-                  </button>
+                  <div className="card-actions-secondary">
+                    {isMissing ? (
+                      <button
+                        className="action-btn relink-btn"
+                        onClick={() => void relinkProjectVideo(project.id)}
+                        title="Localizar y reubicar este archivo de video en tu computadora"
+                      >
+                        <FolderSearch size={12} />
+                        <span>Localizar</span>
+                      </button>
+                    ) : (
+                      <button
+                        className={`action-btn complete-toggle-btn ${isCompleted ? "is-completed" : ""}`}
+                        onClick={() => void toggleProjectCompleted(project.id)}
+                        title={isCompleted ? "Reabrir proyecto como en progreso" : "Marcar proyecto como culminado / terminado"}
+                      >
+                        {isCompleted ? (
+                          <>
+                            <RotateCcw size={12} />
+                            <span>Reabrir</span>
+                          </>
+                        ) : (
+                          <>
+                            <Check size={12} />
+                            <span>Listo</span>
+                          </>
+                        )}
+                      </button>
+                    )}
+
+                    <button className="action-btn rename-btn" onClick={() => void renameProject(project.id)}>
+                      Renombrar
+                    </button>
+                    <button className="action-btn delete-btn" onClick={() => void deleteProject(project.id)}>
+                      Eliminar
+                    </button>
+                  </div>
                 </div>
               </article>
             );

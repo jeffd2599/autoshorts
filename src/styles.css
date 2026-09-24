@@ -1139,7 +1139,7 @@ textarea:focus {
 
 .projects-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(310px, 1fr));
   gap: 16px;
   margin-top: 10px;
 }
@@ -1153,6 +1153,7 @@ textarea:focus {
   flex-direction: column;
   gap: 12px;
   transition: all 0.15s ease;
+  overflow: hidden;
 }
 
 .project-card:hover {
@@ -1241,9 +1242,33 @@ textarea:focus {
 
 .project-card-actions {
   display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: 6px;
   margin-top: 4px;
+}
+
+.card-actions-primary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.card-actions-primary .open-btn {
+  flex: 1;
+}
+
+.card-actions-primary .folder-btn {
+  flex: 0 0 auto;
+  padding: 0 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.card-actions-secondary {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
 }
 
 .action-btn {
@@ -1257,10 +1282,10 @@ textarea:focus {
   gap: 4px;
   transition: all 0.15s ease;
   padding: 0 6px;
+  box-sizing: border-box;
 }
 
 .open-btn {
-  flex: 1.2;
   background: #fafafa;
   color: #09090b;
   border: 1px solid #fafafa;
@@ -1272,9 +1297,6 @@ textarea:focus {
 }
 
 .folder-btn {
-  width: 30px;
-  flex-shrink: 0;
-  padding: 0;
   background: var(--bg-surface);
   border: 1px solid var(--border-default);
   color: var(--text-secondary);
@@ -1386,21 +1408,9 @@ textarea:focus {
 }
 
 .delete-btn:hover {
-  background: rgba(239, 68, 68, 0.08);
-  border-color: rgba(239, 68, 68, 0.4);
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.45);
   color: #f87171;
-}
-
-.rename-btn:hover {
-  background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(255, 255, 255, 0.2);
-  color: var(--text-primary);
-}
-
-.delete-btn:hover {
-  background: var(--color-error-bg);
-  border-color: var(--color-error-border);
-  color: var(--color-error-text);
 }
 
 .empty-dashboard-state {
