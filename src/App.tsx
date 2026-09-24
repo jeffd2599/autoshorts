@@ -810,11 +810,45 @@ export function App() {
     }
   }
 
-  async function selectProject(projectId: string) {
+  async function selectProject(projectId: string | null) {
+    if (!projectId) {
+      setDetail(null);
+      return;
+    }
     await run("idle", async () => {
       const nextDetail = await invoke<ProjectDetail>("get_project_detail", { projectId });
       setDetail(nextDetail);
     });
+  }
+
+  async function openProjectFolder(projectId: string) {
+    try {
+      await invoke("open_project_folder", { projectId });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function moveProjectFolder(projectId: string) {
+    try {
+      const selected = await open({
+        directory: true,
+        multiple: false,
+        title: "Seleccionar nueva ubicación para la carpeta del proyecto",
+      });
+      if (!selected) return;
+      const targetDir = Array.isArray(selected) ? selected[0] : (selected as string);
+      if (!targetDir) return;
+
+      await invoke("move_project_folder", {
+        projectId,
+        newParentDir: targetDir,
+      });
+
+      await refresh(detail?.project.id === projectId ? projectId : undefined);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
   }
 
   async function transcribe() {
@@ -1225,6 +1259,9 @@ export function App() {
                 refresh={refresh}
                 toggleProjectCompleted={toggleProjectCompleted}
                 relinkProjectVideo={relinkProjectVideo}
+                onBackToDashboard={() => void selectProject(null)}
+                openProjectFolder={openProjectFolder}
+                moveProjectFolder={moveProjectFolder}
                 error={error}
                 selectedCount={selectedCount}
                 selectedCutCount={selectedCutCount}
@@ -1296,6 +1333,7 @@ export function App() {
               deleteProject={deleteProject}
               toggleProjectCompleted={toggleProjectCompleted}
               relinkProjectVideo={relinkProjectVideo}
+              openProjectFolder={openProjectFolder}
               settingsNode={settingsNode}
             />
           )}

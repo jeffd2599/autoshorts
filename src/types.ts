@@ -45,6 +45,7 @@ export type Project = {
   transcriptionMode: string;
   captionStyle?: string | null;
   sourceExists?: boolean;
+  projectDir?: string | null;
   createdAt: string;
   updatedAt: string;
 };

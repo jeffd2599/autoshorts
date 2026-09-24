@@ -64,6 +64,14 @@ export async function invoke<T = any>(command: string, args?: Record<string, any
 export async function open(options?: any): Promise<string | null> {
   const pyApi = await getPyWebViewApi();
   if (pyApi) {
+    if (options?.directory) {
+      if (typeof pyApi.select_output_directory === "function") {
+        return await pyApi.select_output_directory();
+      }
+      if (typeof pyApi.invoke === "function") {
+        return await pyApi.invoke("select_output_directory", {});
+      }
+    }
     if (typeof pyApi.open_file_dialog === "function") {
       return await pyApi.open_file_dialog();
     }

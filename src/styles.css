@@ -331,6 +331,31 @@ textarea:focus {
   overflow-y: auto;
 }
 
+.back-dashboard-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 10px;
+  background: var(--bg-surface-raised, #18181b);
+  border: 1px solid var(--border-default, #27272a);
+  border-radius: 6px;
+  color: var(--text-secondary, #a1a1aa);
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.back-dashboard-btn:hover {
+  background: var(--bg-surface-hover, #27272a);
+  border-color: var(--border-hover, #3f3f46);
+  color: var(--text-primary, #ffffff);
+  transform: translateX(-2px);
+}
+
 .topbar {
   display: flex;
   align-items: center;
@@ -1215,8 +1240,8 @@ textarea:focus {
 }
 
 .project-card-actions {
-  display: grid;
-  grid-template-columns: 1.2fr 1.1fr 1fr 1fr;
+  display: flex;
+  align-items: center;
   gap: 6px;
   margin-top: 4px;
 }
@@ -1231,10 +1256,11 @@ textarea:focus {
   justify-content: center;
   gap: 4px;
   transition: all 0.15s ease;
-  padding: 0 4px;
+  padding: 0 6px;
 }
 
 .open-btn {
+  flex: 1.2;
   background: #fafafa;
   color: #09090b;
   border: 1px solid #fafafa;
@@ -1243,6 +1269,21 @@ textarea:focus {
 .open-btn:hover {
   background: #e4e4e7;
   border-color: #e4e4e7;
+}
+
+.folder-btn {
+  width: 30px;
+  flex-shrink: 0;
+  padding: 0;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  color: var(--text-secondary);
+}
+
+.folder-btn:hover {
+  background: var(--bg-surface-hover);
+  border-color: var(--border-hover);
+  color: var(--text-primary);
 }
 
 .complete-toggle-btn {

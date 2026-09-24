@@ -10,6 +10,7 @@ import {
   RotateCcw,
   AlertTriangle,
   FolderSearch,
+  FolderOpen,
 } from "lucide-react";
 import type { Project, BusyState, EnvironmentStatus } from "../../types";
 import { fileName, formatTime } from "../../utils/format";
@@ -27,6 +28,7 @@ interface HomeDashboardProps {
   deleteProject: (id: string) => void;
   toggleProjectCompleted: (id: string) => void;
   relinkProjectVideo: (id: string) => void;
+  openProjectFolder: (id: string) => void;
   settingsNode?: React.ReactNode;
 }
 
@@ -43,6 +45,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
   deleteProject,
   toggleProjectCompleted,
   relinkProjectVideo,
+  openProjectFolder,
   settingsNode,
 }) => {
   const [filterTab, setFilterTab] = useState<"all" | "in_progress" | "completed">("all");
@@ -192,6 +195,13 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
                 <div className="project-card-actions">
                   <button className="action-btn open-btn" onClick={() => void selectProject(project.id)}>
                     Abrir
+                  </button>
+                  <button
+                    className="action-btn folder-btn"
+                    onClick={() => void openProjectFolder(project.id)}
+                    title="Abrir carpeta de archivos del proyecto en Windows Explorer"
+                  >
+                    <FolderOpen size={12} />
                   </button>
 
                   {isMissing ? (

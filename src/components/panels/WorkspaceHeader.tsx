@@ -7,6 +7,9 @@ import {
   CheckCircle2,
   AlertTriangle,
   FolderSearch,
+  ChevronLeft,
+  FolderOpen,
+  FolderSync,
 } from "lucide-react";
 import type { ProjectDetail } from "../../types";
 import { fileName } from "../../utils/format";
@@ -19,6 +22,9 @@ interface WorkspaceHeaderProps {
   refresh: (projectId: string) => void;
   toggleProjectCompleted: (projectId: string) => void;
   relinkProjectVideo: (projectId: string) => void;
+  onBackToDashboard: () => void;
+  openProjectFolder: (projectId: string) => void;
+  moveProjectFolder: (projectId: string) => void;
   error: string | null;
   selectedCount?: number;
   selectedCutCount?: number;
@@ -33,6 +39,9 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
   refresh,
   toggleProjectCompleted,
   relinkProjectVideo,
+  onBackToDashboard,
+  openProjectFolder,
+  moveProjectFolder,
   error,
 }) => {
   const isCompleted = detail.project.status === "completed";
@@ -49,59 +58,92 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
   return (
     <>
       <header className="topbar">
-        <div className="project-info">
-          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-            {isMissing ? (
-              <div
-                className="eyebrow"
+        <div style={{ display: "flex", alignItems: "center", gap: "12px", minWidth: 0 }}>
+          <button
+            type="button"
+            className="back-dashboard-btn"
+            onClick={onBackToDashboard}
+            title="Volver a todos los proyectos (Dashboard)"
+          >
+            <ChevronLeft size={16} />
+            <span>Volver</span>
+          </button>
+
+          <div className="project-info">
+            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              {isMissing ? (
+                <div
+                  className="eyebrow"
+                  style={{
+                    background: "rgba(245, 158, 11, 0.12)",
+                    borderColor: "rgba(245, 158, 11, 0.35)",
+                    color: "#fbbf24",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "4px",
+                  }}
+                >
+                  <AlertTriangle size={11} />
+                  <span>VIDEO NO ENCONTRADO</span>
+                </div>
+              ) : isCompleted ? (
+                <div
+                  className="eyebrow"
+                  style={{
+                    background: "rgba(16, 185, 129, 0.12)",
+                    borderColor: "rgba(16, 185, 129, 0.35)",
+                    color: "#34d399",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "4px",
+                  }}
+                >
+                  <CheckCircle2 size={11} />
+                  <span>CULMINADO</span>
+                </div>
+              ) : (
+                <div className="eyebrow">{detail.project.status}</div>
+              )}
+              <span
                 style={{
-                  background: "rgba(245, 158, 11, 0.12)",
-                  borderColor: "rgba(245, 158, 11, 0.35)",
-                  color: "#fbbf24",
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: "4px",
+                  fontSize: "0.72rem",
+                  padding: "2px 8px",
+                  borderRadius: "4px",
+                  background: "var(--bg-surface-raised)",
+                  border: "1px solid var(--border-default)",
+                  color: isMissing ? "#fbbf24" : "var(--text-secondary)",
+                  fontFamily: "var(--font-mono)",
+                  fontWeight: 500,
                 }}
               >
-                <AlertTriangle size={11} />
-                <span>VIDEO NO ENCONTRADO</span>
-              </div>
-            ) : isCompleted ? (
-              <div
-                className="eyebrow"
-                style={{
-                  background: "rgba(16, 185, 129, 0.12)",
-                  borderColor: "rgba(16, 185, 129, 0.35)",
-                  color: "#34d399",
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: "4px",
-                }}
-              >
-                <CheckCircle2 size={11} />
-                <span>CULMINADO</span>
-              </div>
-            ) : (
-              <div className="eyebrow">{detail.project.status}</div>
-            )}
-            <span
-              style={{
-                fontSize: "0.72rem",
-                padding: "2px 8px",
-                borderRadius: "4px",
-                background: "var(--bg-surface-raised)",
-                border: "1px solid var(--border-default)",
-                color: isMissing ? "#fbbf24" : "var(--text-secondary)",
-                fontFamily: "var(--font-mono)",
-                fontWeight: 500,
-              }}
-            >
-              {statusLabel}
-            </span>
+                {statusLabel}
+              </span>
+            </div>
+            <h2>{detail.project.name || fileName(detail.project.sourcePath)}</h2>
           </div>
-          <h2>{detail.project.name || fileName(detail.project.sourcePath)}</h2>
         </div>
         <div className="topbar-actions">
+          <button
+            type="button"
+            className="secondary-action"
+            onClick={() => void openProjectFolder(detail.project.id)}
+            title="Abrir carpeta de archivos de este proyecto en el Explorador de Windows"
+            style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}
+          >
+            <FolderOpen size={14} />
+            <span>Carpeta</span>
+          </button>
+
+          <button
+            type="button"
+            className="secondary-action"
+            onClick={() => void moveProjectFolder(detail.project.id)}
+            title="Mover la carpeta de este proyecto a otro disco o ubicación"
+            style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}
+          >
+            <FolderSync size={14} />
+            <span>Mover</span>
+          </button>
           {isMissing ? (
             <button
               type="button"

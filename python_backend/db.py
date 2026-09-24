@@ -33,6 +33,7 @@ class Database:
                 status TEXT NOT NULL,
                 transcription_mode TEXT NOT NULL,
                 caption_style TEXT,
+                project_dir TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
@@ -93,6 +94,11 @@ class Database:
                 pass
 
             try:
+                conn.execute("ALTER TABLE projects ADD COLUMN project_dir TEXT;")
+            except Exception:
+                pass
+
+            try:
                 rows = conn.execute("SELECT id, source_path, name FROM projects WHERE name IS NULL OR name = ''").fetchall()
                 for r in rows:
                     stem = Path(r["source_path"]).stem
@@ -100,22 +106,22 @@ class Database:
             except Exception:
                 pass
 
-    def create_project(self, source_path: str, transcription_mode: str = "local", caption_style: str = "modern-box", source_duration: Optional[float] = None) -> Dict[str, Any]:
+    def create_project(self, source_path: str, transcription_mode: str = "local", caption_style: str = "modern-box", source_duration: Optional[float] = None, project_dir: Optional[str] = None) -> Dict[str, Any]:
         proj_id = str(uuid.uuid4())
         name = Path(source_path).stem
         now = utc_now_iso()
         with self.get_conn() as conn:
             conn.execute(
-                """INSERT INTO projects (id, name, source_path, source_duration, status, transcription_mode, caption_style, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (proj_id, name, source_path, source_duration, "ingest", transcription_mode, caption_style, now, now)
+                """INSERT INTO projects (id, name, source_path, source_duration, status, transcription_mode, caption_style, project_dir, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (proj_id, name, source_path, source_duration, "ingest", transcription_mode, caption_style, project_dir, now, now)
             )
         return self.get_project(proj_id)
 
     def list_projects(self) -> List[Dict[str, Any]]:
         with self.get_conn() as conn:
             rows = conn.execute(
-                "SELECT id, name, source_path, source_duration, status, transcription_mode, created_at, updated_at, caption_style FROM projects ORDER BY updated_at DESC"
+                "SELECT id, name, source_path, source_duration, status, transcription_mode, created_at, updated_at, caption_style, project_dir FROM projects ORDER BY updated_at DESC"
             ).fetchall()
             return [
                 {
@@ -126,6 +132,7 @@ class Database:
                     "status": r["status"],
                     "transcriptionMode": r["transcription_mode"],
                     "captionStyle": r["caption_style"],
+                    "projectDir": r["project_dir"],
                     "createdAt": r["created_at"],
                     "updatedAt": r["updated_at"],
                 }
@@ -135,7 +142,7 @@ class Database:
     def get_project(self, project_id: str) -> Dict[str, Any]:
         with self.get_conn() as conn:
             r = conn.execute(
-                "SELECT id, name, source_path, source_duration, status, transcription_mode, created_at, updated_at, caption_style FROM projects WHERE id = ?",
+                "SELECT id, name, source_path, source_duration, status, transcription_mode, created_at, updated_at, caption_style, project_dir FROM projects WHERE id = ?",
                 (project_id,)
             ).fetchone()
             if not r:
@@ -148,9 +155,16 @@ class Database:
                 "status": r["status"],
                 "transcriptionMode": r["transcription_mode"],
                 "captionStyle": r["caption_style"],
+                "projectDir": r["project_dir"],
                 "createdAt": r["created_at"],
                 "updatedAt": r["updated_at"],
             }
+
+    def update_project_dir(self, project_id: str, project_dir: str) -> Dict[str, Any]:
+        now = utc_now_iso()
+        with self.get_conn() as conn:
+            conn.execute("UPDATE projects SET project_dir = ?, updated_at = ? WHERE id = ?", (project_dir, now, project_id))
+        return self.get_project(project_id)
 
     def update_project_status(self, project_id: str, status: str, duration: Optional[float] = None):
         now = utc_now_iso()

@@ -66,6 +66,26 @@ class Api:
         self._cancel_candidates_flag = False
         self._cancel_transcription_flag = False
 
+    def get_project_dir(self, project: Dict[str, Any]) -> Path:
+        proj_dir_val = project.get("projectDir")
+        if proj_dir_val and str(proj_dir_val).strip():
+            p = Path(str(proj_dir_val).strip())
+        else:
+            proj_name = project.get("name") or (Path(project["sourcePath"]).stem if project.get("sourcePath") else project["id"])
+            clean_name = re.sub(r'[\U00010000-\U0010ffff\u2600-\u27bf\ufe00-\ufe0f\u200d\u2300-\u23ff\u2b50-\u2b55]', '', proj_name)
+            clean_name = re.sub(r'[\\/*?:"<>|#]', "", clean_name).strip() or project["id"]
+            p = Path.home() / "Documents" / "AutoShorts" / clean_name
+            try:
+                self.db.update_project_dir(project["id"], str(p))
+            except Exception:
+                pass
+
+        os.makedirs(p, exist_ok=True)
+        os.makedirs(p / "audio", exist_ok=True)
+        os.makedirs(p / "clips", exist_ok=True)
+        os.makedirs(p / "summary", exist_ok=True)
+        return p
+
     def set_window(self, window):
         self._window = window
 
@@ -185,10 +205,12 @@ class Api:
             source_path = args.get("sourcePath") or args.get("path")
             transcription_mode = args.get("transcriptionMode", "local")
             caption_style = args.get("captionStyle", "modern-box")
+            custom_project_dir = args.get("projectDir")
         else:
             source_path = args
             transcription_mode = "local"
             caption_style = "modern-box"
+            custom_project_dir = None
 
         if not os.path.exists(source_path):
             raise FileNotFoundError(f"File not found: {source_path}")
@@ -200,11 +222,25 @@ class Api:
         except Exception:
             pass
 
+        if custom_project_dir and str(custom_project_dir).strip():
+            target_dir = Path(str(custom_project_dir).strip())
+        else:
+            proj_name = Path(source_path).stem
+            clean_name = re.sub(r'[\U00010000-\U0010ffff\u2600-\u27bf\ufe00-\ufe0f\u200d\u2300-\u23ff\u2b50-\u2b55]', '', proj_name)
+            clean_name = re.sub(r'[\\/*?:"<>|#]', "", clean_name).strip() or "Proyecto"
+            target_dir = Path.home() / "Documents" / "AutoShorts" / clean_name
+
+        os.makedirs(target_dir, exist_ok=True)
+        os.makedirs(target_dir / "audio", exist_ok=True)
+        os.makedirs(target_dir / "clips", exist_ok=True)
+        os.makedirs(target_dir / "summary", exist_ok=True)
+
         return self.db.create_project(
             source_path=source_path,
             transcription_mode=transcription_mode,
             caption_style=caption_style,
-            source_duration=duration
+            source_duration=duration,
+            project_dir=str(target_dir)
         )
 
     def probe_project(self, args: Any) -> Dict[str, Any]:
@@ -217,8 +253,8 @@ class Api:
     def extract_project_audio(self, args: Any) -> str:
         project_id = args.get("projectId") if isinstance(args, dict) else args
         project = self.db.get_project(project_id)
-        proj_dir = self.data_dir / "projects" / project_id
-        audio_path = extract_audio(project["sourcePath"], proj_dir)
+        proj_dir = self.get_project_dir(project)
+        audio_path = extract_audio(project["sourcePath"], proj_dir / "audio")
         return str(audio_path)
 
     def transcribe_project(self, args: Any) -> Dict[str, Any]:
@@ -246,9 +282,8 @@ class Api:
         self._cancel_transcription_flag = False
         project = self.db.get_project(project_id)
         self.db.update_project_status(project_id, "transcribing")
-        proj_name = project.get("name") or project_id
-        proj_dir = self.data_dir / "projects" / proj_name
-        audio_path = extract_audio(project["sourcePath"], proj_dir)
+        proj_dir = self.get_project_dir(project)
+        audio_path = extract_audio(project["sourcePath"], proj_dir / "audio")
 
         if self._cancel_transcription_flag:
             self.db.update_project_status(project_id, "created")
@@ -490,7 +525,20 @@ class Api:
             else:
                 chosen_model = "qwen2.5:7b"
 
-        audio_path = str(self.data_dir / "projects" / project_id / "transcription_audio.wav")
+        proj = self.db.get_project(project_id)
+        proj_dir = self.get_project_dir(proj)
+        new_audio_path = proj_dir / "audio" / "transcription_audio.wav"
+        old_audio_path = self.data_dir / "projects" / project_id / "transcription_audio.wav"
+        old_audio_path2 = self.data_dir / "projects" / (proj.get("name") or project_id) / "transcription_audio.wav"
+
+        if new_audio_path.exists():
+            audio_path = str(new_audio_path)
+        elif old_audio_path.exists():
+            audio_path = str(old_audio_path)
+        elif old_audio_path2.exists():
+            audio_path = str(old_audio_path2)
+        else:
+            audio_path = str(new_audio_path)
 
         # Pipeline de detección de momentos destacados
         drafts = detect_candidates_pipeline(
@@ -545,11 +593,11 @@ class Api:
         candidate, project = self.db.get_candidate_with_project(candidate_id)
         self.db.update_clip_for_candidate(candidate_id, "cutting")
 
-        proj_name = project.get("name") or Path(project["sourcePath"]).stem or project["id"]
         if custom_dir:
             out_dir = Path(custom_dir)
         else:
-            out_dir = Path.home() / "Documents" / "AutoShorts" / proj_name
+            proj_dir = self.get_project_dir(project)
+            out_dir = proj_dir / "clips"
         os.makedirs(out_dir, exist_ok=True)
 
         # Sanitize hook for filename: strip all emojis and invalid symbols
@@ -722,7 +770,8 @@ class Api:
         if custom_dir:
             out_dir = Path(custom_dir)
         else:
-            out_dir = Path.home() / "Documents" / "AutoShorts" / proj_name
+            proj_dir = self.get_project_dir(project)
+            out_dir = proj_dir / "summary"
         os.makedirs(out_dir, exist_ok=True)
 
         ratio_tag = "16x9" if aspect_ratio == "original" else "9x16"
@@ -930,3 +979,52 @@ class Api:
                 except Exception as e:
                     print(f"Error opening folder: {e}")
         return True
+
+    def open_project_folder(self, args: Any) -> Dict[str, Any]:
+        project_id = args.get("projectId") if isinstance(args, dict) else args
+        proj = self.db.get_project(project_id)
+        proj_dir = self.get_project_dir(proj)
+        if proj_dir.exists():
+            try:
+                os.startfile(str(proj_dir))
+            except Exception as e:
+                print(f"Error opening project folder: {e}")
+                return {"success": False, "error": str(e)}
+        return {"success": True, "projectDir": str(proj_dir)}
+
+    def move_project_folder(self, args: Any) -> Dict[str, Any]:
+        project_id = args.get("projectId")
+        new_parent_dir = args.get("newParentDir")
+        if not project_id:
+            raise ValueError("Missing projectId")
+        if not new_parent_dir or not os.path.exists(new_parent_dir):
+            raise FileNotFoundError(f"Carpeta de destino no existe: {new_parent_dir}")
+
+        proj = self.db.get_project(project_id)
+        current_dir = self.get_project_dir(proj)
+
+        folder_name = current_dir.name
+        dest_dir = Path(new_parent_dir) / folder_name
+
+        if dest_dir.resolve() == current_dir.resolve():
+            return {"success": True, "projectDir": str(current_dir), "message": "La carpeta ya está en esa ubicación."}
+
+        if dest_dir.exists():
+            counter = 1
+            while dest_dir.exists():
+                dest_dir = Path(new_parent_dir) / f"{folder_name}_{counter}"
+                counter += 1
+
+        try:
+            shutil.move(str(current_dir), str(dest_dir))
+        except Exception:
+            shutil.copytree(str(current_dir), str(dest_dir), dirs_exist_ok=True)
+            shutil.rmtree(str(current_dir), ignore_errors=True)
+
+        updated = self.db.update_project_dir(project_id, str(dest_dir))
+        return {
+            "success": True,
+            "projectDir": str(dest_dir),
+            "project": updated
+        }
+
