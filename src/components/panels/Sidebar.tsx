@@ -1,5 +1,6 @@
 import React from "react";
 import {
+  AlertTriangle,
   Check,
   ChevronRight,
   Clapperboard,
@@ -36,26 +37,25 @@ export function Sidebar({
 }: SidebarProps) {
   return (
     <aside className="sidebar">
-      <div
-        className="brand-row"
-        onClick={() => onSelectProject(null)}
-        style={{ cursor: "pointer" }}
-        title="Go to Home Dashboard"
-      >
-        <div className="brand-mark">
-          <Clapperboard size={20} />
-        </div>
+      <div className="brand-row">
+        <Clapperboard size={20} className="brand-logo" />
         <div>
           <h1>AutoShorts</h1>
           <p>Long recording in. Short clips out.</p>
         </div>
       </div>
 
-      <button className="primary-action" onClick={onImportMedia} disabled={busy !== "idle"}>
+      <button
+        className="primary-action"
+        onClick={() => void onImportMedia()}
+        disabled={busy !== "idle"}
+      >
         {busy === "import" ? <Loader2 className="spin" size={16} /> : <FileVideo size={16} />}
         <span>Importar Grabación</span>
       </button>
+
       <button
+        type="button"
         className="secondary-action"
         onClick={onOpenYoutubeModal}
         disabled={busy !== "idle" || !hasYtdlp}
@@ -78,24 +78,32 @@ export function Sidebar({
 
         {projects.map((project) => {
           const isCompleted = project.status === "completed";
+          const isMissing = project.sourceExists === false;
           return (
             <button
               key={project.id}
               className={`project-row ${activeProjectId === project.id ? "active" : ""}`}
               onClick={() => onSelectProject(project.id)}
             >
-              <FileVideo size={15} style={{ color: isCompleted ? "#34d399" : undefined }} />
+              <FileVideo
+                size={15}
+                style={{ color: isMissing ? "#fbbf24" : isCompleted ? "#34d399" : undefined }}
+              />
               <span style={{ display: "flex", alignItems: "center", gap: "6px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                 <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                   {project.name || fileName(project.sourcePath)}
                 </span>
-                {isCompleted && (
+                {isMissing ? (
+                  <span title="Video no encontrado en la ruta original" style={{ display: "inline-flex", flexShrink: 0 }}>
+                    <AlertTriangle size={12} color="#fbbf24" />
+                  </span>
+                ) : isCompleted ? (
                   <Check
                     size={13}
                     color="#34d399"
                     style={{ flexShrink: 0 }}
                   />
-                )}
+                ) : null}
               </span>
               <ChevronRight size={14} />
             </button>

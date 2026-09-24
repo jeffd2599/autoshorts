@@ -793,6 +793,23 @@ export function App() {
     }
   }
 
+  async function relinkProjectVideo(projectId: string) {
+    try {
+      const selected = await open({
+        multiple: false,
+        filters: [{ name: "Video Files", extensions: ["mp4", "mov", "mkv", "avi", "webm", "m4v"] }],
+      });
+      if (!selected) return;
+      const newSourcePath = Array.isArray(selected) ? selected[0] : (selected as string);
+      if (!newSourcePath) return;
+
+      await invoke("relink_project_video", { projectId, newSourcePath });
+      await refresh(detail?.project.id === projectId ? projectId : undefined);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
   async function selectProject(projectId: string) {
     await run("idle", async () => {
       const nextDetail = await invoke<ProjectDetail>("get_project_detail", { projectId });
@@ -1207,6 +1224,7 @@ export function App() {
                 }}
                 refresh={refresh}
                 toggleProjectCompleted={toggleProjectCompleted}
+                relinkProjectVideo={relinkProjectVideo}
                 error={error}
                 selectedCount={selectedCount}
                 selectedCutCount={selectedCutCount}
@@ -1277,6 +1295,7 @@ export function App() {
               renameProject={renameProject}
               deleteProject={deleteProject}
               toggleProjectCompleted={toggleProjectCompleted}
+              relinkProjectVideo={relinkProjectVideo}
               settingsNode={settingsNode}
             />
           )}

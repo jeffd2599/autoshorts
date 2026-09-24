@@ -8,6 +8,8 @@ import {
   Check,
   CheckCircle2,
   RotateCcw,
+  AlertTriangle,
+  FolderSearch,
 } from "lucide-react";
 import type { Project, BusyState, EnvironmentStatus } from "../../types";
 import { fileName, formatTime } from "../../utils/format";
@@ -24,6 +26,7 @@ interface HomeDashboardProps {
   renameProject: (id: string) => void;
   deleteProject: (id: string) => void;
   toggleProjectCompleted: (id: string) => void;
+  relinkProjectVideo: (id: string) => void;
   settingsNode?: React.ReactNode;
 }
 
@@ -39,6 +42,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
   renameProject,
   deleteProject,
   toggleProjectCompleted,
+  relinkProjectVideo,
   settingsNode,
 }) => {
   const [filterTab, setFilterTab] = useState<"all" | "in_progress" | "completed">("all");
@@ -150,24 +154,35 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
           {filteredProjects.map((project) => {
             const name = project.name || fileName(project.sourcePath);
             const isCompleted = project.status === "completed";
+            const isMissing = project.sourceExists === false;
+
             return (
-              <article key={project.id} className={`project-card ${isCompleted ? "is-completed" : ""}`}>
+              <article
+                key={project.id}
+                className={`project-card ${isMissing ? "is-missing" : isCompleted ? "is-completed" : ""}`}
+              >
                 <div className="project-card-header">
                   <FileVideo
                     size={22}
                     className="project-card-icon"
-                    style={{ color: isCompleted ? "#34d399" : undefined }}
+                    style={{ color: isMissing ? "#fbbf24" : isCompleted ? "#34d399" : undefined }}
                   />
-                  <span className={`project-card-status ${isCompleted ? "is-completed" : ""}`}>
-                    {isCompleted ? (
-                      <>
-                        <CheckCircle2 size={11} />
-                        <span>CULMINADO</span>
-                      </>
-                    ) : (
-                      project.status
-                    )}
-                  </span>
+                  {isMissing ? (
+                    <span
+                      className="project-card-status is-missing"
+                      title={`No se encontró el archivo original en: ${project.sourcePath}`}
+                    >
+                      <AlertTriangle size={11} />
+                      <span>VIDEO NO ENCONTRADO</span>
+                    </span>
+                  ) : isCompleted ? (
+                    <span className="project-card-status is-completed">
+                      <CheckCircle2 size={11} />
+                      <span>CULMINADO</span>
+                    </span>
+                  ) : (
+                    <span className="project-card-status">{project.status}</span>
+                  )}
                 </div>
                 <h3 className="project-card-title">{name}</h3>
                 <div className="project-card-meta">
@@ -178,23 +193,36 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
                   <button className="action-btn open-btn" onClick={() => void selectProject(project.id)}>
                     Abrir
                   </button>
-                  <button
-                    className={`action-btn complete-toggle-btn ${isCompleted ? "is-completed" : ""}`}
-                    onClick={() => void toggleProjectCompleted(project.id)}
-                    title={isCompleted ? "Reabrir proyecto como en progreso" : "Marcar proyecto como culminado / terminado"}
-                  >
-                    {isCompleted ? (
-                      <>
-                        <RotateCcw size={12} />
-                        <span>Reabrir</span>
-                      </>
-                    ) : (
-                      <>
-                        <Check size={12} />
-                        <span>Listo</span>
-                      </>
-                    )}
-                  </button>
+
+                  {isMissing ? (
+                    <button
+                      className="action-btn relink-btn"
+                      onClick={() => void relinkProjectVideo(project.id)}
+                      title="Localizar y reubicar este archivo de video en tu computadora"
+                    >
+                      <FolderSearch size={12} />
+                      <span>Localizar</span>
+                    </button>
+                  ) : (
+                    <button
+                      className={`action-btn complete-toggle-btn ${isCompleted ? "is-completed" : ""}`}
+                      onClick={() => void toggleProjectCompleted(project.id)}
+                      title={isCompleted ? "Reabrir proyecto como en progreso" : "Marcar proyecto como culminado / terminado"}
+                    >
+                      {isCompleted ? (
+                        <>
+                          <RotateCcw size={12} />
+                          <span>Reabrir</span>
+                        </>
+                      ) : (
+                        <>
+                          <Check size={12} />
+                          <span>Listo</span>
+                        </>
+                      )}
+                    </button>
+                  )}
+
                   <button className="action-btn rename-btn" onClick={() => void renameProject(project.id)}>
                     Renombrar
                   </button>

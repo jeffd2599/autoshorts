@@ -1145,6 +1145,15 @@ textarea:focus {
   box-shadow: 0 4px 16px rgba(16, 185, 129, 0.08);
 }
 
+.project-card.is-missing {
+  border-color: rgba(245, 158, 11, 0.35);
+}
+
+.project-card.is-missing:hover {
+  border-color: rgba(245, 158, 11, 0.6);
+  box-shadow: 0 4px 16px rgba(245, 158, 11, 0.08);
+}
+
 .project-card-header {
   display: flex;
   justify-content: space-between;
@@ -1172,6 +1181,15 @@ textarea:focus {
   background: rgba(16, 185, 129, 0.12);
   border-color: rgba(16, 185, 129, 0.35);
   color: #34d399;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.project-card-status.is-missing {
+  background: rgba(245, 158, 11, 0.12);
+  border-color: rgba(245, 158, 11, 0.35);
+  color: #fbbf24;
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -1249,6 +1267,69 @@ textarea:focus {
   background: rgba(16, 185, 129, 0.18);
   border-color: rgba(16, 185, 129, 0.5);
   color: #6ee7b7;
+}
+
+.relink-btn {
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  color: #fbbf24;
+}
+
+.relink-btn:hover {
+  background: rgba(245, 158, 11, 0.2);
+  border-color: rgba(245, 158, 11, 0.6);
+  color: #fef08a;
+}
+
+.missing-video-banner {
+  margin-top: 12px;
+  padding: 10px 16px;
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  color: #fef3c7;
+  font-size: 12.5px;
+}
+
+.missing-video-banner-content {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.missing-video-banner-content code {
+  background: rgba(0, 0, 0, 0.35);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: #fbbf24;
+  word-break: break-all;
+}
+
+.missing-video-banner-btn {
+  background: #fbbf24;
+  color: #09090b;
+  border: 1px solid #fbbf24;
+  font-weight: 600;
+  font-size: 12px;
+  padding: 5px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+
+.missing-video-banner-btn:hover {
+  background: #fef08a;
+  border-color: #fef08a;
 }
 
 .rename-btn, .delete-btn {

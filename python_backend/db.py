@@ -176,6 +176,21 @@ class Database:
         with self.get_conn() as conn:
             conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
 
+    def relink_project(self, project_id: str, new_source_path: str, new_duration: Optional[float] = None) -> Dict[str, Any]:
+        now = utc_now_iso()
+        with self.get_conn() as conn:
+            if new_duration is not None:
+                conn.execute(
+                    "UPDATE projects SET source_path = ?, source_duration = ?, updated_at = ? WHERE id = ?",
+                    (new_source_path, new_duration, now, project_id)
+                )
+            else:
+                conn.execute(
+                    "UPDATE projects SET source_path = ?, updated_at = ? WHERE id = ?",
+                    (new_source_path, now, project_id)
+                )
+        return self.get_project(project_id)
+
     def save_transcript(self, project_id: str, engine: str, raw_json: str, language: Optional[str] = "es") -> Dict[str, Any]:
         t_id = str(uuid.uuid4())
         now = utc_now_iso()

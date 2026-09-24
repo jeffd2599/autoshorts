@@ -167,11 +167,18 @@ class Api:
         }
 
     def list_projects(self, _args: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
-        return self.db.list_projects()
+        projs = self.db.list_projects()
+        for p in projs:
+            p["sourceExists"] = os.path.exists(p["sourcePath"]) if p.get("sourcePath") else False
+        return projs
 
     def get_project_detail(self, args: Any) -> Dict[str, Any]:
         project_id = args.get("projectId") if isinstance(args, dict) else args
-        return self.db.get_project_detail(project_id)
+        detail = self.db.get_project_detail(project_id)
+        if detail and "project" in detail:
+            sp = detail["project"].get("sourcePath")
+            detail["project"]["sourceExists"] = os.path.exists(sp) if sp else False
+        return detail
 
     def create_project_from_path(self, args: Any) -> Dict[str, Any]:
         if isinstance(args, dict):
@@ -822,6 +829,25 @@ class Api:
         new_status = "ready" if proj.get("status") == "completed" else "completed"
         self.db.update_project_status(project_id, new_status)
         return self.db.get_project(project_id)
+
+    def relink_project_video(self, args: Any) -> Dict[str, Any]:
+        project_id = args.get("projectId")
+        new_source_path = args.get("newSourcePath")
+        if not project_id:
+            raise ValueError("Missing projectId")
+        if not new_source_path or not os.path.exists(new_source_path):
+            raise FileNotFoundError(f"El archivo seleccionado no existe: {new_source_path}")
+
+        duration = None
+        try:
+            probe = probe_media(new_source_path)
+            duration = probe.get("durationSec")
+        except Exception:
+            pass
+
+        updated = self.db.relink_project(project_id, new_source_path, duration)
+        updated["sourceExists"] = True
+        return updated
 
     def update_transcript_segment(self, args: Any) -> Dict[str, Any]:
         project_id = args.get("projectId")
