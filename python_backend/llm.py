@@ -140,11 +140,10 @@ Tu misión es encontrar historias fascinantes, opiniones controvertidas o leccio
     if has_thinking:
         thinking_guide = f"""
 PROCESO DE RAZONAMIENTO (THINKING):
-- En tu razonamiento interno (thinking), analiza la transcripción línea por línea.
+- En tu razonamiento interno (thinking), analiza la transcripción de forma directa y concisa (máximo 15 a 20 líneas de razonamiento).
 - Calcula la duración exacta de cada candidato restando (end - start).
 - Verifica estrictamente que cada momento cumpla con la duración objetivo solicitada ({dur_rule}). Si el gancho inicial dura poco, revisa los segmentos contiguos y extiende 'end' hasta completar la jugada, anécdota o remate cómico.
-- Descarta partes de charla vacía o silencios sin acción.
-- Tras razonar detenidamente, produce estrictamente el objeto JSON en el formato final requerido, sin texto fuera del JSON."""
+- Tras razonar brevemente, produce inmediatamente el objeto JSON final con datos reales (sin puntos suspensivos "..." ni 0.0)."""
 
     return f"""{focus_text}
 
@@ -156,8 +155,11 @@ REGLAS DE DURACIÓN Y TIMESTAMPS:
 - 'rationale': Explicación breve de por qué este momento es entretenido o viral.
 - 'description': Descripción optimizada para redes sociales (TikTok, Reels, Shorts, X) de 1 a 2 frases vendedoras invitando a interactuar, con 3 a 4 hashtags relevantes (ej. #gaming #clipviral).{thinking_guide}
 
-Devuelve entre 1 y 5 candidatos en formato JSON exactamente con esta estructura:
-{{"candidates":[{{"start":0.0,"end":0.0,"score":0.0,"hook":"...","rationale":"...","description":"..."}}]}}
+REGLAS ESTRICTAS DE RESPUESTA:
+- NUNCA devuelvas puntos suspensivos ("...") ni valores en 0.0.
+- Extrae momentos reales con timestamps y textos concretos de la transcripción.
+- Devuelve entre 1 y 5 candidatos en formato JSON exactamente con esta estructura:
+{{"candidates":[{{"start":15.0,"end":315.0,"score":0.95,"hook":"¡Jugada Épica y Victoria!","rationale":"Momento de alta tensión y clutch impresionante","description":"¡Mira lo que pasó en esta partida! 🔥 #gaming #viral"}}]}}
 
 IMPORTANTE: Analiza en español y genera todos los textos estrictamente en Español. No traduzcas al inglés."""
 
@@ -270,7 +272,30 @@ def parse_candidate_json(
             except Exception:
                 pass
 
-    # 4. Final attempt
+    # 4. Auto-repair unclosed/truncated JSON (when LLM hit token limits mid-output)
+    if val is None:
+        start_pos = clean.find('{')
+        if start_pos != -1:
+            trimmed = clean[start_pos:].strip()
+            trimmed = re.sub(r",\s*$", "", trimmed)
+            if trimmed.count('"') % 2 != 0:
+                trimmed += '"'
+            open_cur = trimmed.count("{") - trimmed.count("}")
+            open_sq = trimmed.count("[") - trimmed.count("]")
+            for closer in [
+                ("}" * max(0, open_cur - 1) + "]" * max(0, open_sq) + "}"),
+                ("}" * max(0, open_cur) + "]" * max(0, open_sq)),
+                ("]" * max(0, open_sq) + "}" * max(0, open_cur)),
+            ]:
+                try:
+                    repaired_val = json.loads(trimmed + closer)
+                    if repaired_val and isinstance(repaired_val, (dict, list)):
+                        val = repaired_val
+                        break
+                except Exception:
+                    pass
+
+    # 5. Final attempt
     if val is None:
         try:
             val = json.loads(clean)
@@ -288,7 +313,7 @@ def parse_candidate_json(
         if candidates_arr is None and "start" in val and "end" in val:
             candidates_arr = [val]
 
-    # 5. Plain-text markdown fallback (e.g. user prompts requiring [CLIP 1], Tiempo de Inicio...)
+    # 6. Plain-text markdown fallback (e.g. user prompts requiring [CLIP 1], Tiempo de Inicio...)
     if not candidates_arr:
         candidates_arr = parse_markdown_clips(clean)
 
@@ -313,6 +338,16 @@ def parse_candidate_json(
             hook = str(item.get("hook", "")).strip()
             rationale = str(item.get("rationale", "")).strip()
             description = str(item.get("description", "")).strip()
+
+            # STRICT FILTER: Discard placeholder candidates with empty or ellipsis text ("...")
+            clean_hook = hook.strip(" .…_")
+            if not clean_hook or clean_hook in ["...", "…", "None", "null", "undefined"]:
+                continue
+            if hook == "..." or rationale == "..." or description == "...":
+                continue
+            if start == 0.0 and end == 0.0 and len(clean_hook) < 5:
+                continue
+
             if not description and hook:
                 description = f"{hook}. ¡Mira este momento destacado! #autoshorts #viral #clips"
 
@@ -437,6 +472,9 @@ def call_ollama(
     system_prompt = build_system_prompt(content_type, target_duration, has_thinking=has_thinking, custom_prompt=custom_prompt)
     url = "http://127.0.0.1:11434/api/chat"
 
+    num_ctx_val = 16384 if has_thinking else 8192
+    num_predict_val = 4096 if has_thinking else 2048
+
     payload: Dict[str, Any] = {
         "model": model_name,
         "messages": [
@@ -447,7 +485,8 @@ def call_ollama(
         "format": "json",
         "options": {
             "temperature": 0.2,
-            "num_ctx": 8192
+            "num_ctx": num_ctx_val,
+            "num_predict": num_predict_val
         }
     }
 
