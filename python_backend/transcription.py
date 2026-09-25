@@ -69,6 +69,8 @@ def transcribe_local(
         "discord, twitch, youtube, shorts, partida, gameplay, sniper, kill"
     )
 
+    import whisper.transcribe
+    orig_whisper_tqdm = getattr(whisper.transcribe, "tqdm", None)
     orig_tqdm = tqdm.tqdm
 
     class ProgressTqdm(orig_tqdm):
@@ -83,6 +85,9 @@ def transcribe_local(
             return res
 
     tqdm.tqdm = ProgressTqdm
+    if hasattr(whisper.transcribe, "tqdm"):
+        whisper.transcribe.tqdm = ProgressTqdm
+
     try:
         result = model.transcribe(
             audio_path,
@@ -94,6 +99,8 @@ def transcribe_local(
         )
     finally:
         tqdm.tqdm = orig_tqdm
+        if orig_whisper_tqdm is not None:
+            whisper.transcribe.tqdm = orig_whisper_tqdm
 
     del model
     if torch.cuda.is_available():

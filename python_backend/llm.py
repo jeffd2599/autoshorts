@@ -8,9 +8,9 @@ import requests
 DURATION_SPECS = {
     "30s": {
         "label": "30 segundos",
-        "instruction": "Cada clip DEBE durar aproximadamente 30 segundos (rango permitido: 20 a 45 segundos).",
-        "min": 20.0,
-        "max": 45.0,
+        "instruction": "Cada clip DEBE durar aproximadamente 30 segundos (rango permitido: 30 a 50 segundos, mínimo 30 segundos).",
+        "min": 30.0,
+        "max": 50.0,
     },
     "60s": {
         "label": "1 minuto",
@@ -37,6 +37,64 @@ DURATION_SPECS = {
         "max": 330.0,
     },
 }
+
+
+def parse_time_to_seconds(time_str: str) -> float:
+    clean_time = re.sub(r"[^\d:\.]", "", str(time_str).strip())
+    parts = clean_time.split(":")
+    try:
+        if len(parts) == 3:
+            return float(parts[0]) * 3600 + float(parts[1]) * 60 + float(parts[2])
+        elif len(parts) == 2:
+            return float(parts[0]) * 60 + float(parts[1])
+        elif len(parts) == 1:
+            clean = re.sub(r"[^\d\.]", "", parts[0])
+            return float(clean) if clean else 0.0
+    except Exception:
+        return 0.0
+    return 0.0
+
+
+def parse_markdown_clips(text: str) -> List[Dict[str, Any]]:
+    """
+    Parses plain text clips formatted like:
+    [CLIP 1]
+    - Tiempo de Inicio: 00:03:26
+    - Tiempo de Fin: 00:04:12
+    - Hook en Pantalla: ¡NO ME LO CREO!
+    - Descripción: Jugada impresionante...
+    """
+    clip_blocks = re.split(r"\[CLIP\s*\d+\]", text, flags=re.IGNORECASE)
+    results = []
+    for block in clip_blocks:
+        if not block.strip():
+            continue
+        start_match = re.search(r"Tiempo\s+de\s+Inicio\s*:\s*([^\n\r]+)", block, re.IGNORECASE)
+        end_match = re.search(r"Tiempo\s+de\s+Fin\s*:\s*([^\n\r]+)", block, re.IGNORECASE)
+        hook_match = re.search(r"Hook(?:\s+en\s+Pantalla)?\s*:\s*([^\n\r]+)", block, re.IGNORECASE)
+        desc_match = re.search(r"Descripci[oó]n\s*:\s*([^\n\r]+)", block, re.IGNORECASE)
+        cat_match = re.search(r"Categor[ií]a\s*:\s*([^\n\r]+)", block, re.IGNORECASE)
+
+        if start_match and end_match:
+            start_sec = parse_time_to_seconds(start_match.group(1))
+            end_sec = parse_time_to_seconds(end_match.group(1))
+            hook = hook_match.group(1).strip() if hook_match else "Momento Viral"
+            desc = desc_match.group(1).strip() if desc_match else ""
+            cat = cat_match.group(1).strip() if cat_match else ""
+
+            rationale = f"Categoría: {cat}" if cat else "Momento destacado por alto potencial de viralidad."
+            if not desc:
+                desc = f"{hook} - ¡Mira este clip increíble! #viral #gaming #shorts"
+
+            results.append({
+                "start": start_sec,
+                "end": end_sec,
+                "score": 0.90,
+                "hook": hook,
+                "rationale": rationale,
+                "description": desc
+            })
+    return results
 
 
 DEFAULT_MOMENTS_PROMPT = """Eres un editor profesional de clips virales para TikTok, YouTube Shorts y Reels.
@@ -135,18 +193,20 @@ def expand_short_candidate(
     start: float,
     end: float,
     segments: Optional[List[Dict[str, Any]]],
-    target_min: float = 12.0,
+    target_min: float = 30.0,
     target_max: float = 60.0
 ) -> tuple[float, float]:
     """
-    If the LLM selected only a short 2-5s hook sentence, this expands the clip forward
+    If the LLM selected only a short hook sentence, this expands the clip forward
     across subsequent speech segments so the viewer gets the full context or play.
     """
+    dur = end - start
     if not segments:
-        return start, end
+        if dur < target_min:
+            return start, start + target_min
+        return start, min(end, start + target_max)
 
     target_ideal = (target_min + target_max) / 2.0
-    dur = end - start
     if dur >= target_min:
         return start, min(end, start + target_max)
 
@@ -163,6 +223,10 @@ def expand_short_candidate(
         new_end = max(new_end, s["end"])
         if (new_end - start) >= target_ideal:
             break
+
+    # If still shorter than target_min (e.g. speech ended), extend numerically
+    if (new_end - start) < target_min:
+        new_end = start + target_min
 
     return start, min(new_end, start + target_max)
 
@@ -210,9 +274,8 @@ def parse_candidate_json(
     if val is None:
         try:
             val = json.loads(clean)
-        except Exception as e:
-            print(f"Error parsing JSON: {e}. Raw text: {text[:200]}")
-            return []
+        except Exception:
+            val = None
 
     candidates_arr = None
     if isinstance(val, list):
@@ -224,6 +287,10 @@ def parse_candidate_json(
                 break
         if candidates_arr is None and "start" in val and "end" in val:
             candidates_arr = [val]
+
+    # 5. Plain-text markdown fallback (e.g. user prompts requiring [CLIP 1], Tiempo de Inicio...)
+    if not candidates_arr:
+        candidates_arr = parse_markdown_clips(clean)
 
     if not candidates_arr:
         return []
@@ -249,16 +316,23 @@ def parse_candidate_json(
             if not description and hook:
                 description = f"{hook}. ¡Mira este momento destacado! #autoshorts #viral #clips"
 
-            # Automatically expand clips if the LLM picked a short hook line
-            if segments:
+            # Automatically expand clips if the candidate duration is under target_min
+            dur = end - start
+            if dur < target_min:
                 start, end = expand_short_candidate(
                     start, end, segments,
                     target_min=target_min,
                     target_max=target_max
                 )
-
             dur = end - start
-            if dur >= min_duration and hook:
+            # Enforce minimum 30s (or 25s for 30s target)
+            min_floor = 25.0 if target_duration == "30s" else 30.0
+            if dur < min_floor:
+                end = start + max(min_floor, target_min)
+                dur = end - start
+
+            effective_min = min_floor if target_duration == "30s" else max(30.0, target_min * 0.6)
+            if dur >= effective_min and hook:
                 drafts.append({
                     "start": round(start, 2),
                     "end": round(end, 2),
@@ -791,17 +865,23 @@ def detect_candidates_pipeline(
                 break
 
         # Check for silent gameplay clutches (action peaks with minimal/no speech)
-        for p in action_peaks:
-            overlapping_speech = [s for s in segments if s["end"] > p["start"] and s["start"] < p["end"]]
-            if len(overlapping_speech) <= 1:
-                all_drafts.append({
-                    "start": max(0.0, p["start"] - 1.0),
-                    "end": p["end"] + 1.0,
-                    "score": 4.5,
-                    "hook": "🎮 Jugada Épica en Máxima Concentración",
-                    "rationale": "Momento de acción intensa y tiroteo del juego con el streamer totalmente enfocado en jugar sin hablar.",
-                    "description": "¡Mira la concentración total en esta jugada de acción intensa! 🎮🔥 #gaming #highlight #gameplay"
-                })
+        # Only inject if target_duration is short ("30s" or "60s"); for 2m/3m/5m clips, 8s audio peaks should NEVER be injected!
+        if target_duration in ["30s", "60s"]:
+            for p in action_peaks:
+                overlapping_speech = [s for s in segments if s["end"] > p["start"] and s["start"] < p["end"]]
+                if len(overlapping_speech) <= 1:
+                    peak_center = (p["start"] + p["end"]) / 2.0
+                    clip_dur = 30.0 if target_duration == "30s" else 50.0
+                    p_start = max(0.0, peak_center - (clip_dur / 2.0))
+                    p_end = p_start + clip_dur
+                    all_drafts.append({
+                        "start": round(p_start, 2),
+                        "end": round(p_end, 2),
+                        "score": 0.85,
+                        "hook": "🎮 Jugada Épica en Máxima Concentración",
+                        "rationale": "Momento de acción intensa y tiroteo del juego con el streamer totalmente enfocado en jugar sin hablar.",
+                        "description": "¡Mira la concentración total en esta jugada de acción intensa! 🎮🔥 #gaming #highlight #gameplay"
+                    })
 
         # Deduplicate and sort globally
         unique_candidates = deduplicate_candidates(all_drafts)

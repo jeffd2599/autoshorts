@@ -313,11 +313,8 @@ class Api:
             return {}
 
         def on_whisper_progress(pct: int):
-            if self._window:
-                msg = f"Transcribiendo con Whisper ({pct}%)"
-                self._window.evaluate_js(
-                    f"window.__emitEvent && window.__emitEvent('transcription-progress', {{ percentage: {pct}, message: '{msg}' }})"
-                )
+            msg = f"Transcribiendo con Whisper ({pct}%)"
+            self.emit("transcription-progress", {"percentage": pct, "message": msg})
 
         if provider == "deepgram":
             key = api_key or os.getenv("DEEPGRAM_API_KEY")
@@ -338,14 +335,9 @@ class Api:
         if refine_with_llm and transcript.get("segments"):
             try:
                 def on_refine_progress(msg, cur, tot):
-                    if self._window:
-                        pct = int(round((cur / max(1, tot)) * 100))
-                        self._window.evaluate_js(
-                            f"window.__emitEvent && window.__emitEvent('transcription-progress', {{ percentage: {pct}, message: '{msg}' }})"
-                        )
-                        self._window.evaluate_js(
-                            f"window.__emitEvent && window.__emitEvent('candidate-progress', {{ message: '{msg}', current: {cur}, total: {tot} }})"
-                        )
+                    pct = int(round((cur / max(1, tot)) * 100))
+                    self.emit("transcription-progress", {"percentage": pct, "message": msg})
+                    self.emit("candidate-progress", {"message": msg, "current": cur, "total": tot})
 
                 print(f"Perfeccionando transcripción con IA ({llm_engine}:{llm_model})...")
                 refined_segments = refine_transcript_with_llm(
