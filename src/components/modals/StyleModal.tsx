@@ -1,5 +1,5 @@
 import React from "react";
-import { Captions, Sparkles, X } from "lucide-react";
+import { Captions, Sparkles, X, Folder, FolderOpen } from "lucide-react";
 import {
   ContentType,
   EnvironmentStatus,
@@ -53,6 +53,10 @@ interface StyleModalProps {
   setAutoDetectMoments: (val: boolean) => void;
   enableThinking: boolean;
   setEnableThinking: (val: boolean) => void;
+  customProjectDir: string;
+  onSelectProjectDir: () => void;
+  moveSourceVideo: boolean;
+  setMoveSourceVideo: (val: boolean) => void;
   environment: EnvironmentStatus | null;
   onOpenSettings: () => void;
   onConfirm: () => Promise<void>;
@@ -96,6 +100,10 @@ export function StyleModal({
   setAutoDetectMoments,
   enableThinking,
   setEnableThinking,
+  customProjectDir,
+  onSelectProjectDir,
+  moveSourceVideo,
+  setMoveSourceVideo,
   environment,
   onOpenSettings,
   onConfirm,
@@ -637,6 +645,45 @@ export function StyleModal({
               </div>
             </>
           )}
+        </div>
+
+        {/* Project Destination & Move Video Option */}
+        <div className="import-destination-card">
+          <div className="import-destination-row">
+            <div className="import-destination-info">
+              <Folder size={15} className="import-destination-icon" />
+              <div className="import-destination-text">
+                <span className="import-destination-label">Carpeta del proyecto:</span>
+                <span className="import-destination-path" title={customProjectDir}>
+                  {customProjectDir || "Ubicación predeterminada (Documents/AutoShorts/...)"}
+                </span>
+              </div>
+            </div>
+            <button
+              type="button"
+              className="import-destination-change-btn"
+              onClick={onSelectProjectDir}
+              title="Seleccionar otra carpeta o disco para este proyecto"
+            >
+              <FolderOpen size={13} />
+              <span>Cambiar...</span>
+            </button>
+          </div>
+
+          <label className="import-move-option">
+            <input
+              type="checkbox"
+              checked={moveSourceVideo}
+              onChange={(e) => setMoveSourceVideo(e.target.checked)}
+              className="import-move-checkbox"
+            />
+            <div className="import-move-text">
+              <span className="import-move-title">Mover video original a esta carpeta</span>
+              <span className="import-move-desc">
+                Traslada el archivo de video adentro de la carpeta del proyecto para centralizar todo y ahorrar espacio.
+              </span>
+            </div>
+          </label>
         </div>
 
         {/* Modal Footer */}

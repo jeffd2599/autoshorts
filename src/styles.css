@@ -2221,3 +2221,119 @@ textarea:focus {
   letter-spacing: 0.5px;
   margin-top: 2px;
 }
+
+/* Import Modal Destination & Move Video Section */
+.import-destination-card {
+  padding: 0.85rem 1.5rem;
+  background: var(--bg-surface-raised, #18181b);
+  border-top: 1px solid var(--border-default, #27272a);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.import-destination-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.import-destination-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
+.import-destination-icon {
+  color: var(--text-secondary, #a1a1aa);
+  flex-shrink: 0;
+}
+
+.import-destination-text {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+}
+
+.import-destination-label {
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: var(--text-secondary, #a1a1aa);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.import-destination-path {
+  font-size: 0.76rem;
+  font-family: var(--font-mono);
+  color: #fafafa;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: rgba(0, 0, 0, 0.3);
+  padding: 2px 7px;
+  border-radius: 4px;
+  border: 1px solid var(--border-default, #27272a);
+}
+
+.import-destination-change-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 10px;
+  background: var(--bg-surface, #121214);
+  border: 1px solid var(--border-default, #27272a);
+  border-radius: 5px;
+  color: var(--text-secondary, #a1a1aa);
+  font-size: 0.76rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.import-destination-change-btn:hover {
+  background: var(--bg-surface-hover, #27272a);
+  border-color: var(--border-hover, #3f3f46);
+  color: var(--text-primary, #ffffff);
+}
+
+.import-move-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+  padding: 4px 0 2px;
+}
+
+.import-move-checkbox {
+  margin-top: 2px;
+  accent-color: #fafafa;
+  cursor: pointer;
+}
+
+.import-move-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.import-move-title {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-primary, #ffffff);
+}
+
+.import-move-desc {
+  font-size: 0.71rem;
+  color: var(--text-muted, #71717a);
+  line-height: 1.35;
+}

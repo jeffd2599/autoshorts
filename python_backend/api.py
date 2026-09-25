@@ -200,27 +200,29 @@ class Api:
             detail["project"]["sourceExists"] = os.path.exists(sp) if sp else False
         return detail
 
+    def get_default_project_dir(self, args: Any) -> str:
+        source_path = args.get("sourcePath") if isinstance(args, dict) else args
+        proj_name = Path(source_path).stem if source_path else "Proyecto"
+        clean_name = re.sub(r'[\U00010000-\U0010ffff\u2600-\u27bf\ufe00-\ufe0f\u200d\u2300-\u23ff\u2b50-\u2b55]', '', proj_name)
+        clean_name = re.sub(r'[\\/*?:"<>|#]', "", clean_name).strip() or "Proyecto"
+        return str(Path.home() / "Documents" / "AutoShorts" / clean_name)
+
     def create_project_from_path(self, args: Any) -> Dict[str, Any]:
         if isinstance(args, dict):
             source_path = args.get("sourcePath") or args.get("path")
             transcription_mode = args.get("transcriptionMode", "local")
             caption_style = args.get("captionStyle", "modern-box")
             custom_project_dir = args.get("projectDir")
+            move_source_video = bool(args.get("moveSourceVideo", False))
         else:
             source_path = args
             transcription_mode = "local"
             caption_style = "modern-box"
             custom_project_dir = None
+            move_source_video = False
 
         if not os.path.exists(source_path):
             raise FileNotFoundError(f"File not found: {source_path}")
-
-        duration = None
-        try:
-            probe = probe_media(source_path)
-            duration = probe.get("durationSec")
-        except Exception:
-            pass
 
         if custom_project_dir and str(custom_project_dir).strip():
             target_dir = Path(str(custom_project_dir).strip())
@@ -234,6 +236,27 @@ class Api:
         os.makedirs(target_dir / "audio", exist_ok=True)
         os.makedirs(target_dir / "clips", exist_ok=True)
         os.makedirs(target_dir / "summary", exist_ok=True)
+
+        if move_source_video:
+            target_file = target_dir / Path(source_path).name
+            if target_file.resolve() != Path(source_path).resolve():
+                try:
+                    shutil.move(source_path, str(target_file))
+                    source_path = str(target_file)
+                except Exception as e:
+                    print(f"Warning: could not move source video to project dir: {e}")
+                    try:
+                        shutil.copy2(source_path, str(target_file))
+                        source_path = str(target_file)
+                    except Exception:
+                        pass
+
+        duration = None
+        try:
+            probe = probe_media(source_path)
+            duration = probe.get("durationSec")
+        except Exception:
+            pass
 
         return self.db.create_project(
             source_path=source_path,

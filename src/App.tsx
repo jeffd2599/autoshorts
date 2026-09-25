@@ -55,6 +55,8 @@ export function App() {
   });
   const [copiedDescId, setCopiedDescId] = useState<string | null>(null);
   const [mediaPathToImport, setMediaPathToImport] = useState<string | null>(null);
+  const [customProjectDir, setCustomProjectDir] = useState<string>("");
+  const [moveSourceVideo, setMoveSourceVideo] = useState<boolean>(false);
   const [previewCandidate, setPreviewCandidate] = useState<Candidate | null>(null);
   const [customOutputDir, setCustomOutputDir] = useState<string>(() => localStorage.getItem("autoshorts_output_dir") || "");
   const [autoTranscribeOnImport, setAutoTranscribeOnImport] = useState<boolean>(true);
@@ -505,8 +507,36 @@ export function App() {
     });
     if (typeof selected !== "string") return;
     setMediaPathToImport(selected);
+    setMoveSourceVideo(false);
+    try {
+      const defaultDir = await invoke<string>("get_default_project_dir", { sourcePath: selected });
+      setCustomProjectDir(defaultDir);
+    } catch {
+      setCustomProjectDir("");
+    }
     setImportModalTab("subtitles");
     setShowStyleModal(true);
+  }
+
+  async function handleSelectImportDir() {
+    try {
+      const selected = await open({
+        directory: true,
+        multiple: false,
+        title: "Seleccionar carpeta para el proyecto",
+      });
+      if (!selected) return;
+      const targetDir = Array.isArray(selected) ? selected[0] : (selected as string);
+      if (!targetDir) return;
+
+      const stem = mediaPathToImport ? fileName(mediaPathToImport).replace(/\.[^/.]+$/, "") : "Proyecto";
+      const normalizedTarget = targetDir.replace(/[\\/]+$/, "");
+      const endsWithStem = normalizedTarget.toLowerCase().endsWith(stem.toLowerCase());
+      const finalDir = endsWithStem ? normalizedTarget : `${normalizedTarget}\\${stem}`;
+      setCustomProjectDir(finalDir);
+    } catch (err) {
+      console.error(err);
+    }
   }
 
   async function handleYoutubeImport() {
@@ -538,6 +568,13 @@ export function App() {
       setYoutubeUrl("");
       setYoutubeStatus("idle");
       setMediaPathToImport(downloadedPath);
+      setMoveSourceVideo(false);
+      try {
+        const defaultDir = await invoke<string>("get_default_project_dir", { sourcePath: downloadedPath });
+        setCustomProjectDir(defaultDir);
+      } catch {
+        setCustomProjectDir("");
+      }
       setImportModalTab("subtitles");
       setShowStyleModal(true);
     } catch (err: any) {
@@ -553,6 +590,8 @@ export function App() {
   ) {
     if (!mediaPathToImport) return;
     const selected = mediaPathToImport;
+    const projDir = customProjectDir.trim() || null;
+    const shouldMove = moveSourceVideo;
     setMediaPathToImport(null);
     setShowStyleModal(false);
 
@@ -562,6 +601,8 @@ export function App() {
         path: selected,
         transcriptionMode: transcriptionEngine === "local" ? "local" : "cloud",
         captionStyle: style,
+        projectDir: projDir,
+        moveSourceVideo: shouldMove,
       });
       newProjectId = project.id;
       await refresh(project.id);
@@ -1389,6 +1430,10 @@ export function App() {
         setAutoDetectMoments={setAutoDetectMoments}
         enableThinking={enableThinking}
         setEnableThinking={setEnableThinking}
+        customProjectDir={customProjectDir}
+        onSelectProjectDir={handleSelectImportDir}
+        moveSourceVideo={moveSourceVideo}
+        setMoveSourceVideo={setMoveSourceVideo}
         environment={environment}
         onOpenSettings={() => {
           setShowStyleModal(false);
