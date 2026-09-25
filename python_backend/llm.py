@@ -444,20 +444,24 @@ def call_ollama(
             {"role": "user", "content": prompt}
         ],
         "stream": False,
+        "format": "json",
         "options": {
             "temperature": 0.2,
             "num_ctx": 8192
         }
     }
 
-    # For non-thinking mode, format: json + think: false prevents CoT token overhead and speeds up 10x
     if not has_thinking:
         payload["think"] = False
-        payload["format"] = "json"
     else:
         payload["think"] = True
 
     resp = requests.post(url, json=payload, timeout=300)
+    if not resp.ok and "format" in payload:
+        # Fallback if specific older Ollama engine doesn't allow format with thinking
+        payload.pop("format", None)
+        resp = requests.post(url, json=payload, timeout=300)
+
     if not resp.ok:
         raise RuntimeError(f"Ollama call failed ({resp.status_code}): {resp.text}")
     data = resp.json()
@@ -479,7 +483,10 @@ def call_ollama(
             content = m.group(1)
 
     if thinking:
-        print(f"🧠 [{model_name} CoT Thinking ({len(thinking)} caracteres)]: {thinking[:150].strip()}...")
+        try:
+            print(f"[Thinking {model_name} ({len(thinking)} chars)]: {thinking[:150].strip()}...")
+        except Exception:
+            pass
 
     return content
 
@@ -820,7 +827,14 @@ def detect_candidates_pipeline(
                 ]
                 peak_cues = "\n\nZonas de alta acción/disparos detectadas acústicamente:\n" + "\n".join(cue_lines)
 
-            prompt_text = f"Transcripción del segmento [{chunk_start_fmt} a {chunk_end_fmt}]:\n{compact_segments(chunk)}{peak_cues}"
+            dur_info = DURATION_SPECS.get(target_duration, DURATION_SPECS["60s"])
+            instruction_text = (
+                f"\n\nINSTRUCCIÓN:\n"
+                f"Analiza la transcripción anterior y extrae exclusivamente entre 1 y 5 momentos/clips virales ({dur_info['instruction']}).\n"
+                f"Debes responder en formato JSON estrictamente estructurado así:\n"
+                f'{{"candidates": [{{"start": 0.0, "end": 0.0, "score": 0.95, "hook": "Título Gancho", "rationale": "Por qué es viral", "description": "Texto llamativo para redes con hashtags"}}]}}'
+            )
+            prompt_text = f"Transcripción del segmento [{chunk_start_fmt} a {chunk_end_fmt}]:\n{compact_segments(chunk)}{peak_cues}{instruction_text}"
 
             try:
                 if provider in ["local", "ollama"]:
