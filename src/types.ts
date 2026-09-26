@@ -155,3 +155,21 @@ export type HardwareTelemetry = {
   cpuUsagePercent: number;
 };
 
+export type AutoEditRecord = {
+  id: string;
+  projectId: string;
+  outputPath: string;
+  formatMode: "youtube" | "shorts";
+  targetDurationSec: number;
+  actualDurationSec?: number | null;
+  chaptersText?: string;
+  title?: string;
+  description?: string;
+  hashtags?: string;
+  createdAt: string;
+  filename?: string;
+  fileSizeMb?: number;
+  exists?: boolean;
+};
+
+

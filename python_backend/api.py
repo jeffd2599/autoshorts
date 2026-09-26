@@ -985,6 +985,42 @@ class Api:
             is_cancelled=is_cancelled
         )
 
+        # Generate initial social copy for this AutoEdit
+        autoedit_title = f"{'TikTok' if format_mode == 'shorts' else 'YouTube'} - {clean_name}"
+        autoedit_desc = f"Montaje dinámico de los mejores momentos del stream ({mode_label})."
+        autoedit_hashtags = "#gaming #streamer #clips #viral"
+        try:
+            story_context = f"Video de gaming ({mode_label}). Momentos incluidos:\n" + "\n".join(
+                f"- {s.get('hook', '')}" for s in plan.get("story_segments", [])
+            )
+            copy_res = generate_social_copy_with_llm(
+                transcript_text=story_context,
+                model_name=model_name or "qwen2.5:7b",
+                provider=llm_engine,
+                api_key=api_key
+            )
+            if copy_res.get("hooks"):
+                autoedit_title = copy_res["hooks"][0]
+            if copy_res.get("caption"):
+                autoedit_desc = copy_res["caption"]
+            if copy_res.get("hashtags"):
+                autoedit_hashtags = " ".join(copy_res["hashtags"])
+        except Exception as e:
+            print(f"Nota: Copy generado con plantilla base ({e})")
+
+        # Save to database
+        saved_autoedit = self.db.save_autoedit(
+            project_id=project_id,
+            output_path=str(render_res["video_path"]),
+            format_mode=format_mode,
+            target_duration_sec=target_max_sec,
+            actual_duration_sec=render_res["total_duration"],
+            chapters_text=render_res["chapters_text"],
+            title=autoedit_title,
+            description=autoedit_desc,
+            hashtags=autoedit_hashtags
+        )
+
         self.emit("autoedit-progress", {
             "status": "done",
             "message": "Video ensamblado exitosamente.",
@@ -992,6 +1028,7 @@ class Api:
         })
 
         return {
+            "autoeditId": saved_autoedit["id"],
             "videoPath": render_res["video_path"],
             "chaptersPath": render_res["chapters_path"],
             "chaptersText": render_res["chapters_text"],
@@ -999,8 +1036,122 @@ class Api:
             "filename": output_filename,
             "formatMode": format_mode,
             "aspectRatio": aspect_ratio,
-            "outputDir": str(out_dir)
+            "outputDir": str(out_dir),
+            "title": autoedit_title,
+            "description": autoedit_desc,
+            "hashtags": autoedit_hashtags
         }
+
+    def get_autoedits(self, args: Any) -> List[Dict[str, Any]]:
+        project_id = args.get("projectId") if isinstance(args, dict) else args
+        project = self.db.get_project(project_id)
+        if not project:
+            return []
+
+        # 1. Fetch DB records
+        records = self.db.list_autoedits(project_id)
+        db_paths = {r["outputPath"] for r in records}
+
+        # 2. Also scan project's autoedit/ folder to auto-register existing MP4 files
+        proj_dir = self.get_project_dir(project)
+        autoedit_dir = proj_dir / "autoedit"
+        if autoedit_dir.exists():
+            for mp4_file in autoedit_dir.glob("*.mp4"):
+                str_path = str(mp4_file)
+                if str_path not in db_paths:
+                    fname = mp4_file.name
+                    fmt = "shorts" if "Shorts" in fname or "9-16" in fname else "youtube"
+                    chap_file = mp4_file.with_suffix(".txt")
+                    chap_text = chap_file.read_text(encoding="utf-8", errors="replace") if chap_file.exists() else ""
+                    new_rec = self.db.save_autoedit(
+                        project_id=project_id,
+                        output_path=str_path,
+                        format_mode=fmt,
+                        target_duration_sec=120.0 if fmt == "shorts" else 480.0,
+                        actual_duration_sec=None,
+                        chapters_text=chap_text,
+                        title=mp4_file.stem.replace("_", " "),
+                        description=f"Montaje {fmt.capitalize()} ensamblado con IA.",
+                        hashtags="#gaming #streamer #clips #viral"
+                    )
+                    records.append(new_rec)
+                    db_paths.add(str_path)
+
+        # 3. Add file metadata (exists, fileSizeMb, filename)
+        results = []
+        for r in records:
+            p = Path(r["outputPath"])
+            exists = p.exists()
+            size_mb = round(p.stat().st_size / (1024 * 1024), 1) if exists else 0.0
+            r_copy = dict(r)
+            r_copy["exists"] = exists
+            r_copy["fileSizeMb"] = size_mb
+            r_copy["filename"] = p.name
+            results.append(r_copy)
+
+        return results
+
+    def delete_autoedit(self, args: Any) -> Dict[str, Any]:
+        autoedit_id = args.get("autoeditId")
+        delete_file = bool(args.get("deleteFile", True))
+        rec = self.db.get_autoedit(autoedit_id)
+        if rec:
+            if delete_file:
+                try:
+                    p = Path(rec["outputPath"])
+                    if p.exists():
+                        p.unlink()
+                    txt_p = p.with_suffix(".txt")
+                    if txt_p.exists():
+                        txt_p.unlink()
+                except Exception as e:
+                    print(f"Error borrando archivo de autoedit: {e}")
+            self.db.delete_autoedit(autoedit_id)
+        return {"success": True}
+
+    def generate_autoedit_social_copy(self, args: Any) -> Dict[str, Any]:
+        autoedit_id = args.get("autoeditId")
+        project_id = args.get("projectId")
+        rec = self.db.get_autoedit(autoedit_id)
+        if not rec:
+            raise ValueError("AutoEdit no encontrado.")
+
+        context = f"Video: {rec.get('title', 'Montaje')}\nFormato: {rec.get('formatMode')}\n"
+        if rec.get("chaptersText"):
+            context += f"\nCapítulos y momentos incluidos:\n{rec['chaptersText']}"
+
+        app_cfg = self.get_app_config()
+        llm_engine = app_cfg.get("llmEngine", "local")
+        model_name = app_cfg.get("localLlmModel") if llm_engine == "local" else (
+            app_cfg.get("deepseekModel") if llm_engine == "deepseek" else (
+                app_cfg.get("openrouterModel") if llm_engine == "openrouter" else None
+            )
+        )
+        api_key = (
+            app_cfg.get("anthropicKey") if llm_engine == "claude" else (
+                app_cfg.get("deepseekKey") if llm_engine == "deepseek" else (
+                    app_cfg.get("geminiKey") if llm_engine == "gemini" else (
+                        app_cfg.get("openaiKey") if llm_engine == "openai" else (
+                            app_cfg.get("openrouterKey") if llm_engine == "openrouter" else (
+                                app_cfg.get("groqKey") if llm_engine == "groq" else None
+                            )
+                        )
+                    )
+                )
+            )
+        )
+
+        copy_res = generate_social_copy_with_llm(
+            transcript_text=context,
+            model_name=model_name or "qwen2.5:7b",
+            provider=llm_engine,
+            api_key=api_key
+        )
+        title = copy_res.get("hooks", [rec.get("title")])[0]
+        desc = copy_res.get("caption", rec.get("description"))
+        tags = " ".join(copy_res.get("hashtags", ["#gaming", "#viral"]))
+        updated = self.db.update_autoedit_copy(autoedit_id, title, desc, tags)
+        return updated
 
     def update_candidate_trim(self, args: Any) -> Dict[str, Any]:
         candidate_id = args.get("candidateId")
@@ -1115,6 +1266,18 @@ class Api:
 
     def install_ollama(self, _args: Any = None):
         raise RuntimeError("Descarga e instala Ollama desde https://ollama.com")
+
+    def open_media_file(self, args: Any) -> bool:
+        path = args.get("path") if isinstance(args, dict) else args
+        if path:
+            p = Path(path)
+            if p.exists():
+                try:
+                    os.startfile(str(p))
+                    return True
+                except Exception as e:
+                    print(f"Error opening media file: {e}")
+        return False
 
     def open_folder(self, args: Any):
         path = args.get("path") if isinstance(args, dict) else args

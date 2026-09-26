@@ -11,6 +11,7 @@ import {
   FolderOpen,
   FolderSync,
   Zap,
+  Scissors,
 } from "lucide-react";
 import type { ProjectDetail } from "../../types";
 import { fileName } from "../../utils/format";
@@ -30,6 +31,8 @@ interface WorkspaceHeaderProps {
   selectedCount?: number;
   selectedCutCount?: number;
   selectedCaptionsCount?: number;
+  activeView?: "moments" | "autoedit";
+  onChangeView?: (view: "moments" | "autoedit") => void;
 }
 
 export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
@@ -44,6 +47,8 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
   openProjectFolder,
   moveProjectFolder,
   error,
+  activeView = "moments",
+  onChangeView,
 }) => {
   const isCompleted = detail.project.status === "completed";
   const isMissing = detail.project.sourceExists === false;
@@ -184,37 +189,28 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
             </button>
           )}
 
-          <button
-            className="primary-action compact"
-            onClick={openSummaryModal}
-            disabled={detail.candidates.length === 0 || isMissing}
-            title={
-              isMissing
-                ? "Localiza el video para habilitar la generación de resúmenes"
-                : detail.candidates.length === 0
-                ? "Primero busca momentos con la IA para compilar el resumen"
-                : "Autoeditar y compilar momentos en un video resumen"
-            }
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: "6px",
-              background: detail.candidates.length === 0 || isMissing ? "var(--bg-surface-raised)" : "#fafafa",
-              color: detail.candidates.length === 0 || isMissing ? "var(--text-muted)" : "#09090b",
-              border:
-                detail.candidates.length === 0 || isMissing
-                  ? "1px solid var(--border-default)"
-                  : "1px solid #fafafa",
-              padding: "0.45rem 0.9rem",
-              borderRadius: "6px",
-              fontWeight: 600,
-              fontSize: "0.85rem",
-              cursor: detail.candidates.length === 0 || isMissing ? "not-allowed" : "pointer",
-            }}
-          >
-            <Zap size={15} />
-            <span>AutoEdición con IA</span>
-          </button>
+          {/* Segmented View Switcher */}
+          <div className="view-mode-segmented">
+            <button
+              type="button"
+              className={`view-mode-pill ${activeView === "moments" ? "active" : ""}`}
+              onClick={() => onChangeView?.("moments")}
+              title="Ver clips individuales, transcripción y momentos"
+            >
+              <Scissors size={13} />
+              <span>Clips y Momentos</span>
+            </button>
+            <button
+              type="button"
+              className={`view-mode-pill ${activeView === "autoedit" ? "active" : ""}`}
+              onClick={() => onChangeView?.("autoedit")}
+              title="Sección de montaje automático con IA y galería de autoedits"
+            >
+              <Zap size={13} />
+              <span>AutoEdición con IA</span>
+            </button>
+          </div>
+
           <button
             className={`secondary-action settings-toggle ${showSettings ? "active" : ""}`}
             onClick={() => setShowSettings(!showSettings)}

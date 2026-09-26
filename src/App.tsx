@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useCallback } from "react";
 import { invoke, open, listen } from "./apiBridge";
 import { Loader2 } from "lucide-react";
 import type {
@@ -15,6 +15,7 @@ import type {
   ProjectDetail,
   SummaryResult,
   AutoEditResult,
+  AutoEditRecord,
   TargetDuration,
   Transcript,
   TranscriptionEngine,
@@ -28,6 +29,7 @@ import { WorkspaceHeader } from "./components/panels/WorkspaceHeader";
 import { HomeDashboard } from "./components/panels/HomeDashboard";
 import { TranscriptPanel } from "./components/panels/TranscriptPanel";
 import { CandidatePanel } from "./components/panels/CandidatePanel";
+import { AutoEditWorkspace } from "./components/panels/autoedit/AutoEditWorkspace";
 import { StatusBar } from "./components/common/StatusBar";
 
 // Modals
@@ -89,6 +91,11 @@ export function App() {
   const [autoEditProgressMsg, setAutoEditProgressMsg] = useState<string>("");
   const [autoEditProgressPct, setAutoEditProgressPct] = useState<number>(0);
   const [autoEditResult, setAutoEditResult] = useState<AutoEditResult | null>(null);
+
+  const [projectViewTab, setProjectViewTab] = useState<"moments" | "autoedit">("moments");
+  const [autoedits, setAutoedits] = useState<AutoEditRecord[]>([]);
+  const [isLoadingAutoedits, setIsLoadingAutoedits] = useState<boolean>(false);
+  const [isGeneratingCopyId, setIsGeneratingCopyId] = useState<string | null>(null);
 
   const [trimStart, setTrimStart] = useState<number>(0);
   const [trimEnd, setTrimEnd] = useState<number>(0);
@@ -877,11 +884,14 @@ export function App() {
   async function selectProject(projectId: string | null) {
     if (!projectId) {
       setDetail(null);
+      setAutoedits([]);
+      setProjectViewTab("moments");
       return;
     }
     await run("idle", async () => {
       const nextDetail = await invoke<ProjectDetail>("get_project_detail", { projectId });
       setDetail(nextDetail);
+      void loadAutoedits(projectId);
     });
   }
 
@@ -1142,6 +1152,20 @@ export function App() {
     }
   }
 
+  const loadAutoedits = useCallback(async (projectId?: string) => {
+    const pId = projectId || detail?.project.id;
+    if (!pId) return;
+    try {
+      setIsLoadingAutoedits(true);
+      const list = await invoke<AutoEditRecord[]>("get_autoedits", { projectId: pId });
+      setAutoedits(list || []);
+    } catch (e) {
+      console.error("Error cargando autoedits:", e);
+    } finally {
+      setIsLoadingAutoedits(false);
+    }
+  }, [detail?.project.id]);
+
   async function generateAutoEdit() {
     if (!detail) return;
     try {
@@ -1159,9 +1183,36 @@ export function App() {
       setAutoEditResult(res);
       setAutoEditStatus("done");
       setAutoEditProgressPct(100);
+      void loadAutoedits(detail.project.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       setAutoEditStatus("idle");
+    }
+  }
+
+  async function deleteAutoedit(autoeditId: string) {
+    if (!detail) return;
+    try {
+      await invoke("delete_autoedit", { autoeditId, deleteFile: true });
+      void loadAutoedits(detail.project.id);
+    } catch (e) {
+      console.error("Error eliminando autoedit:", e);
+    }
+  }
+
+  async function generateAutoeditSocialCopy(autoeditId: string) {
+    if (!detail) return;
+    try {
+      setIsGeneratingCopyId(autoeditId);
+      await invoke("generate_autoedit_social_copy", {
+        autoeditId,
+        projectId: detail.project.id,
+      });
+      void loadAutoedits(detail.project.id);
+    } catch (e) {
+      console.error("Error regenerando copy de autoedit:", e);
+    } finally {
+      setIsGeneratingCopyId(null);
     }
   }
 
@@ -1348,12 +1399,7 @@ export function App() {
                 detail={detail}
                 showSettings={showSettings}
                 setShowSettings={setShowSettings}
-                openSummaryModal={() => {
-                  setShowAutoEditModal(true);
-                  setAutoEditStatus("idle");
-                  setAutoEditProgressMsg("");
-                  setAutoEditProgressPct(0);
-                }}
+                openSummaryModal={() => setProjectViewTab("autoedit")}
                 refresh={refresh}
                 toggleProjectCompleted={toggleProjectCompleted}
                 relinkProjectVideo={relinkProjectVideo}
@@ -1364,11 +1410,37 @@ export function App() {
                 selectedCount={selectedCount}
                 selectedCutCount={selectedCutCount}
                 selectedCaptionsCount={selectedCaptionsCount}
+                activeView={projectViewTab}
+                onChangeView={setProjectViewTab}
               />
 
               {showSettings && settingsNode}
 
-              <div className="work-grid">
+              {projectViewTab === "autoedit" ? (
+                <AutoEditWorkspace
+                  formatMode={autoEditFormatMode}
+                  setFormatMode={setAutoEditFormatMode}
+                  targetDurationMinutes={autoEditTargetMinutes}
+                  setTargetDurationMinutes={setAutoEditTargetMinutes}
+                  includeTeaser={autoEditIncludeTeaser}
+                  setIncludeTeaser={setAutoEditIncludeTeaser}
+                  trimSilences={autoEditTrimSilences}
+                  setTrimSilences={setAutoEditTrimSilences}
+                  isRendering={autoEditStatus === "rendering"}
+                  renderingPercentage={autoEditProgressPct}
+                  renderingMessage={autoEditProgressMsg}
+                  onAssemble={generateAutoEdit}
+                  onCancel={cancelAutoEdit}
+                  autoedits={autoedits}
+                  isLoadingAutoedits={isLoadingAutoedits}
+                  onPlay={(path) => void invoke("open_media_file", { path })}
+                  onOpenFolder={(path) => void invoke("open_folder", { path })}
+                  onDelete={deleteAutoedit}
+                  onGenerateCopy={generateAutoeditSocialCopy}
+                  isGeneratingCopyId={isGeneratingCopyId}
+                />
+              ) : (
+                <div className="work-grid">
                 <TranscriptPanel
                   detail={detail}
                   transcript={transcript}
@@ -1416,6 +1488,7 @@ export function App() {
                   setAspectRatio={setClipAspectRatio}
                 />
               </div>
+              )}
             </>
           ) : (
             <HomeDashboard
