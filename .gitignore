@@ -5,6 +5,7 @@ src-tauri/target
 .env
 .DS_Store
 *.log
+*.pyc
 
 # Python & Build artifacts
 __pycache__/

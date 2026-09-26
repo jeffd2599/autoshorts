@@ -132,6 +132,17 @@ export type SummaryResult = {
   descriptionPath?: string;
 };
 
+export type AutoEditResult = {
+  videoPath: string;
+  chaptersPath: string;
+  chaptersText: string;
+  duration: number;
+  filename: string;
+  formatMode: "youtube" | "shorts";
+  aspectRatio: string;
+  outputDir: string;
+};
+
 export type HardwareTelemetry = {
   hasGpu: boolean;
   gpuName: string;

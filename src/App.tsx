@@ -14,6 +14,7 @@ import type {
   Project,
   ProjectDetail,
   SummaryResult,
+  AutoEditResult,
   TargetDuration,
   Transcript,
   TranscriptionEngine,
@@ -36,6 +37,7 @@ import { SocialCopyModal } from "./components/modals/SocialCopyModal";
 import { CandidatePreviewModal } from "./components/modals/CandidatePreviewModal";
 import { YouTubeImportModal } from "./components/modals/YouTubeImportModal";
 import { SummaryModal } from "./components/modals/SummaryModal";
+import { AutoEditModal } from "./components/modals/AutoEditModal";
 import { OnboardingModal } from "./components/modals/OnboardingModal";
 import { ModelDownloadModal } from "./components/modals/ModelDownloadModal";
 
@@ -77,6 +79,16 @@ export function App() {
   const [summaryProgressMsg, setSummaryProgressMsg] = useState<string>("");
   const [copiedChapters, setCopiedChapters] = useState(false);
   const [summaryResult, setSummaryResult] = useState<SummaryResult | null>(null);
+
+  const [showAutoEditModal, setShowAutoEditModal] = useState(false);
+  const [autoEditFormatMode, setAutoEditFormatMode] = useState<"youtube" | "shorts">("youtube");
+  const [autoEditTargetMinutes, setAutoEditTargetMinutes] = useState<number>(12);
+  const [autoEditIncludeTeaser, setAutoEditIncludeTeaser] = useState<boolean>(true);
+  const [autoEditTrimSilences, setAutoEditTrimSilences] = useState<boolean>(true);
+  const [autoEditStatus, setAutoEditStatus] = useState<"idle" | "rendering" | "done">("idle");
+  const [autoEditProgressMsg, setAutoEditProgressMsg] = useState<string>("");
+  const [autoEditProgressPct, setAutoEditProgressPct] = useState<number>(0);
+  const [autoEditResult, setAutoEditResult] = useState<AutoEditResult | null>(null);
 
   const [trimStart, setTrimStart] = useState<number>(0);
   const [trimEnd, setTrimEnd] = useState<number>(0);
@@ -284,6 +296,16 @@ export function App() {
       unlistenSummary = unsub;
     });
 
+    let unlistenAutoEdit: (() => void) | null = null;
+    void listen<{ status: string; message: string; percentage: number }>("autoedit-progress", (event) => {
+      setAutoEditProgressMsg(event.payload.message);
+      if (typeof event.payload.percentage === "number") {
+        setAutoEditProgressPct(event.payload.percentage);
+      }
+    }).then((unsub) => {
+      unlistenAutoEdit = unsub;
+    });
+
     const fetchTelemetry = () => {
       invoke<HardwareTelemetry>("get_hardware_telemetry")
         .then((data) => {
@@ -298,6 +320,7 @@ export function App() {
       if (unlistenProgress) unlistenProgress();
       if (unlistenTranscribe) unlistenTranscribe();
       if (unlistenSummary) unlistenSummary();
+      if (unlistenAutoEdit) unlistenAutoEdit();
       clearInterval(intervalTelemetry);
     };
   }, []);
@@ -1119,6 +1142,39 @@ export function App() {
     }
   }
 
+  async function generateAutoEdit() {
+    if (!detail) return;
+    try {
+      setAutoEditStatus("rendering");
+      setAutoEditProgressPct(5);
+      setAutoEditProgressMsg("Iniciando estructuración de guion con IA...");
+      const res = await invoke<AutoEditResult>("render_auto_edit", {
+        projectId: detail.project.id,
+        formatMode: autoEditFormatMode,
+        targetDurationMinutes: autoEditTargetMinutes,
+        includeTeaser: autoEditIncludeTeaser,
+        trimSilences: autoEditTrimSilences,
+        outputDir: customOutputDir || null,
+      });
+      setAutoEditResult(res);
+      setAutoEditStatus("done");
+      setAutoEditProgressPct(100);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setAutoEditStatus("idle");
+    }
+  }
+
+  async function cancelAutoEdit() {
+    try {
+      await invoke("cancel_auto_edit");
+      setAutoEditStatus("idle");
+      setAutoEditProgressMsg("Proceso cancelado.");
+    } catch (e) {
+      console.error("Error al cancelar autoedición:", e);
+    }
+  }
+
   async function updateClipCount(count: number) {
     if (!detail) return;
     await run("clipCount", async () => {
@@ -1293,9 +1349,10 @@ export function App() {
                 showSettings={showSettings}
                 setShowSettings={setShowSettings}
                 openSummaryModal={() => {
-                  setShowSummaryModal(true);
-                  setSummaryStatus("idle");
-                  setSummaryProgressMsg("");
+                  setShowAutoEditModal(true);
+                  setAutoEditStatus("idle");
+                  setAutoEditProgressMsg("");
+                  setAutoEditProgressPct(0);
                 }}
                 refresh={refresh}
                 toggleProjectCompleted={toggleProjectCompleted}
@@ -1517,6 +1574,36 @@ export function App() {
           onGenerateSummary={generateSummary}
           copiedChapters={copiedChapters}
           setCopiedChapters={setCopiedChapters}
+        />
+      )}
+
+      {showAutoEditModal && detail && (
+        <AutoEditModal
+          isOpen={showAutoEditModal}
+          onClose={() => {
+            if (autoEditStatus !== "rendering") {
+              setShowAutoEditModal(false);
+              setAutoEditStatus("idle");
+            }
+          }}
+          project={detail.project}
+          candidateCount={detail.candidates.length}
+          formatMode={autoEditFormatMode}
+          setFormatMode={setAutoEditFormatMode}
+          targetMinutes={autoEditTargetMinutes}
+          setTargetMinutes={setAutoEditTargetMinutes}
+          includeTeaser={autoEditIncludeTeaser}
+          setIncludeTeaser={setAutoEditIncludeTeaser}
+          trimSilences={autoEditTrimSilences}
+          setTrimSilences={setAutoEditTrimSilences}
+          status={autoEditStatus}
+          progressMsg={autoEditProgressMsg}
+          progressPct={autoEditProgressPct}
+          result={autoEditResult}
+          onStartAutoEdit={generateAutoEdit}
+          onCancelAutoEdit={cancelAutoEdit}
+          onOpenFolder={(dir) => void invoke("open_folder", { path: dir })}
+          onOpenFile={(filePath) => void invoke("open_media_file", { path: filePath })}
         />
       )}
     </div>

@@ -10,6 +10,7 @@ import {
   ChevronLeft,
   FolderOpen,
   FolderSync,
+  Zap,
 } from "lucide-react";
 import type { ProjectDetail } from "../../types";
 import { fileName } from "../../utils/format";
@@ -211,8 +212,8 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
               cursor: detail.candidates.length === 0 || isMissing ? "not-allowed" : "pointer",
             }}
           >
-            <Clapperboard size={15} />
-            <span>Autoeditar Resumen</span>
+            <Zap size={15} />
+            <span>AutoEdición con IA</span>
           </button>
           <button
             className={`secondary-action settings-toggle ${showSettings ? "active" : ""}`}

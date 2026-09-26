@@ -1,12 +1,14 @@
 import json
 import os
 import math
+import re
 import shutil
 import struct
 import subprocess
+import time
 import wave
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 
 def command_exists(name: str) -> bool:
@@ -473,6 +475,255 @@ def render_compilation_video(
             raise RuntimeError(f"FFmpeg unión final falló: {error_detail}")
 
         return output_path
+
+    finally:
+        if temp_dir.exists():
+            try:
+                shutil.rmtree(temp_dir, ignore_errors=True)
+            except Exception:
+                pass
+
+
+def detect_dead_air_silences(
+    source_path: str,
+    start_sec: float,
+    end_sec: float,
+    min_silence_dur: float = 1.8,
+    db_threshold: int = -32,
+    edge_padding: float = 0.15
+) -> List[Dict[str, float]]:
+    """
+    Detects dead air / prolonged silence within a clip range and returns
+    active speech/action sub-segments with safe edge padding to avoid clipping words.
+    """
+    if not command_exists("ffmpeg"):
+        return [{"start": start_sec, "end": end_sec}]
+
+    clip_dur = max(0.5, end_sec - start_sec)
+    if clip_dur < (min_silence_dur * 2):
+        return [{"start": start_sec, "end": end_sec}]
+
+    cmd = [
+        "ffmpeg", "-hide_banner", "-nostats",
+        "-ss", f"{start_sec:.3f}",
+        "-t", f"{clip_dur:.3f}",
+        "-i", source_path,
+        "-vn",
+        "-af", f"silencedetect=noise={db_threshold}dB:d={min_silence_dur}",
+        "-f", "null", "-"
+    ]
+
+    try:
+        res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
+        stderr = res.stderr or ""
+    except Exception as e:
+        print(f"Nota en detección de silencios: {e}")
+        return [{"start": start_sec, "end": end_sec}]
+
+    silence_starts = [float(m) for m in re.findall(r"silence_start:\s*([\d\.]+)", stderr)]
+    silence_ends = [float(m) for m in re.findall(r"silence_end:\s*([\d\.]+)", stderr)]
+
+    if not silence_starts:
+        return [{"start": start_sec, "end": end_sec}]
+
+    silence_intervals = []
+    for i, s_start in enumerate(silence_starts):
+        s_end = silence_ends[i] if i < len(silence_ends) else clip_dur
+        silence_intervals.append((max(0.0, s_start), min(clip_dur, s_end)))
+
+    active_intervals = []
+    curr = 0.0
+    for s_start, s_end in silence_intervals:
+        speech_end = min(clip_dur, s_start + edge_padding)
+        speech_start = max(0.0, curr - edge_padding if curr > 0 else 0.0)
+
+        if (speech_end - speech_start) >= 0.8:
+            active_intervals.append((speech_start, speech_end))
+
+        curr = s_end
+
+    if (clip_dur - curr) >= 0.8:
+        active_intervals.append((max(0.0, curr - edge_padding), clip_dur))
+
+    if not active_intervals:
+        return [{"start": start_sec, "end": end_sec}]
+
+    results = []
+    for rel_s, rel_e in active_intervals:
+        abs_s = round(start_sec + rel_s, 2)
+        abs_e = round(start_sec + rel_e, 2)
+        if (abs_e - abs_s) >= 0.8:
+            results.append({"start": abs_s, "end": abs_e})
+
+    return results if results else [{"start": start_sec, "end": end_sec}]
+
+
+def render_autoedit_video(
+    source_path: str,
+    plan: Dict[str, Any],
+    aspect_ratio: str = "original",
+    trim_silences: bool = True,
+    output_path: Path = None,
+    progress_callback: Optional[Callable[[int, int, str], None]] = None,
+    is_cancelled: Optional[Callable[[], bool]] = None
+) -> Dict[str, Any]:
+    """
+    Renders an assembled Rough Cut / A-Roll MP4 video from the story plan:
+    - Teaser Hook at the beginning (3-5s) with a subtle fade-out.
+    - Story segments with optional dead-air silence trimming (jump cuts).
+    - Aspect ratio adaptation (original 16:9 or vertical 9:16).
+    - Generates YouTube chapters text file next to the video.
+    """
+    if not command_exists("ffmpeg"):
+        raise RuntimeError("ffmpeg is not installed or not available on PATH")
+
+    os.makedirs(output_path.parent, exist_ok=True)
+    temp_dir = output_path.parent / f"autoedit_tmp_{int(time.time())}"
+    os.makedirs(temp_dir, exist_ok=True)
+
+    teaser = plan.get("teaser_hook")
+    story_segments = plan.get("story_segments", [])
+    if not story_segments and not teaser:
+        raise ValueError("El plan de autoedición no contiene segmentos para renderizar.")
+
+    try:
+        # 1. Build work units
+        units_to_render = []
+        if teaser and isinstance(teaser, dict) and teaser.get("end", 0) > teaser.get("start", 0):
+            units_to_render.append({
+                "type": "teaser",
+                "start": float(teaser["start"]),
+                "end": float(teaser["end"]),
+                "hook": teaser.get("hook", "Gancho Inicial (Teaser)"),
+            })
+
+        for seg in story_segments:
+            s_start = float(seg["start"])
+            s_end = float(seg["end"])
+            s_hook = seg.get("hook", "Momento Destacado")
+
+            if trim_silences:
+                active_parts = detect_dead_air_silences(source_path, s_start, s_end)
+                for p_idx, part in enumerate(active_parts):
+                    units_to_render.append({
+                        "type": "story",
+                        "start": part["start"],
+                        "end": part["end"],
+                        "hook": f"{s_hook}" if p_idx == 0 else "",
+                    })
+            else:
+                units_to_render.append({
+                    "type": "story",
+                    "start": s_start,
+                    "end": s_end,
+                    "hook": s_hook,
+                })
+
+        total_units = len(units_to_render)
+        chunk_files = []
+        chapters_list = []
+        current_timeline_sec = 0.0
+
+        for idx, unit in enumerate(units_to_render):
+            if is_cancelled and is_cancelled():
+                raise RuntimeError("Autoedición cancelada por el usuario.")
+
+            unit_dur = max(0.2, unit["end"] - unit["start"])
+            chunk_file = temp_dir / f"chunk_{idx:04d}.mp4"
+            chunk_files.append(chunk_file)
+
+            if unit.get("hook"):
+                m = int(current_timeline_sec // 60)
+                s = int(current_timeline_sec % 60)
+                chapters_list.append(f"{m}:{s:02d} {unit['hook']}")
+
+            current_timeline_sec += unit_dur
+
+            msg = f"Procesando fragmento {idx + 1} de {total_units}..."
+            if progress_callback:
+                progress_callback(idx + 1, total_units, msg)
+
+            cmd = [
+                "ffmpeg", "-y",
+                "-ss", f"{unit['start']:.3f}",
+                "-t", f"{unit_dur:.3f}",
+                "-i", source_path
+            ]
+
+            filters = []
+            if aspect_ratio == "9:16":
+                filters.append("crop=w='2*trunc(min(iw,ih*9/16)/2)':h='2*trunc(min(ih,iw*16/9)/2)'")
+                filters.append("scale=1080:1920:force_original_aspect_ratio=decrease")
+                filters.append("pad=1080:1920:(ow-iw)/2:(oh-ih)/2")
+                filters.append("setsar=1")
+            else:
+                filters.append("scale=1920:1080:force_original_aspect_ratio=decrease")
+                filters.append("pad=1920:1080:(ow-iw)/2:(oh-ih)/2")
+                filters.append("setsar=1")
+
+            # For teaser, apply a fast 0.25s fade to black at the end
+            if unit["type"] == "teaser" and unit_dur > 0.5:
+                fade_start = max(0.0, unit_dur - 0.25)
+                filters.append(f"fade=t=out:st={fade_start:.3f}:d=0.25")
+
+            cmd.extend([
+                "-vf", ",".join(filters),
+                "-r", "30",
+                "-c:v", "libx264",
+                "-preset", "fast",
+                "-crf", "19",
+                "-pix_fmt", "yuv420p",
+                "-c:a", "aac",
+                "-b:a", "192k",
+                "-ar", "48000",
+                "-ac", "2",
+                str(chunk_file)
+            ])
+
+            res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
+            if res.returncode != 0:
+                err_detail = res.stderr.strip()[-500:] if res.stderr else "Error desconocido"
+                raise RuntimeError(f"Error procesando fragmento {idx + 1}: {err_detail}")
+
+        # 2. Concat demuxer
+        if is_cancelled and is_cancelled():
+            raise RuntimeError("Autoedición cancelada por el usuario.")
+
+        if progress_callback:
+            progress_callback(total_units, total_units, "Ensamblando archivo MP4 final...")
+
+        list_file = temp_dir / "concat_list.txt"
+        with open(list_file, "w", encoding="utf-8") as f:
+            for cf in chunk_files:
+                esc = cf.name.replace("'", "'\\''")
+                f.write(f"file '{esc}'\n")
+
+        concat_cmd = [
+            "ffmpeg", "-y",
+            "-f", "concat",
+            "-safe", "0",
+            "-i", str(list_file),
+            "-c", "copy",
+            str(output_path)
+        ]
+
+        concat_res = subprocess.run(concat_cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
+        if concat_res.returncode != 0:
+            err_detail = concat_res.stderr.strip()[-500:] if concat_res.stderr else "Error de unión"
+            raise RuntimeError(f"Error en unión final de FFmpeg: {err_detail}")
+
+        # 3. Write YouTube chapters file
+        chapters_text = "\n".join(chapters_list) if chapters_list else "0:00 Inicio del Video"
+        chapters_file = output_path.parent / f"{output_path.stem}_Capitulos.txt"
+        with open(chapters_file, "w", encoding="utf-8") as f:
+            f.write(chapters_text + "\n")
+
+        return {
+            "video_path": str(output_path),
+            "chapters_path": str(chapters_file),
+            "chapters_text": chapters_text,
+            "total_duration": round(current_timeline_sec, 2)
+        }
 
     finally:
         if temp_dir.exists():

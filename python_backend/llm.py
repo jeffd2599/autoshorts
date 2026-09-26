@@ -1189,6 +1189,97 @@ Responde EXCLUSIVAMENTE con este objeto JSON:
     }
 
 
+def plan_autoedit_narrative(
+    candidates: List[Dict[str, Any]],
+    target_duration_minutes: float,
+    format_mode: str = "youtube",
+    include_teaser: bool = True,
+    provider: str = "local",
+    model_name: Optional[str] = None,
+    api_key: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Plans an intelligent rough-cut assembly for YouTube (16:9) or Shorts (9:16).
+    Returns:
+      {
+        "teaser_hook": {"start": float, "end": float, "hook": str} or None,
+        "story_segments": [{"start": float, "end": float, "hook": str}, ...]
+      }
+    """
+    if not candidates:
+        return {"teaser_hook": None, "story_segments": []}
+
+    target_seconds = float(target_duration_minutes) * 60.0
+
+    # 1. Teaser Hook (if enabled and we have candidates)
+    teaser_hook = None
+    best_candidate = max(candidates, key=lambda c: float(c.get("score", 0)))
+
+    if include_teaser and len(candidates) > 1:
+        c_start = float(best_candidate.get("startSec", best_candidate.get("start", 0.0)))
+        c_end = float(best_candidate.get("endSec", best_candidate.get("end", c_start + 5.0)))
+        teaser_dur = min(4.5, max(3.0, (c_end - c_start) * 0.4))
+        teaser_hook = {
+            "start": round(c_start, 2),
+            "end": round(c_start + teaser_dur, 2),
+            "hook": f"Teaser: {best_candidate.get('hook', 'Gancho Inicial')}"
+        }
+
+    # 2. Select narrative sequence
+    storyline_plan = plan_summary_narrative(
+        candidates=candidates,
+        target_duration_minutes=target_duration_minutes,
+        provider=provider,
+        model_name=model_name,
+        api_key=api_key,
+        summary_vibe="tryhard" if format_mode == "shorts" else "balanced"
+    )
+
+    ordered_ids = storyline_plan.get("ordered_clip_ids", [])
+    candidate_map = {c["id"]: c for c in candidates}
+
+    # Accumulate segments up to target_seconds
+    story_segments = []
+    accumulated_dur = 0.0
+
+    source_ids = ordered_ids if ordered_ids else [c["id"] for c in sorted(candidates, key=lambda c: c.get("score", 0), reverse=True)]
+
+    for cid in source_ids:
+        if cid not in candidate_map:
+            continue
+        c = candidate_map[cid]
+        s_start = float(c.get("startSec", c.get("start", 0.0)))
+        s_end = float(c.get("endSec", c.get("end", s_start)))
+        dur = max(1.0, s_end - s_start)
+
+        if len(story_segments) >= 1 and (accumulated_dur + dur) > (target_seconds + 30.0):
+            if accumulated_dur >= (target_seconds * 0.85):
+                break
+
+        story_segments.append({
+            "start": round(s_start, 2),
+            "end": round(s_end, 2),
+            "hook": c.get("hook", "Momento Destacado")
+        })
+        accumulated_dur += dur
+
+        if accumulated_dur >= target_seconds:
+            break
+
+    if not story_segments:
+        c0 = candidates[0]
+        story_segments.append({
+            "start": float(c0.get("startSec", 0.0)),
+            "end": float(c0.get("endSec", 60.0)),
+            "hook": c0.get("hook", "Momento Principal")
+        })
+
+    return {
+        "teaser_hook": teaser_hook,
+        "story_segments": story_segments
+    }
+
+
 def refine_transcript_with_llm(
     segments: List[Dict[str, Any]],
     model_name: str = "qwen2.5:7b",

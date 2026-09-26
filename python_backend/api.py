@@ -19,12 +19,14 @@ from .media import (
     probe_media,
     render_flat_clip,
     render_compilation_video,
+    render_autoedit_video,
 )
 from .transcription import transcribe_local, transcribe_deepgram, whisper_available, get_installed_whisper_models
 from .llm import (
     detect_candidates_pipeline,
     unload_all_ollama_models,
     plan_summary_narrative,
+    plan_autoedit_narrative,
     refine_transcript_with_llm,
     DEFAULT_MOMENTS_PROMPT,
     generate_social_copy_with_llm
@@ -867,6 +869,123 @@ class Api:
             "thumbnailPath": thumb_str,
             "thumbnailIdeas": thumbnail_ideas,
             "descriptionPath": str(desc_path)
+        }
+
+    def cancel_auto_edit(self, _args: Any = None) -> bool:
+        self._cancel_autoedit_flag = True
+        return True
+
+    def render_auto_edit(self, args: Any) -> Dict[str, Any]:
+        self._cancel_autoedit_flag = False
+        project_id = args.get("projectId")
+        format_mode = args.get("formatMode", "youtube")  # "youtube" | "shorts"
+        target_minutes = float(args.get("targetDurationMinutes", 12.0 if format_mode == "youtube" else 2.0))
+        include_teaser = bool(args.get("includeTeaser", True))
+        trim_silences = bool(args.get("trimSilences", True))
+        custom_dir = args.get("outputDir")
+
+        project = self.db.get_project(project_id)
+        if not project:
+            raise ValueError(f"Proyecto {project_id} no encontrado.")
+
+        all_candidates = self.db.get_candidates(project_id)
+        if not all_candidates:
+            raise ValueError("El proyecto no tiene momentos candidatos detectados para autoeditar.")
+
+        app_cfg = self.get_app_config()
+        llm_engine = app_cfg.get("llmEngine", "local")
+        model_name = app_cfg.get("localLlmModel") if llm_engine == "local" else (
+            app_cfg.get("deepseekModel") if llm_engine == "deepseek" else (
+                app_cfg.get("openrouterModel") if llm_engine == "openrouter" else None
+            )
+        )
+        api_key = (
+            app_cfg.get("anthropicKey") if llm_engine == "claude" else (
+                app_cfg.get("deepseekKey") if llm_engine == "deepseek" else (
+                    app_cfg.get("geminiKey") if llm_engine == "gemini" else (
+                        app_cfg.get("openaiKey") if llm_engine == "openai" else (
+                            app_cfg.get("openrouterKey") if llm_engine == "openrouter" else (
+                                app_cfg.get("groqKey") if llm_engine == "groq" else None
+                            )
+                        )
+                    )
+                )
+            )
+        )
+
+        self.emit("autoedit-progress", {
+            "status": "planning",
+            "message": "Estructurando guion narrativo con IA...",
+            "percentage": 10
+        })
+
+        plan = plan_autoedit_narrative(
+            candidates=all_candidates,
+            target_duration_minutes=target_minutes,
+            format_mode=format_mode,
+            include_teaser=include_teaser,
+            provider=llm_engine,
+            model_name=model_name,
+            api_key=api_key
+        )
+
+        if getattr(self, "_cancel_autoedit_flag", False):
+            raise RuntimeError("Autoedición cancelada por el usuario.")
+
+        proj_name = project.get("name") or Path(project["sourcePath"]).stem or project["id"]
+        clean_name = re.sub(r'[\U00010000-\U0010ffff\u2600-\u27bf\ufe00-\ufe0f\u200d\u2300-\u23ff\u2b50-\u2b55]', '', proj_name)
+        clean_name = re.sub(r'[\\/*?:"<>|#]', "", clean_name).strip()[:40]
+
+        if custom_dir:
+            out_dir = Path(custom_dir)
+        else:
+            proj_dir = self.get_project_dir(project)
+            out_dir = proj_dir / "autoedit"
+        os.makedirs(out_dir, exist_ok=True)
+
+        mode_label = "YouTube" if format_mode == "youtube" else "Shorts"
+        dur_label = f"{int(round(target_minutes))}m" if target_minutes >= 1.0 else f"{int(round(target_minutes*60))}s"
+        output_filename = f"AutoEdit_{mode_label}_{dur_label}_{clean_name}.mp4"
+        output_path = out_dir / output_filename
+
+        aspect_ratio = "9:16" if format_mode == "shorts" else "original"
+
+        def on_render_progress(current_idx: int, total_segs: int, msg: str):
+            pct = 15 + int((current_idx / max(1, total_segs)) * 80)
+            self.emit("autoedit-progress", {
+                "status": "rendering",
+                "message": msg,
+                "percentage": min(95, pct)
+            })
+
+        def is_cancelled():
+            return getattr(self, "_cancel_autoedit_flag", False)
+
+        render_res = render_autoedit_video(
+            source_path=project["sourcePath"],
+            plan=plan,
+            aspect_ratio=aspect_ratio,
+            trim_silences=trim_silences,
+            output_path=output_path,
+            progress_callback=on_render_progress,
+            is_cancelled=is_cancelled
+        )
+
+        self.emit("autoedit-progress", {
+            "status": "done",
+            "message": "Video ensamblado exitosamente.",
+            "percentage": 100
+        })
+
+        return {
+            "videoPath": render_res["video_path"],
+            "chaptersPath": render_res["chapters_path"],
+            "chaptersText": render_res["chapters_text"],
+            "duration": render_res["total_duration"],
+            "filename": output_filename,
+            "formatMode": format_mode,
+            "aspectRatio": aspect_ratio,
+            "outputDir": str(out_dir)
         }
 
     def update_candidate_trim(self, args: Any) -> Dict[str, Any]:
