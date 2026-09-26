@@ -67,7 +67,7 @@ export function AutoEditModal({
   if (!isOpen) return null;
 
   const youtubeDurations = [8, 12, 15, 20];
-  const shortsDurations = [1, 2, 3];
+  const shortsDurations = [1, 2, 3, 4, 5];
 
   const handleCopyChapters = async () => {
     if (!result?.chaptersText) return;

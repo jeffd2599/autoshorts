@@ -27,7 +27,7 @@ interface AutoEditConfigPanelProps {
 }
 
 const YOUTUBE_DURATIONS = [8, 12, 15, 20];
-const SHORTS_DURATIONS = [1, 2, 3];
+const SHORTS_DURATIONS = [1, 2, 3, 4, 5];
 
 export const AutoEditConfigPanel: React.FC<AutoEditConfigPanelProps> = ({
   formatMode,

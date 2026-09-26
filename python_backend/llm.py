@@ -1315,8 +1315,12 @@ def plan_autoedit_narrative(
             num_clips = min(len(candidates), 2)
         elif target_seconds <= 135.0:
             num_clips = min(len(candidates), 3)
-        else:
+        elif target_seconds <= 195.0:
             num_clips = min(len(candidates), 4)
+        elif target_seconds <= 255.0:
+            num_clips = min(len(candidates), 5)
+        else:
+            num_clips = min(len(candidates), 6)
     else:
         # YouTube: longer narrative blocks (2 - 3 minutes per chapter)
         num_clips = min(len(candidates), max(2, int(target_seconds // 120.0)))

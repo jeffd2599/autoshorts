@@ -1414,8 +1414,6 @@ export function App() {
                 onChangeView={setProjectViewTab}
               />
 
-              {showSettings && settingsNode}
-
               {projectViewTab === "autoedit" ? (
                 <AutoEditWorkspace
                   formatMode={autoEditFormatMode}
@@ -1518,6 +1516,8 @@ export function App() {
         canUseClaude={canUseClaude}
         canUseDeepseek={canUseDeepseek}
       />
+
+      {settingsNode}
 
       <StyleModal
         isOpen={showStyleModal}

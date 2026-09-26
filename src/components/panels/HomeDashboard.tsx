@@ -101,8 +101,6 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
         </div>
       </header>
 
-      {showSettings && settingsNode}
-
       {projects.length > 0 && (
         <div className="dashboard-filter-tabs">
           <button

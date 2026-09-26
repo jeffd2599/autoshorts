@@ -111,21 +111,69 @@ export function SettingsPanel({
   if (!isOpen) return null;
 
   return (
-    <div className="settings-panel" style={{ margin: "1rem 0", padding: "1.25rem", background: "var(--bg-card)", border: "1px solid var(--border-default)", borderRadius: "10px", boxShadow: "0 8px 24px rgba(0,0,0,0.4)" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.25rem", paddingBottom: "0.85rem", borderBottom: "1px solid var(--border-default)" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-          <SlidersHorizontal size={16} color="#fafafa" />
-          <h3 style={{ margin: 0, fontSize: "0.95rem", fontWeight: 600, color: "var(--text-primary)" }}>Configuración del Estudio (Modelos & APIs)</h3>
-        </div>
-        <button
-          type="button"
-          className="modal-close-btn"
-          onClick={onClose}
-          aria-label="Cerrar configuración"
+    <div
+      className="summary-modal-overlay"
+      onClick={onClose}
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 9999,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        background: "rgba(0, 0, 0, 0.75)",
+        backdropFilter: "blur(8px)",
+        padding: "1rem"
+      }}
+    >
+      <div
+        className="settings-modal-floating"
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          width: "100%",
+          maxWidth: "880px",
+          maxHeight: "88vh",
+          display: "flex",
+          flexDirection: "column",
+          background: "#121215",
+          border: "1px solid #27272a",
+          borderRadius: "14px",
+          boxShadow: "0 24px 60px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.05)",
+          overflow: "hidden"
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            padding: "1.1rem 1.4rem",
+            borderBottom: "1px solid #1f1f23",
+            background: "#151519"
+          }}
         >
-          <X size={15} />
-        </button>
-      </div>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
+            <SlidersHorizontal size={17} color="#a78bfa" />
+            <div>
+              <h3 style={{ margin: 0, fontSize: "0.98rem", fontWeight: 700, color: "#fafafa" }}>
+                Configuración del Estudio (Modelos & APIs)
+              </h3>
+              <p style={{ margin: 0, fontSize: "0.74rem", color: "#71717a" }}>
+                Administra tus motores de transcripción, modelos locales de Ollama y claves de IA en la nube.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            className="modal-close-btn"
+            onClick={onClose}
+            aria-label="Cerrar configuración"
+          >
+            <X size={15} />
+          </button>
+        </div>
+
+        <div style={{ flex: 1, overflowY: "auto", padding: "1.35rem" }}>
 
       <div className="key-stack-horizontal" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "1.25rem" }}>
         {/* Transcription Engine */}
@@ -545,6 +593,8 @@ export function SettingsPanel({
         <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
           Las configuraciones se guardan automáticamente en tu sistema.
         </span>
+      </div>
+        </div>
       </div>
     </div>
   );
