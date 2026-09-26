@@ -915,9 +915,19 @@ class Api:
 
         self.emit("autoedit-progress", {
             "status": "planning",
-            "message": "Estructurando guion narrativo con IA...",
+            "message": "Estructurando guion narrativo y ubicando momentos con IA...",
             "percentage": 10
         })
+
+        # Load project transcript segments to intelligently locate exact active moments/punchlines
+        transcript_segments = []
+        try:
+            record = self.db.latest_transcript(project_id)
+            if record and record.get("rawJson"):
+                t_data = json.loads(record["rawJson"])
+                transcript_segments = t_data.get("segments", [])
+        except Exception as e:
+            print(f"Aviso al cargar transcripción para autoedición: {e}")
 
         plan = plan_autoedit_narrative(
             candidates=all_candidates,
@@ -926,7 +936,8 @@ class Api:
             include_teaser=include_teaser,
             provider=llm_engine,
             model_name=model_name,
-            api_key=api_key
+            api_key=api_key,
+            transcript_segments=transcript_segments
         )
 
         if getattr(self, "_cancel_autoedit_flag", False):
@@ -961,12 +972,15 @@ class Api:
         def is_cancelled():
             return getattr(self, "_cancel_autoedit_flag", False)
 
+        target_max_sec = target_minutes * 60.0
+
         render_res = render_autoedit_video(
             source_path=project["sourcePath"],
             plan=plan,
             aspect_ratio=aspect_ratio,
             trim_silences=trim_silences,
             output_path=output_path,
+            max_duration_sec=target_max_sec,
             progress_callback=on_render_progress,
             is_cancelled=is_cancelled
         )

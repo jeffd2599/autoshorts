@@ -564,6 +564,7 @@ def render_autoedit_video(
     aspect_ratio: str = "original",
     trim_silences: bool = True,
     output_path: Path = None,
+    max_duration_sec: Optional[float] = None,
     progress_callback: Optional[Callable[[int, int, str], None]] = None,
     is_cancelled: Optional[Callable[[], bool]] = None
 ) -> Dict[str, Any]:
@@ -573,6 +574,7 @@ def render_autoedit_video(
     - Story segments with optional dead-air silence trimming (jump cuts).
     - Aspect ratio adaptation (original 16:9 or vertical 9:16).
     - Generates YouTube chapters text file next to the video.
+    - Strictly enforces max_duration_sec ceiling if provided.
     """
     if not command_exists("ffmpeg"):
         raise RuntimeError("ffmpeg is not installed or not available on PATH")
@@ -629,13 +631,22 @@ def render_autoedit_video(
                 raise RuntimeError("Autoedición cancelada por el usuario.")
 
             unit_dur = max(0.2, unit["end"] - unit["start"])
+
+            # Strict ceiling enforcement
+            if max_duration_sec and max_duration_sec > 0:
+                if current_timeline_sec >= max_duration_sec:
+                    break
+                if (current_timeline_sec + unit_dur) > (max_duration_sec + 1.0):
+                    unit_dur = max(0.5, max_duration_sec - current_timeline_sec)
+
             chunk_file = temp_dir / f"chunk_{idx:04d}.mp4"
             chunk_files.append(chunk_file)
 
             if unit.get("hook"):
+                clean_hook = re.sub(r'[\U00010000-\U0010ffff\u2600-\u27bf\ufe00-\ufe0f\u200d\u2300-\u23ff\u2b50-\u2b55]', '', str(unit['hook'])).strip()
                 m = int(current_timeline_sec // 60)
                 s = int(current_timeline_sec % 60)
-                chapters_list.append(f"{m}:{s:02d} {unit['hook']}")
+                chapters_list.append(f"{m}:{s:02d} {clean_hook}")
 
             current_timeline_sec += unit_dur
 

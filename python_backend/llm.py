@@ -2,7 +2,7 @@ import json
 import os
 import re
 import time
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 import requests
 
 DURATION_SPECS = {
@@ -1189,6 +1189,90 @@ Responde EXCLUSIVAMENTE con este objeto JSON:
     }
 
 
+def strip_emojis_from_text(text: str) -> str:
+    """Strips all emoji icons from text strings for clean filenames and chapter displays."""
+    clean = re.sub(r'[\U00010000-\U0010ffff\u2600-\u27bf\ufe00-\ufe0f\u200d\u2300-\u23ff\u2b50-\u2b55]', '', text)
+    return re.sub(r'\s+', ' ', clean).strip()
+
+
+def locate_moment_active_window(
+    candidate: Dict[str, Any],
+    target_dur: float,
+    transcript_segments: Optional[List[Dict[str, Any]]] = None
+) -> Tuple[float, float]:
+    """
+    Intelligently identifies the exact active time window within a candidate moment
+    where speech, action, or the climactic punchline occurs, adhering strictly to target_dur.
+    """
+    c_start = float(candidate.get("startSec", candidate.get("start", 0.0)))
+    c_end = float(candidate.get("endSec", candidate.get("end", c_start + target_dur)))
+    c_dur = max(1.0, c_end - c_start)
+
+    if c_dur <= target_dur:
+        return round(c_start, 2), round(c_end, 2)
+
+    hook_text = str(candidate.get("hook", ""))
+    rationale_text = str(candidate.get("rationale", ""))
+    combined_meta = f"{hook_text} {rationale_text}".lower()
+    combined_meta = re.sub(r'[^\w\s]', ' ', combined_meta)
+
+    # Spanish and English stopwords
+    stopwords = {
+        'el', 'la', 'de', 'que', 'y', 'a', 'en', 'un', 'una', 'los', 'las', 'por', 'con', 'no',
+        'es', 'mi', 'se', 'del', 'al', 'lo', 'su', 'más', 'pero', 'sus', 'le', 'ya', 'o', 'fue',
+        'este', 'ha', 'si', 'porque', 'esta', 'son', 'entre', 'está', 'cuando', 'muy', 'sin',
+        'sobre', 'ser', 'tiene', 'también', 'me', 'hasta', 'hay', 'donde', 'quien', 'desde',
+        'todo', 'nos', 'durante', 'todos', 'uno', 'les', 'ni', 'contra', 'otros', 'ese', 'eso',
+        'ante', 'ellos', 'e', 'esto', 'mí', 'antes', 'algunos', 'qué', 'unos', 'yo', 'otro',
+        'otras', 'otra', 'él', 'tanto', 'esa', 'estos', 'mucho', 'quienes', 'nada', 'muchos',
+        'cual', 'poco', 'ella', 'estar', 'estas', 'algunas', 'algo', 'nosotros', 'para', 'como',
+        'the', 'and', 'that', 'this', 'with', 'from', 'have', 'for', 'you', 'was', 'are'
+    }
+    keywords = [w for w in combined_meta.split() if len(w) > 3 and w not in stopwords]
+
+    # Search inside candidate range
+    c_segs = [
+        s for s in (transcript_segments or [])
+        if float(s.get("start", 0.0)) >= (c_start - 2.0) and float(s.get("end", 0.0)) <= (c_end + 2.0)
+    ]
+
+    best_anchor = None
+    best_score = -1.0
+
+    if c_segs:
+        for s in c_segs:
+            text = str(s.get("text", "")).lower()
+            if not text.strip():
+                continue
+            # Score keyword matches
+            kw_hits = sum(1 for kw in keywords if kw in text)
+            score = kw_hits * 12.0
+            # Excitement cues
+            raw_text = str(s.get("text", ""))
+            if "!" in raw_text or "¿" in raw_text or "?" in raw_text:
+                score += 3.0
+            # Word density
+            score += len(text.split()) * 0.15
+
+            if score > best_score and (kw_hits > 0 or score >= 4.0):
+                best_score = score
+                best_anchor = float(s["start"])
+
+    # Fallback if no strong anchor found
+    if best_anchor is None:
+        best_anchor = c_start + (c_dur * 0.25)
+
+    # Lead-in: 35% before anchor, 65% after anchor for full setup & payoff
+    lead_in = target_dur * 0.35
+    sub_start = max(c_start, best_anchor - lead_in)
+    sub_end = min(c_end, sub_start + target_dur)
+
+    if (sub_end - sub_start) < target_dur:
+        sub_start = max(c_start, sub_end - target_dur)
+
+    return round(sub_start, 2), round(sub_end, 2)
+
+
 def plan_autoedit_narrative(
     candidates: List[Dict[str, Any]],
     target_duration_minutes: float,
@@ -1196,36 +1280,50 @@ def plan_autoedit_narrative(
     include_teaser: bool = True,
     provider: str = "local",
     model_name: Optional[str] = None,
-    api_key: Optional[str] = None
+    api_key: Optional[str] = None,
+    transcript_segments: Optional[List[Dict[str, Any]]] = None
 ) -> Dict[str, Any]:
     """
     Plans an intelligent rough-cut assembly for YouTube (16:9) or Shorts (9:16).
-    Returns:
-      {
-        "teaser_hook": {"start": float, "end": float, "hook": str} or None,
-        "story_segments": [{"start": float, "end": float, "hook": str}, ...]
-      }
+    Distributes the duration budget across highlights and extracts exact active windows
+    so the final video matches target_duration_minutes strictly.
     """
     if not candidates:
         return {"teaser_hook": None, "story_segments": []}
 
     target_seconds = float(target_duration_minutes) * 60.0
 
-    # 1. Teaser Hook (if enabled and we have candidates)
+    # 1. Teaser Hook (if enabled)
     teaser_hook = None
     best_candidate = max(candidates, key=lambda c: float(c.get("score", 0)))
 
-    if include_teaser and len(candidates) > 1:
-        c_start = float(best_candidate.get("startSec", best_candidate.get("start", 0.0)))
-        c_end = float(best_candidate.get("endSec", best_candidate.get("end", c_start + 5.0)))
-        teaser_dur = min(4.5, max(3.0, (c_end - c_start) * 0.4))
+    if include_teaser and target_seconds >= 45.0:
+        teaser_dur = 4.0 if format_mode == "shorts" else 5.0
+        t_sub_start, _ = locate_moment_active_window(best_candidate, teaser_dur, transcript_segments)
+        clean_hook = strip_emojis_from_text(str(best_candidate.get("hook", "Gancho Inicial")))
         teaser_hook = {
-            "start": round(c_start, 2),
-            "end": round(c_start + teaser_dur, 2),
-            "hook": f"Teaser: {best_candidate.get('hook', 'Gancho Inicial')}"
+            "start": t_sub_start,
+            "end": round(t_sub_start + teaser_dur, 2),
+            "hook": f"Teaser: {clean_hook}"
         }
 
-    # 2. Select narrative sequence
+    remaining_budget = max(15.0, target_seconds - (4.0 if teaser_hook and format_mode == "shorts" else 5.0 if teaser_hook else 0.0))
+
+    # 2. Determine ideal number of highlight segments for this duration
+    if format_mode == "shorts":
+        if target_seconds <= 75.0:
+            num_clips = min(len(candidates), 2)
+        elif target_seconds <= 135.0:
+            num_clips = min(len(candidates), 3)
+        else:
+            num_clips = min(len(candidates), 4)
+    else:
+        # YouTube: longer narrative blocks (2 - 3 minutes per chapter)
+        num_clips = min(len(candidates), max(2, int(target_seconds // 120.0)))
+
+    num_clips = max(1, num_clips)
+
+    # 3. Select sequence of candidates (narrative arc)
     storyline_plan = plan_summary_narrative(
         candidates=candidates,
         target_duration_minutes=target_duration_minutes,
@@ -1238,41 +1336,45 @@ def plan_autoedit_narrative(
     ordered_ids = storyline_plan.get("ordered_clip_ids", [])
     candidate_map = {c["id"]: c for c in candidates}
 
-    # Accumulate segments up to target_seconds
-    story_segments = []
-    accumulated_dur = 0.0
+    chosen_candidates = []
+    seen_ids = set()
 
-    source_ids = ordered_ids if ordered_ids else [c["id"] for c in sorted(candidates, key=lambda c: c.get("score", 0), reverse=True)]
-
-    for cid in source_ids:
-        if cid not in candidate_map:
-            continue
-        c = candidate_map[cid]
-        s_start = float(c.get("startSec", c.get("start", 0.0)))
-        s_end = float(c.get("endSec", c.get("end", s_start)))
-        dur = max(1.0, s_end - s_start)
-
-        if len(story_segments) >= 1 and (accumulated_dur + dur) > (target_seconds + 30.0):
-            if accumulated_dur >= (target_seconds * 0.85):
-                break
-
-        story_segments.append({
-            "start": round(s_start, 2),
-            "end": round(s_end, 2),
-            "hook": c.get("hook", "Momento Destacado")
-        })
-        accumulated_dur += dur
-
-        if accumulated_dur >= target_seconds:
+    for cid in ordered_ids:
+        if cid in candidate_map and cid not in seen_ids:
+            chosen_candidates.append(candidate_map[cid])
+            seen_ids.add(cid)
+        if len(chosen_candidates) >= num_clips:
             break
 
-    if not story_segments:
-        c0 = candidates[0]
+    if len(chosen_candidates) < num_clips:
+        for c in sorted(candidates, key=lambda x: float(x.get("score", 0)), reverse=True):
+            if c["id"] not in seen_ids:
+                chosen_candidates.append(c)
+                seen_ids.add(c["id"])
+            if len(chosen_candidates) >= num_clips:
+                break
+
+    if not chosen_candidates:
+        chosen_candidates = [candidates[0]]
+
+    # 4. Extract active windows strictly adhering to budget
+    story_segments = []
+    budget_left = remaining_budget
+
+    for idx, c in enumerate(chosen_candidates):
+        clips_remaining = len(chosen_candidates) - idx
+        this_clip_target = budget_left / max(1, clips_remaining)
+
+        s_start, s_end = locate_moment_active_window(c, this_clip_target, transcript_segments)
+        actual_dur = max(1.0, s_end - s_start)
+
+        clean_hook = strip_emojis_from_text(str(c.get("hook", f"Momento {idx + 1}")))
         story_segments.append({
-            "start": float(c0.get("startSec", 0.0)),
-            "end": float(c0.get("endSec", 60.0)),
-            "hook": c0.get("hook", "Momento Principal")
+            "start": s_start,
+            "end": s_end,
+            "hook": clean_hook
         })
+        budget_left -= actual_dur
 
     return {
         "teaser_hook": teaser_hook,
