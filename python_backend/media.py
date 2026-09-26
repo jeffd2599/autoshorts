@@ -8,7 +8,7 @@ import subprocess
 import time
 import wave
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 
 def command_exists(name: str) -> bool:
@@ -152,6 +152,171 @@ def detect_audio_action_peaks(audio_path: str, window_sec: float = 3.0, top_frac
     except Exception as err:
         print(f"Nota en detección de picos de audio: {err}")
         return []
+
+
+def inject_acoustic_cues_into_transcript(
+    transcript_segments: List[Dict[str, Any]],
+    transcript_words: Optional[List[Dict[str, Any]]],
+    audio_path: str,
+    window_sec: float = 1.0
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """
+    Scans the extracted audio track and injects acoustic cues directly into the transcript:
+    1. Detects gunfire, combat SFX and explosions during silent gameplay -> (DISPAROS / ACCIÓN).
+    2. Detects high-decibel volume spikes during speech (screams, ecstatic reactions) -> (GRITOS / EUFORIA).
+    Strictly preserves audio synchronization and timestamp ordering. Idempotent.
+    """
+    words = list(transcript_words or [])
+    if not os.path.exists(audio_path):
+        return transcript_segments, words
+
+    try:
+        with wave.open(audio_path, "rb") as wf:
+            framerate = wf.getframerate()
+            n_channels = wf.getnchannels()
+            sampwidth = wf.getsampwidth()
+            n_frames = wf.getnframes()
+
+            if framerate <= 0 or n_channels <= 0 or sampwidth != 2:
+                return transcript_segments, words
+
+            total_duration = n_frames / framerate
+            chunk_size = int(framerate * window_sec)
+            total_chunks = n_frames // chunk_size
+            if total_chunks == 0:
+                return transcript_segments, words
+
+            energies = []
+            for i in range(total_chunks):
+                frames = wf.readframes(chunk_size)
+                if not frames:
+                    break
+                samples = struct.unpack(f"<{len(frames)//2}h", frames)
+                sub_samples = samples[::4]
+                if not sub_samples:
+                    continue
+                rms = math.sqrt(sum(s * s for s in sub_samples) / len(sub_samples))
+                energies.append({
+                    "start": round(i * window_sec, 2),
+                    "end": round((i + 1) * window_sec, 2),
+                    "rms": rms
+                })
+
+        if not energies:
+            return transcript_segments, words
+
+        sorted_rms = sorted(e["rms"] for e in energies)
+        num_w = len(sorted_rms)
+        p15 = sorted_rms[int(num_w * 0.15)]
+        median_rms = sorted_rms[int(num_w * 0.50)]
+        p90 = sorted_rms[int(num_w * 0.90)]
+
+        # Dynamic thresholds based on stream audio mastering
+        action_threshold = max(450.0, p15 * 3.5, median_rms * 0.65)
+        shout_threshold = max(1800.0, median_rms * 2.5, p90 * 0.95)
+
+        # 1. Clean existing cues if re-running (idempotent)
+        clean_segments = []
+        for s in transcript_segments:
+            if s.get("speaker") == "SFX" or str(s.get("text", "")).startswith("(DISPAROS"):
+                continue
+            seg_copy = dict(s)
+            clean_text = re.sub(r"^\(GRITOS\s*/\s*EUFORIA\)\s*", "", str(seg_copy.get("text", ""))).strip()
+            seg_copy["text"] = clean_text
+            clean_segments.append(seg_copy)
+
+        clean_words = [
+            dict(w) for w in words
+            if w.get("speaker") != "SFX" and not str(w.get("text", "")).startswith("(DISPAROS")
+        ]
+
+        sorted_segs = sorted(clean_segments, key=lambda s: float(s["start"]))
+
+        # 2. Identify silence gaps (streamer quiet / focused)
+        gaps = []
+        if sorted_segs:
+            if sorted_segs[0]["start"] > 1.8:
+                gaps.append((0.0, sorted_segs[0]["start"]))
+            for k in range(len(sorted_segs) - 1):
+                gap_start = float(sorted_segs[k]["end"])
+                gap_end = float(sorted_segs[k + 1]["start"])
+                if gap_end - gap_start >= 1.8:
+                    gaps.append((gap_start, gap_end))
+            if total_duration - sorted_segs[-1]["end"] >= 1.8:
+                gaps.append((float(sorted_segs[-1]["end"]), total_duration))
+        else:
+            gaps.append((0.0, total_duration))
+
+        # 3. Detect gunfire / combat bursts in silence gaps
+        sfx_segments = []
+        sfx_words = []
+        for g_start, g_end in gaps:
+            gap_energies = [e for e in energies if e["start"] >= (g_start - 0.2) and e["end"] <= (g_end + 0.2)]
+            active_burst = None
+            for e in gap_energies:
+                if e["rms"] >= action_threshold:
+                    if active_burst is None:
+                        active_burst = {"start": max(g_start, e["start"]), "end": min(g_end, e["end"]), "max_rms": e["rms"]}
+                    else:
+                        active_burst["end"] = min(g_end, e["end"])
+                        active_burst["max_rms"] = max(active_burst["max_rms"], e["rms"])
+                else:
+                    if active_burst is not None:
+                        dur = active_burst["end"] - active_burst["start"]
+                        if dur >= 1.8:
+                            sfx_segments.append({
+                                "start": round(active_burst["start"], 2),
+                                "end": round(active_burst["end"], 2),
+                                "speaker": "SFX",
+                                "text": "(DISPAROS / ACCIÓN)"
+                            })
+                            sfx_words.append({
+                                "start": round(active_burst["start"], 2),
+                                "end": round(active_burst["end"], 2),
+                                "speaker": "SFX",
+                                "text": "(DISPAROS)"
+                            })
+                        active_burst = None
+
+            if active_burst is not None:
+                dur = active_burst["end"] - active_burst["start"]
+                if dur >= 1.8:
+                    sfx_segments.append({
+                        "start": round(active_burst["start"], 2),
+                        "end": round(active_burst["end"], 2),
+                        "speaker": "SFX",
+                        "text": "(DISPAROS / ACCIÓN)"
+                    })
+                    sfx_words.append({
+                        "start": round(active_burst["start"], 2),
+                        "end": round(active_burst["end"], 2),
+                        "speaker": "SFX",
+                        "text": "(DISPAROS)"
+                    })
+
+        # 4. Annotate shouts / screaming peaks during speech
+        updated_segments = []
+        for s in sorted_segs:
+            seg_copy = dict(s)
+            s_start = float(seg_copy["start"])
+            s_end = float(seg_copy["end"])
+            seg_energies = [e["rms"] for e in energies if e["start"] >= (s_start - 0.5) and e["end"] <= (s_end + 0.5)]
+            max_seg_rms = max(seg_energies) if seg_energies else 0.0
+
+            if max_seg_rms >= shout_threshold:
+                seg_copy["text"] = f"(GRITOS / EUFORIA) {seg_copy['text']}".strip()
+
+            updated_segments.append(seg_copy)
+
+        # 5. Merge and sort
+        merged_segments = sorted(updated_segments + sfx_segments, key=lambda s: float(s["start"]))
+        merged_words = sorted(clean_words + sfx_words, key=lambda w: float(w["start"]))
+
+        return merged_segments, merged_words
+    except Exception as err:
+        print(f"Nota en inyección de pistas acústicas: {err}")
+        return transcript_segments, words
+
 
 
 def extract_video_thumbnail(source_path: str, timestamp: float, output_path: Any) -> Path:

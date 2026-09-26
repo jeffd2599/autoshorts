@@ -20,6 +20,7 @@ from .media import (
     render_flat_clip,
     render_compilation_video,
     render_autoedit_video,
+    inject_acoustic_cues_into_transcript,
 )
 from .transcription import transcribe_local, transcribe_deepgram, whisper_available, get_installed_whisper_models
 from .llm import (
@@ -363,6 +364,19 @@ class Api:
             self.db.update_project_status(project_id, "created")
             return {}
 
+        # 3. Detect gunfire/explosions during silence and streamer shouts/screams
+        try:
+            print("Analizando audio para detectar disparos en silencio y gritos de streamer...")
+            segs, words = inject_acoustic_cues_into_transcript(
+                transcript.get("segments", []),
+                transcript.get("words", []),
+                str(audio_path)
+            )
+            transcript["segments"] = segs
+            transcript["words"] = words
+        except Exception as e:
+            print(f"Nota en detección acústica de disparos y gritos: {e}")
+
         raw_json = json.dumps(transcript, ensure_ascii=False, indent=2)
         saved = self.db.save_transcript(
             project_id=project_id,
@@ -371,6 +385,40 @@ class Api:
             language=transcript.get("language", "es")
         )
         self.db.update_project_status(project_id, "analyzing", transcript.get("duration"))
+        return saved
+
+    def inject_acoustic_cues(self, args: Any) -> Dict[str, Any]:
+        """
+        Runs acoustic detection on the project's audio to find gunshots/combat during silence
+        and shouting peaks, injecting (DISPAROS / ACCIÓN) and (GRITOS / EUFORIA) into the transcript.
+        """
+        project_id = args.get("projectId") if isinstance(args, dict) else args
+        detail = self.db.get_project_detail(project_id)
+        transcript_record = detail.get("transcript")
+        if not transcript_record:
+            raise ValueError("El proyecto aún no tiene transcripción generada.")
+
+        transcript_data = json.loads(transcript_record["rawJson"])
+        proj_dir = self.get_project_dir(detail["project"])
+        audio_path = proj_dir / "audio" / "transcription_audio.wav"
+        if not audio_path.exists():
+            audio_path = extract_audio(detail["project"]["sourcePath"], proj_dir / "audio")
+
+        segs, words = inject_acoustic_cues_into_transcript(
+            transcript_data.get("segments", []),
+            transcript_data.get("words", []),
+            str(audio_path)
+        )
+        transcript_data["segments"] = segs
+        transcript_data["words"] = words
+
+        raw_json = json.dumps(transcript_data, ensure_ascii=False, indent=2)
+        saved = self.db.save_transcript(
+            project_id=project_id,
+            engine=transcript_record.get("engine", "local"),
+            raw_json=raw_json,
+            language=transcript_data.get("language", "es")
+        )
         return saved
 
     def cancel_transcription(self, _args: Any = None) -> bool:

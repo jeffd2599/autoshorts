@@ -67,6 +67,7 @@ export function App() {
   const [autoDetectMoments, setAutoDetectMoments] = useState<boolean>(false);
   const [refineTranscriptWithLlm, setRefineTranscriptWithLlm] = useState<boolean>(true);
   const [isRefiningTranscript, setIsRefiningTranscript] = useState<boolean>(false);
+  const [isDetectingActionCues, setIsDetectingActionCues] = useState<boolean>(false);
   const [enableThinking, setEnableThinking] = useState<boolean>(() => {
     return localStorage.getItem("autoshorts_enable_thinking") === "true";
   });
@@ -1010,6 +1011,22 @@ export function App() {
     }
   }
 
+  async function detectActionCues() {
+    if (!detail?.transcript) return;
+    try {
+      setIsDetectingActionCues(true);
+      setError(null);
+      await invoke("inject_acoustic_cues", {
+        projectId: detail.project.id
+      });
+      await refresh(detail.project.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsDetectingActionCues(false);
+    }
+  }
+
   const copyDescription = (id: string, text: string) => {
     void navigator.clipboard.writeText(text);
     setCopiedDescId(id);
@@ -1447,10 +1464,12 @@ export function App() {
                   canTranscribe={canTranscribe}
                   isGeneratingCopy={isGeneratingCopy}
                   isRefiningTranscript={isRefiningTranscript}
+                  isDetectingActionCues={isDetectingActionCues}
                   transcriptionProgress={transcriptionProgress}
                   onTranscribe={transcribe}
                   onCancelTranscription={cancelTranscription}
                   onRefineTranscript={refineTranscript}
+                  onDetectActionCues={detectActionCues}
                   onOpenCopyModal={() => {
                     setShowCopyModal(true);
                     if (!copyResult && !isGeneratingCopy) {

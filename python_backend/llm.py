@@ -1251,6 +1251,8 @@ def locate_moment_active_window(
             raw_text = str(s.get("text", ""))
             if "!" in raw_text or "¿" in raw_text or "?" in raw_text:
                 score += 3.0
+            if "disparo" in text or "grito" in text or "acción" in text or "accion" in text or "euforia" in text:
+                score += 18.0
             # Word density
             score += len(text.split()) * 0.15
 

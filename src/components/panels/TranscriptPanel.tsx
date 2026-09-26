@@ -1,5 +1,5 @@
 import React from "react";
-import { AudioLines, Loader2, Sparkles } from "lucide-react";
+import { AudioLines, Crosshair, Flame, Loader2, Sparkles } from "lucide-react";
 import { BusyState, NormalizedTranscript, ProjectDetail } from "../../types";
 import { formatTime } from "../../utils/format";
 import { EmptyState } from "../common/EmptyState";
@@ -13,9 +13,11 @@ interface TranscriptPanelProps {
   transcriptionEngine: string;
   isGeneratingCopy: boolean;
   isRefiningTranscript: boolean;
+  isDetectingActionCues?: boolean;
   transcriptionProgress?: { percentage: number; message: string } | null;
   onOpenCopyModal: () => void;
   onRefineTranscript: () => Promise<void>;
+  onDetectActionCues?: () => Promise<void>;
   onCancelTranscription: () => Promise<void>;
   onTranscribe: () => Promise<void>;
 }
@@ -28,9 +30,11 @@ export function TranscriptPanel({
   transcriptionEngine,
   isGeneratingCopy,
   isRefiningTranscript,
+  isDetectingActionCues = false,
   transcriptionProgress,
   onOpenCopyModal,
   onRefineTranscript,
+  onDetectActionCues,
   onCancelTranscription,
   onTranscribe,
 }: TranscriptPanelProps) {
@@ -44,6 +48,19 @@ export function TranscriptPanel({
         <div className="button-pair">
           {detail?.transcript && (
             <>
+              {onDetectActionCues && (
+                <button
+                  type="button"
+                  className="secondary-action"
+                  style={{ fontSize: "0.78rem", padding: "0 10px", height: "30px", minHeight: "30px", display: "inline-flex", alignItems: "center", gap: "5px" }}
+                  onClick={onDetectActionCues}
+                  disabled={isDetectingActionCues || busy !== "idle"}
+                  title="Escanear acústicamente disparos en silencios y gritos de streamer"
+                >
+                  {isDetectingActionCues ? <Loader2 className="spin" size={13} /> : <Crosshair size={13} color="#f87171" />}
+                  <span>{isDetectingActionCues ? "Escaneando..." : "Detectar Disparos"}</span>
+                </button>
+              )}
               <button
                 type="button"
                 className="secondary-action"
@@ -140,29 +157,60 @@ export function TranscriptPanel({
       )}
 
       <div className="transcript-list">
-        {transcript?.segments.map((segment, index) => (
-          <article key={`${segment.start}-${index}`} className="segment-row">
-            <span>{formatTime(segment.start)}</span>
-            <p
-              contentEditable
-              suppressContentEditableWarning
-              title="Haz clic para editar este texto"
-              style={{ cursor: "text", outline: "none", borderRadius: "4px", padding: "2px 4px" }}
-              onBlur={(e) => {
-                const newText = e.currentTarget.textContent || "";
-                if (newText !== segment.text) {
-                  void invoke("update_transcript_segment", {
-                    projectId: detail.project.id,
-                    index,
-                    text: newText
-                  });
-                }
+        {transcript?.segments.map((segment, index) => {
+          const isSFX = segment.speaker === "SFX" || segment.text.includes("(DISPAROS");
+          const isShout = segment.text.includes("(GRITOS");
+          return (
+            <article
+              key={`${segment.start}-${index}`}
+              className="segment-row"
+              style={{
+                borderLeft: isSFX ? "3px solid #ef4444" : isShout ? "3px solid #f59e0b" : undefined,
+                background: isSFX ? "rgba(239, 68, 68, 0.05)" : isShout ? "rgba(245, 158, 11, 0.04)" : undefined,
+                transition: "background 0.2s ease",
               }}
             >
-              {segment.text}
-            </p>
-          </article>
-        )) ?? <EmptyState icon={<AudioLines size={28} />} label="Transcript pending" />}
+              <span style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                {isSFX && (
+                  <span title="Disparos / Acción Acústica" style={{ display: "inline-flex", alignItems: "center" }}>
+                    <Crosshair size={12} color="#ef4444" />
+                  </span>
+                )}
+                {isShout && (
+                  <span title="Gritos / Euforia de Streamer" style={{ display: "inline-flex", alignItems: "center" }}>
+                    <Flame size={12} color="#f59e0b" />
+                  </span>
+                )}
+                {formatTime(segment.start)}
+              </span>
+              <p
+                contentEditable
+                suppressContentEditableWarning
+                title="Haz clic para editar este texto"
+                style={{
+                  cursor: "text",
+                  outline: "none",
+                  borderRadius: "4px",
+                  padding: "2px 4px",
+                  color: isSFX ? "#fca5a5" : undefined,
+                  fontWeight: isSFX ? 600 : undefined,
+                }}
+                onBlur={(e) => {
+                  const newText = e.currentTarget.textContent || "";
+                  if (newText !== segment.text) {
+                    void invoke("update_transcript_segment", {
+                      projectId: detail.project.id,
+                      index,
+                      text: newText
+                    });
+                  }
+                }}
+              >
+                {segment.text}
+              </p>
+            </article>
+          );
+        }) ?? <EmptyState icon={<AudioLines size={28} />} label="Transcript pending" />}
       </div>
     </section>
   );
