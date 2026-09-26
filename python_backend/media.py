@@ -54,7 +54,11 @@ def probe_media(path: str) -> Dict[str, Any]:
     }
 
 
-def extract_audio(source_path: str, project_dir: Path) -> Path:
+def extract_audio(
+    source_path: str,
+    project_dir: Path,
+    is_cancelled: Optional[Callable[[], bool]] = None
+) -> Path:
     if not command_exists("ffmpeg"):
         raise RuntimeError("ffmpeg is not installed or not available on PATH")
 
@@ -64,15 +68,39 @@ def extract_audio(source_path: str, project_dir: Path) -> Path:
     cmd = [
         "ffmpeg",
         "-y",
-        "-i", source_path,
+        "-i", str(source_path),
         "-vn",
         "-ac", "1",
         "-ar", "16000",
         str(output_path)
     ]
-    res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
-    if res.returncode != 0:
-        raise RuntimeError(f"ffmpeg audio extraction failed: {res.stderr.strip()}")
+    proc = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        errors="replace"
+    )
+
+    while proc.poll() is None:
+        if is_cancelled and is_cancelled():
+            try:
+                proc.kill()
+                proc.wait(timeout=2)
+            except Exception:
+                pass
+            if os.path.exists(output_path):
+                try:
+                    os.remove(output_path)
+                except Exception:
+                    pass
+            raise InterruptedError("Extracción de audio cancelada por el usuario.")
+        time.sleep(0.15)
+
+    if proc.returncode != 0:
+        stderr_output = proc.stderr.read() if proc.stderr else ""
+        raise RuntimeError(f"ffmpeg audio extraction failed: {stderr_output.strip()[-300:]}")
 
     return output_path
 

@@ -11,6 +11,7 @@ import {
   AlertTriangle,
   FolderSearch,
   FolderOpen,
+  Sparkles,
 } from "lucide-react";
 import type { Project, BusyState, EnvironmentStatus } from "../../types";
 import { fileName, formatTime } from "../../utils/format";
@@ -29,6 +30,7 @@ interface HomeDashboardProps {
   toggleProjectCompleted: (id: string) => void;
   relinkProjectVideo: (id: string) => void;
   openProjectFolder: (id: string) => void;
+  onOpenQuickCopy?: () => void;
   settingsNode?: React.ReactNode;
 }
 
@@ -46,6 +48,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
   toggleProjectCompleted,
   relinkProjectVideo,
   openProjectFolder,
+  onOpenQuickCopy,
   settingsNode,
 }) => {
   const [filterTab, setFilterTab] = useState<"all" | "in_progress" | "completed">("all");
@@ -73,6 +76,17 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
           <p>Selecciona un proyecto o importa un nuevo video para comenzar.</p>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "8px", marginLeft: "auto" }}>
+          {onOpenQuickCopy && (
+            <button
+              className="secondary-action compact"
+              onClick={onOpenQuickCopy}
+              disabled={busy !== "idle"}
+              title="Generar copy persuasivo pegando una transcripción o desde archivo"
+            >
+              <Sparkles size={16} />
+              <span>Generar Copy Rápido</span>
+            </button>
+          )}
           <button className="primary-action compact" onClick={importMedia} disabled={busy !== "idle"}>
             {busy === "import" ? <Loader2 className="spin" size={16} /> : <FileVideo size={16} />}
             <span>Importar Grabación</span>

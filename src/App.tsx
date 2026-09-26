@@ -36,6 +36,7 @@ import { StatusBar } from "./components/common/StatusBar";
 import { SettingsPanel } from "./components/modals/SettingsPanel";
 import { StyleModal } from "./components/modals/StyleModal";
 import { SocialCopyModal } from "./components/modals/SocialCopyModal";
+import { QuickCopyModal } from "./components/modals/QuickCopyModal";
 import { CandidatePreviewModal } from "./components/modals/CandidatePreviewModal";
 import { YouTubeImportModal } from "./components/modals/YouTubeImportModal";
 import { SummaryModal } from "./components/modals/SummaryModal";
@@ -65,9 +66,10 @@ export function App() {
   const [customOutputDir, setCustomOutputDir] = useState<string>(() => localStorage.getItem("autoshorts_output_dir") || "");
   const [autoTranscribeOnImport, setAutoTranscribeOnImport] = useState<boolean>(true);
   const [autoDetectMoments, setAutoDetectMoments] = useState<boolean>(false);
-  const [refineTranscriptWithLlm, setRefineTranscriptWithLlm] = useState<boolean>(true);
+  const [refineTranscriptWithLlm, setRefineTranscriptWithLlm] = useState<boolean>(false);
   const [isRefiningTranscript, setIsRefiningTranscript] = useState<boolean>(false);
   const [isDetectingActionCues, setIsDetectingActionCues] = useState<boolean>(false);
+  const [showQuickCopyModal, setShowQuickCopyModal] = useState<boolean>(false);
   const [enableThinking, setEnableThinking] = useState<boolean>(() => {
     return localStorage.getItem("autoshorts_enable_thinking") === "true";
   });
@@ -752,7 +754,7 @@ export function App() {
         provider: transcriptionEngine,
         apiKey: transcriptionEngine === "deepgram" ? deepgramKey.trim() || null : null,
         whisperModel,
-        refineWithLlm: refineTranscriptWithLlm,
+        refineWithLlm: false,
         llmEngine,
         llmModel: activeLlmModel,
         llmApiKey: activeLlmKey || null,
@@ -957,7 +959,7 @@ export function App() {
         provider: transcriptionEngine,
         apiKey: transcriptionEngine === "deepgram" ? deepgramKey.trim() || null : null,
         whisperModel,
-        refineWithLlm: refineTranscriptWithLlm,
+        refineWithLlm: false,
         llmEngine,
         llmModel: activeLlmModel,
         llmApiKey: activeLlmKey || null,
@@ -1462,7 +1464,6 @@ export function App() {
                   busy={busy}
                   transcriptionEngine={transcriptionEngine}
                   canTranscribe={canTranscribe}
-                  isGeneratingCopy={isGeneratingCopy}
                   isRefiningTranscript={isRefiningTranscript}
                   isDetectingActionCues={isDetectingActionCues}
                   transcriptionProgress={transcriptionProgress}
@@ -1470,12 +1471,6 @@ export function App() {
                   onCancelTranscription={cancelTranscription}
                   onRefineTranscript={refineTranscript}
                   onDetectActionCues={detectActionCues}
-                  onOpenCopyModal={() => {
-                    setShowCopyModal(true);
-                    if (!copyResult && !isGeneratingCopy) {
-                      void generateSocialCopy();
-                    }
-                  }}
                 />
 
                 <CandidatePanel
@@ -1522,6 +1517,7 @@ export function App() {
               toggleProjectCompleted={toggleProjectCompleted}
               relinkProjectVideo={relinkProjectVideo}
               openProjectFolder={openProjectFolder}
+              onOpenQuickCopy={() => setShowQuickCopyModal(true)}
               settingsNode={settingsNode}
             />
           )}
@@ -1603,6 +1599,22 @@ export function App() {
         onGenerateCopy={(override) => generateSocialCopy(override)}
         copiedField={copiedField}
         onCopyText={copyTextToClipboard}
+      />
+
+      <QuickCopyModal
+        isOpen={showQuickCopyModal}
+        onClose={() => setShowQuickCopyModal(false)}
+        llmEngine={llmEngine}
+        localLlmModel={localLlmModel}
+        anthropicKey={anthropicKey}
+        deepseekKey={deepseekKey}
+        deepseekModel={deepseekModel}
+        geminiKey={geminiKey}
+        openaiKey={openaiKey}
+        openrouterKey={openrouterKey}
+        openrouterModel={openrouterModel}
+        groqKey={groqKey}
+        enableThinking={enableThinking}
       />
 
       <CandidatePreviewModal

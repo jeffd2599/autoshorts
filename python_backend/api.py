@@ -309,83 +309,94 @@ class Api:
         project = self.db.get_project(project_id)
         self.db.update_project_status(project_id, "transcribing")
         proj_dir = self.get_project_dir(project)
-        audio_path = extract_audio(project["sourcePath"], proj_dir / "audio")
 
-        if self._cancel_transcription_flag:
-            self.db.update_project_status(project_id, "created")
-            return {}
-
-        def on_whisper_progress(pct: int):
-            msg = f"Transcribiendo con Whisper ({pct}%)"
-            self.emit("transcription-progress", {"percentage": pct, "message": msg})
-
-        if provider == "deepgram":
-            key = api_key or os.getenv("DEEPGRAM_API_KEY")
-            if not key:
-                raise ValueError("Deepgram API Key is required")
-            transcript = transcribe_deepgram(str(audio_path), key)
-        else:
-            transcript = transcribe_local(
-                str(audio_path),
-                model_name=whisper_model,
-                progress_callback=on_whisper_progress
-            )
-
-        if self._cancel_transcription_flag:
-            self.db.update_project_status(project_id, "created")
-            return {}
-
-        if refine_with_llm and transcript.get("segments"):
-            try:
-                def on_refine_progress(msg, cur, tot):
-                    pct = int(round((cur / max(1, tot)) * 100))
-                    self.emit("transcription-progress", {"percentage": pct, "message": msg})
-                    self.emit("candidate-progress", {"message": msg, "current": cur, "total": tot})
-
-                print(f"Perfeccionando transcripción con IA ({llm_engine}:{llm_model})...")
-                refined_segments = refine_transcript_with_llm(
-                    transcript.get("segments", []),
-                    model_name=llm_model or "qwen2.5:7b",
-                    provider=llm_engine or "local",
-                    api_key=llm_api_key,
-                    enable_thinking=enable_thinking,
-                    on_progress=on_refine_progress,
-                    is_cancelled=lambda: self._cancel_candidates_flag or self._cancel_transcription_flag
-                )
-                if self._cancel_transcription_flag:
-                    self.db.update_project_status(project_id, "created")
-                    return {}
-                transcript["segments"] = refined_segments
-                transcript["words"] = rebuild_words_from_segments(refined_segments)
-            except Exception as e:
-                print(f"Nota en perfeccionamiento automático: {e}")
-
-        if self._cancel_transcription_flag:
-            self.db.update_project_status(project_id, "created")
-            return {}
-
-        # 3. Detect gunfire/explosions during silence and streamer shouts/screams
         try:
-            print("Analizando audio para detectar disparos en silencio y gritos de streamer...")
-            segs, words = inject_acoustic_cues_into_transcript(
-                transcript.get("segments", []),
-                transcript.get("words", []),
-                str(audio_path)
+            audio_path = extract_audio(
+                project["sourcePath"],
+                proj_dir / "audio",
+                is_cancelled=lambda: self._cancel_transcription_flag
             )
-            transcript["segments"] = segs
-            transcript["words"] = words
-        except Exception as e:
-            print(f"Nota en detección acústica de disparos y gritos: {e}")
 
-        raw_json = json.dumps(transcript, ensure_ascii=False, indent=2)
-        saved = self.db.save_transcript(
-            project_id=project_id,
-            engine=provider,
-            raw_json=raw_json,
-            language=transcript.get("language", "es")
-        )
-        self.db.update_project_status(project_id, "analyzing", transcript.get("duration"))
-        return saved
+            if self._cancel_transcription_flag:
+                self.db.update_project_status(project_id, "created")
+                return {}
+
+            def on_whisper_progress(pct: int):
+                msg = f"Transcribiendo con Whisper ({pct}%)"
+                self.emit("transcription-progress", {"percentage": pct, "message": msg})
+
+            if provider == "deepgram":
+                key = api_key or os.getenv("DEEPGRAM_API_KEY")
+                if not key:
+                    raise ValueError("Deepgram API Key is required")
+                transcript = transcribe_deepgram(str(audio_path), key)
+            else:
+                transcript = transcribe_local(
+                    str(audio_path),
+                    model_name=whisper_model,
+                    progress_callback=on_whisper_progress,
+                    is_cancelled=lambda: self._cancel_transcription_flag
+                )
+
+            if self._cancel_transcription_flag:
+                self.db.update_project_status(project_id, "created")
+                return {}
+
+            if refine_with_llm and transcript.get("segments"):
+                try:
+                    def on_refine_progress(msg, cur, tot):
+                        pct = int(round((cur / max(1, tot)) * 100))
+                        self.emit("transcription-progress", {"percentage": pct, "message": msg})
+                        self.emit("candidate-progress", {"message": msg, "current": cur, "total": tot})
+
+                    print(f"Perfeccionando transcripción con IA ({llm_engine}:{llm_model})...")
+                    refined_segments = refine_transcript_with_llm(
+                        transcript.get("segments", []),
+                        model_name=llm_model or "qwen2.5:7b",
+                        provider=llm_engine or "local",
+                        api_key=llm_api_key,
+                        enable_thinking=enable_thinking,
+                        on_progress=on_refine_progress,
+                        is_cancelled=lambda: self._cancel_candidates_flag or self._cancel_transcription_flag
+                    )
+                    if self._cancel_transcription_flag:
+                        self.db.update_project_status(project_id, "created")
+                        return {}
+                    transcript["segments"] = refined_segments
+                    transcript["words"] = rebuild_words_from_segments(refined_segments)
+                except Exception as e:
+                    print(f"Nota en perfeccionamiento automático: {e}")
+
+            if self._cancel_transcription_flag:
+                self.db.update_project_status(project_id, "created")
+                return {}
+
+            # 3. Detect gunfire/explosions during silence and streamer shouts/screams
+            try:
+                print("Analizando audio para detectar disparos en silencio y gritos de streamer...")
+                segs, words = inject_acoustic_cues_into_transcript(
+                    transcript.get("segments", []),
+                    transcript.get("words", []),
+                    str(audio_path)
+                )
+                transcript["segments"] = segs
+                transcript["words"] = words
+            except Exception as e:
+                print(f"Nota en detección acústica de disparos y gritos: {e}")
+
+            raw_json = json.dumps(transcript, ensure_ascii=False, indent=2)
+            saved = self.db.save_transcript(
+                project_id=project_id,
+                engine=provider,
+                raw_json=raw_json,
+                language=transcript.get("language", "es")
+            )
+            self.db.update_project_status(project_id, "analyzing", transcript.get("duration"))
+            return saved
+        except InterruptedError:
+            print(f"🛑 Transcripción del proyecto {project_id} cancelada inmediatamente.")
+            self.db.update_project_status(project_id, "created")
+            return {}
 
     def inject_acoustic_cues(self, args: Any) -> Dict[str, Any]:
         """
@@ -536,6 +547,50 @@ class Api:
         print(f"Generando copy para redes con IA ({provider}:{model_name})...")
         copy_data = generate_social_copy_with_llm(
             transcript_text=full_text,
+            model_name=model_name or "qwen2.5:7b",
+            provider=provider,
+            api_key=api_key,
+            enable_thinking=enable_thinking,
+            extra_context=extra_context
+        )
+        return copy_data
+
+    def generate_quick_copy(self, args: Any) -> Dict[str, Any]:
+        """
+        Generates viral social media copy directly from pasted transcript text (e.g. from Premiere)
+        or a selected media file, without requiring a project.
+        """
+        if not isinstance(args, dict):
+            raise ValueError("Invalid arguments")
+
+        raw_text = str(args.get("transcriptText", "")).strip()
+        media_path = args.get("mediaPath")
+        extra_context = args.get("extraContext")
+        provider = args.get("provider", "local")
+        model_name = args.get("modelName")
+        api_key = args.get("apiKey")
+        enable_thinking = bool(args.get("enableThinking", False))
+
+        if not raw_text and media_path:
+            if not os.path.exists(media_path):
+                raise FileNotFoundError(f"El archivo multimedia no existe: {media_path}")
+            temp_dir = self.data_dir / "temp_quick_copy"
+            os.makedirs(temp_dir, exist_ok=True)
+            wav_path = extract_audio(media_path, temp_dir)
+            t_res = transcribe_local(str(wav_path), model_name="base")
+            segs = t_res.get("segments", [])
+            raw_text = " ".join(s.get("text", "").strip() for s in segs)
+            try:
+                if wav_path.exists():
+                    os.remove(wav_path)
+            except Exception:
+                pass
+
+        if not raw_text:
+            raise ValueError("Debes ingresar una transcripción de texto o seleccionar un archivo multimedia.")
+
+        copy_data = generate_social_copy_with_llm(
+            transcript_text=raw_text,
             model_name=model_name or "qwen2.5:7b",
             provider=provider,
             api_key=api_key,

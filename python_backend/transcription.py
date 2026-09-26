@@ -1,6 +1,6 @@
 import json
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 import warnings
 import requests
 
@@ -52,11 +52,15 @@ def whisper_available() -> bool:
 def transcribe_local(
     audio_path: str,
     model_name: str = "base",
-    progress_callback: Optional[Any] = None
+    progress_callback: Optional[Any] = None,
+    is_cancelled: Optional[Callable[[], bool]] = None
 ) -> Dict[str, Any]:
     import torch
     import whisper
     import tqdm
+
+    if is_cancelled and is_cancelled():
+        raise InterruptedError("Transcripción cancelada antes de cargar el modelo.")
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"Loading Whisper model '{model_name}' on device: {device} (FP16: {device == 'cuda'})...")
@@ -75,6 +79,8 @@ def transcribe_local(
 
     class ProgressTqdm(orig_tqdm):
         def update(self, n=1):
+            if is_cancelled and is_cancelled():
+                raise InterruptedError("Transcripción cancelada por el usuario.")
             res = super().update(n)
             if self.total and self.total > 0 and progress_callback:
                 try:
@@ -97,6 +103,12 @@ def transcribe_local(
             fp16=(device == "cuda"),
             verbose=False,
         )
+    except InterruptedError:
+        print("🛑 Transcripción con Whisper cancelada de inmediato por el usuario.")
+        del model
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        raise
     finally:
         tqdm.tqdm = orig_tqdm
         if orig_whisper_tqdm is not None:

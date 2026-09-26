@@ -11,11 +11,9 @@ interface TranscriptPanelProps {
   busy: BusyState;
   canTranscribe: boolean;
   transcriptionEngine: string;
-  isGeneratingCopy: boolean;
   isRefiningTranscript: boolean;
   isDetectingActionCues?: boolean;
   transcriptionProgress?: { percentage: number; message: string } | null;
-  onOpenCopyModal: () => void;
   onRefineTranscript: () => Promise<void>;
   onDetectActionCues?: () => Promise<void>;
   onCancelTranscription: () => Promise<void>;
@@ -28,11 +26,9 @@ export function TranscriptPanel({
   busy,
   canTranscribe,
   transcriptionEngine,
-  isGeneratingCopy,
   isRefiningTranscript,
   isDetectingActionCues = false,
   transcriptionProgress,
-  onOpenCopyModal,
   onRefineTranscript,
   onDetectActionCues,
   onCancelTranscription,
@@ -61,17 +57,6 @@ export function TranscriptPanel({
                   <span>{isDetectingActionCues ? "Escaneando..." : "Detectar Disparos"}</span>
                 </button>
               )}
-              <button
-                type="button"
-                className="secondary-action"
-                style={{ fontSize: "0.78rem", padding: "0 10px", height: "30px", minHeight: "30px", display: "inline-flex", alignItems: "center", gap: "5px" }}
-                onClick={onOpenCopyModal}
-                disabled={isGeneratingCopy || busy !== "idle"}
-                title="Generar copy persuasivo, hooks, CTA y hashtags para redes sociales"
-              >
-                <Sparkles size={13} color="#fafafa" />
-                <span>Generar Copy con IA</span>
-              </button>
               <button
                 type="button"
                 className="secondary-action"
