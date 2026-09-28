@@ -1317,16 +1317,39 @@ def plan_autoedit_narrative(
     target_seconds = float(target_duration_minutes) * 60.0
     budget_needed = target_seconds * (1.18 if trim_silences else 1.0)
 
-    # 1. Prepare candidate metadata for the LLM
+    # 1. Pre-filter candidate pool to top 15 based on assembly style for fast, reliable LLM responses
+    sorted_for_llm = list(candidates)
+    if assembly_style == "alternative" and excluded_set:
+        fresh = [c for c in sorted_for_llm if c["id"] not in excluded_set]
+        reused = [c for c in sorted_for_llm if c["id"] in excluded_set]
+        sorted_for_llm = fresh + reused
+    elif assembly_style == "action":
+        def action_score(c):
+            t = f"{c.get('hook', '')} {c.get('rationale', '')} {c.get('text', '')}".lower()
+            bonus = 0.40 if ("disparo" in t or "clutch" in t or "kill" in t or "combate" in t) else 0.0
+            return float(c.get("score", 0)) + bonus
+        sorted_for_llm.sort(key=action_score, reverse=True)
+    elif assembly_style == "humor":
+        def humor_score(c):
+            t = f"{c.get('hook', '')} {c.get('rationale', '')} {c.get('text', '')}".lower()
+            bonus = 0.40 if ("risa" in t or "gracioso" in t or "fail" in t or "bloop" in t) else 0.0
+            return float(c.get("score", 0)) + bonus
+        sorted_for_llm.sort(key=humor_score, reverse=True)
+    elif assembly_style == "chronological":
+        sorted_for_llm.sort(key=lambda c: float(c.get("startSec", c.get("start", 0))))
+    else:
+        sorted_for_llm.sort(key=lambda c: float(c.get("score", 0)), reverse=True)
+
+    top_candidates = sorted_for_llm[:15]
     clips_summary = []
-    for c in candidates:
+    for c in top_candidates:
         c_dur = float(c.get("endSec", c.get("end", 0))) - float(c.get("startSec", c.get("start", 0)))
         clips_summary.append({
             "id": c["id"],
             "hook": c.get("hook") or c.get("title") or "Sin título",
             "score": round(float(c.get("score", 5.0)), 1),
             "duration_sec": round(c_dur, 1),
-            "transcript_sample": (c.get("text") or c.get("rationale") or "")[:220]
+            "transcript_sample": (c.get("text") or c.get("rationale") or "")[:150]
         })
 
     style_guide = {
@@ -1410,7 +1433,7 @@ Responde ÚNICAMENTE con este JSON válido:
             if not has_thinking:
                 payload["format"] = "json"
 
-            resp = requests.post(url, json=payload, timeout=75)
+            resp = requests.post(url, json=payload, timeout=120)
             if resp.ok:
                 msg = resp.json().get("message", {})
                 content = msg.get("content", "")

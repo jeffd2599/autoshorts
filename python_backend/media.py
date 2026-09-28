@@ -854,6 +854,7 @@ def render_autoedit_video(
                 "-i", source_path
             ]
 
+            filters = []
             if aspect_ratio == "9:16":
                 filters.append("crop=w='2*trunc(min(iw,ih*9/16)/2)':h='2*trunc(min(ih,iw*16/9)/2)'")
                 filters.append("scale=1080:1920:force_original_aspect_ratio=decrease")
