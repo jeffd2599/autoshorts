@@ -16,6 +16,7 @@ import type {
   SummaryResult,
   AutoEditResult,
   AutoEditRecord,
+  AutoEditAssemblyStyle,
   TargetDuration,
   Transcript,
   TranscriptionEngine,
@@ -90,6 +91,7 @@ export function App() {
   const [autoEditTargetMinutes, setAutoEditTargetMinutes] = useState<number>(12);
   const [autoEditIncludeTeaser, setAutoEditIncludeTeaser] = useState<boolean>(true);
   const [autoEditTrimSilences, setAutoEditTrimSilences] = useState<boolean>(true);
+  const [autoEditAssemblyStyle, setAutoEditAssemblyStyle] = useState<AutoEditAssemblyStyle>("balanced");
   const [autoEditStatus, setAutoEditStatus] = useState<"idle" | "rendering" | "done">("idle");
   const [autoEditProgressMsg, setAutoEditProgressMsg] = useState<string>("");
   const [autoEditProgressPct, setAutoEditProgressPct] = useState<number>(0);
@@ -1197,6 +1199,7 @@ export function App() {
         targetDurationMinutes: autoEditTargetMinutes,
         includeTeaser: autoEditIncludeTeaser,
         trimSilences: autoEditTrimSilences,
+        assemblyStyle: autoEditAssemblyStyle,
         outputDir: customOutputDir || null,
       });
       setAutoEditResult(res);
@@ -1439,6 +1442,8 @@ export function App() {
                   setFormatMode={setAutoEditFormatMode}
                   targetDurationMinutes={autoEditTargetMinutes}
                   setTargetDurationMinutes={setAutoEditTargetMinutes}
+                  assemblyStyle={autoEditAssemblyStyle}
+                  setAssemblyStyle={setAutoEditAssemblyStyle}
                   includeTeaser={autoEditIncludeTeaser}
                   setIncludeTeaser={setAutoEditIncludeTeaser}
                   trimSilences={autoEditTrimSilences}
@@ -1696,6 +1701,8 @@ export function App() {
           setFormatMode={setAutoEditFormatMode}
           targetMinutes={autoEditTargetMinutes}
           setTargetMinutes={setAutoEditTargetMinutes}
+          assemblyStyle={autoEditAssemblyStyle}
+          setAssemblyStyle={setAutoEditAssemblyStyle}
           includeTeaser={autoEditIncludeTeaser}
           setIncludeTeaser={setAutoEditIncludeTeaser}
           trimSilences={autoEditTrimSilences}

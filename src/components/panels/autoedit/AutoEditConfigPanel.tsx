@@ -5,16 +5,24 @@ import {
   Clock,
   Scissors,
   Sparkles,
+  Shuffle,
+  Crosshair,
+  Flame,
+  Layers,
   Check,
   X,
-  Loader2
+  Loader2,
+  Wand2
 } from "lucide-react";
+import { AutoEditAssemblyStyle } from "../../../types";
 
 interface AutoEditConfigPanelProps {
   formatMode: "youtube" | "shorts";
   setFormatMode: (mode: "youtube" | "shorts") => void;
   targetDurationMinutes: number;
   setTargetDurationMinutes: (m: number) => void;
+  assemblyStyle: AutoEditAssemblyStyle;
+  setAssemblyStyle: (style: AutoEditAssemblyStyle) => void;
   includeTeaser: boolean;
   setIncludeTeaser: (val: boolean) => void;
   trimSilences: boolean;
@@ -29,11 +37,64 @@ interface AutoEditConfigPanelProps {
 const YOUTUBE_DURATIONS = [8, 12, 15, 20];
 const SHORTS_DURATIONS = [1, 2, 3, 4, 5];
 
+const ASSEMBLY_STYLES: {
+  id: AutoEditAssemblyStyle;
+  name: string;
+  badge: string;
+  desc: string;
+  icon: React.ComponentType<{ size?: number; className?: string }>;
+}[] = [
+  {
+    id: "balanced",
+    name: "Mezcla Épica",
+    badge: "Equilibrado",
+    desc: "Gancho estelar, progresión de tensión y remate clímax.",
+    icon: Sparkles
+  },
+  {
+    id: "smart_shuffle",
+    name: "Mezcla Dinámica",
+    badge: "Variación IA",
+    desc: "Orquestación aleatoria con IA: combina diferentes mejores momentos.",
+    icon: Shuffle
+  },
+  {
+    id: "alternative",
+    name: "Nueva Variación",
+    badge: "Sin Repetir",
+    desc: "Excluye momentos usados en tus autoedits previos de este stream.",
+    icon: Layers
+  },
+  {
+    id: "action",
+    name: "Clutches & Acción",
+    badge: "Combate",
+    desc: "Prioriza bajas, disparos detectados y jugadas intensas.",
+    icon: Crosshair
+  },
+  {
+    id: "humor",
+    name: "Risas & Comedia",
+    badge: "Diversión",
+    desc: "Prioriza risas del streamer, carcajadas y momentos cómicos.",
+    icon: Flame
+  },
+  {
+    id: "chronological",
+    name: "Flujo Cronológico",
+    badge: "Historia",
+    desc: "Ensambla los mejores momentos en el orden temporal del stream.",
+    icon: Clock
+  }
+];
+
 export const AutoEditConfigPanel: React.FC<AutoEditConfigPanelProps> = ({
   formatMode,
   setFormatMode,
   targetDurationMinutes,
   setTargetDurationMinutes,
+  assemblyStyle,
+  setAssemblyStyle,
   includeTeaser,
   setIncludeTeaser,
   trimSilences,
@@ -54,7 +115,7 @@ export const AutoEditConfigPanel: React.FC<AutoEditConfigPanelProps> = ({
           <h3>Nuevo Montaje con IA</h3>
         </div>
         <p className="subtitle">
-          Configura y ensambla automáticamente un rough cut listo para editar o publicar.
+          Configura y orquesta un video ensamblado con los mejores momentos de tu stream.
         </p>
       </div>
 
@@ -124,7 +185,41 @@ export const AutoEditConfigPanel: React.FC<AutoEditConfigPanelProps> = ({
             ))}
           </div>
           <p className="field-hint">
-            El ensamblador seleccionará los mejores momentos y recortará la ventana activa para respetar este tiempo exacto.
+            El motor de ensamblado compensará silencios y expandirá contexto para alcanzar exactamente {targetDurationMinutes} min.
+          </p>
+        </div>
+
+        {/* AI Assembly Orchestration Style */}
+        <div className="config-section">
+          <label className="section-label">
+            <Wand2 size={14} /> Orquestación de la IA
+          </label>
+          <div className="assembly-styles-grid">
+            {ASSEMBLY_STYLES.map((style) => {
+              const IconComp = style.icon;
+              const isSelected = assemblyStyle === style.id;
+              return (
+                <button
+                  key={style.id}
+                  type="button"
+                  className={`style-option-card ${isSelected ? "active" : ""}`}
+                  onClick={() => setAssemblyStyle(style.id)}
+                  disabled={isRendering}
+                >
+                  <div className="style-option-header">
+                    <div className="style-option-title-row">
+                      <IconComp size={15} className="style-icon" />
+                      <span className="style-name">{style.name}</span>
+                    </div>
+                    <span className="style-badge">{style.badge}</span>
+                  </div>
+                  <div className="style-desc">{style.desc}</div>
+                </button>
+              );
+            })}
+          </div>
+          <p className="field-hint">
+            Puedes generar múltiples versiones (por ejemplo con Mezcla Dinámica o Nueva Variación) y conservarlas todas en tu galería.
           </p>
         </div>
 
@@ -159,7 +254,7 @@ export const AutoEditConfigPanel: React.FC<AutoEditConfigPanelProps> = ({
               <div className="toggle-info">
                 <span className="toggle-title">Recortar silencios (Jump Cuts)</span>
                 <span className="toggle-desc">
-                  Elimina micro-pausas sin habla para mantener el ritmo acelerado.
+                  Elimina pausas muertas manteniendo la duración objetivo mediante compensación inteligente.
                 </span>
               </div>
             </label>

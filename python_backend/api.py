@@ -4,6 +4,7 @@ import re
 import shutil
 import subprocess
 import threading
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 import requests
@@ -985,6 +986,7 @@ class Api:
         target_minutes = float(args.get("targetDurationMinutes", 12.0 if format_mode == "youtube" else 2.0))
         include_teaser = bool(args.get("includeTeaser", True))
         trim_silences = bool(args.get("trimSilences", True))
+        assembly_style = str(args.get("assemblyStyle", "balanced")).strip().lower()
         custom_dir = args.get("outputDir")
 
         project = self.db.get_project(project_id)
@@ -994,6 +996,15 @@ class Api:
         all_candidates = self.db.get_candidates(project_id)
         if not all_candidates:
             raise ValueError("El proyecto no tiene momentos candidatos detectados para autoeditar.")
+
+        # Determine source video duration to bound window expansion
+        source_dur = project.get("durationSec")
+        if not source_dur and project.get("sourcePath"):
+            try:
+                probe = probe_media(project["sourcePath"])
+                source_dur = float(probe.get("duration", 0)) or None
+            except Exception:
+                source_dur = None
 
         app_cfg = self.get_app_config()
         llm_engine = app_cfg.get("llmEngine", "local")
@@ -1032,6 +1043,25 @@ class Api:
         except Exception as e:
             print(f"Aviso al cargar transcripción para autoedición: {e}")
 
+        # If alternative assembly style is requested, exclude moments used in prior autoedits of this project
+        excluded_moment_ids = []
+        if assembly_style == "alternative":
+            try:
+                prev_edits = self.db.list_autoedits(project_id)
+                prev_texts = set()
+                for pe in prev_edits:
+                    if pe.get("chaptersText"):
+                        for line in pe["chaptersText"].splitlines():
+                            txt = re.sub(r'^\s*\d+:\d+\s*', '', line).strip().lower()
+                            if len(txt) > 3:
+                                prev_texts.add(txt)
+                for cand in all_candidates:
+                    c_hook = (cand.get("hook") or cand.get("title") or "").strip().lower()
+                    if any(pt in c_hook or c_hook in pt for pt in prev_texts if pt):
+                        excluded_moment_ids.append(cand["id"])
+            except Exception as e:
+                print(f"Aviso al filtrar momentos previos: {e}")
+
         plan = plan_autoedit_narrative(
             candidates=all_candidates,
             target_duration_minutes=target_minutes,
@@ -1040,7 +1070,11 @@ class Api:
             provider=llm_engine,
             model_name=model_name,
             api_key=api_key,
-            transcript_segments=transcript_segments
+            transcript_segments=transcript_segments,
+            trim_silences=trim_silences,
+            assembly_style=assembly_style,
+            excluded_moment_ids=excluded_moment_ids,
+            max_source_duration=source_dur
         )
 
         if getattr(self, "_cancel_autoedit_flag", False):
@@ -1059,7 +1093,9 @@ class Api:
 
         mode_label = "YouTube" if format_mode == "youtube" else "Shorts"
         dur_label = f"{int(round(target_minutes))}m" if target_minutes >= 1.0 else f"{int(round(target_minutes*60))}s"
-        output_filename = f"AutoEdit_{mode_label}_{dur_label}_{clean_name}.mp4"
+        time_tag = datetime.now().strftime("%H%M%S")
+        style_slug = f"_{assembly_style}" if assembly_style != "balanced" else ""
+        output_filename = f"AutoEdit_{mode_label}_{dur_label}{style_slug}_{clean_name}_{time_tag}.mp4"
         output_path = out_dir / output_filename
 
         aspect_ratio = "9:16" if format_mode == "shorts" else "original"

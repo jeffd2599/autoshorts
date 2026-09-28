@@ -3141,6 +3141,85 @@ textarea:focus {
   box-shadow: 0 1px 4px rgba(255, 255, 255, 0.2);
 }
 
+/* AI Assembly Orchestration Cards */
+.assembly-styles-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.style-option-card {
+  background: #18181c;
+  border: 1px solid #27272e;
+  border-radius: 8px;
+  padding: 0.75rem 0.85rem;
+  text-align: left;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  transition: all 0.15s ease;
+}
+
+.style-option-card:hover:not(:disabled) {
+  background: #202026;
+  border-color: #3f3f46;
+}
+
+.style-option-card.active {
+  background: rgba(139, 92, 246, 0.08);
+  border-color: #8b5cf6;
+  box-shadow: 0 0 0 1px #8b5cf6;
+}
+
+.style-option-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.style-option-title-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.style-option-card .style-icon {
+  color: #a1a1aa;
+  transition: color 0.15s ease;
+}
+
+.style-option-card.active .style-icon {
+  color: #a78bfa;
+}
+
+.style-name {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #fafafa;
+}
+
+.style-badge {
+  font-size: 0.65rem;
+  font-weight: 700;
+  background: #27272a;
+  color: #a1a1aa;
+  padding: 1px 6px;
+  border-radius: 9999px;
+  letter-spacing: 0.02em;
+}
+
+.style-option-card.active .style-badge {
+  background: #8b5cf6;
+  color: #ffffff;
+}
+
+.style-desc {
+  font-size: 0.69rem;
+  color: #71717a;
+  line-height: 1.35;
+}
+
 /* Toggles Column */
 .toggles-column {
   display: flex;

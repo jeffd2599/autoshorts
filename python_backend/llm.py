@@ -1198,18 +1198,27 @@ def strip_emojis_from_text(text: str) -> str:
 def locate_moment_active_window(
     candidate: Dict[str, Any],
     target_dur: float,
-    transcript_segments: Optional[List[Dict[str, Any]]] = None
+    transcript_segments: Optional[List[Dict[str, Any]]] = None,
+    max_source_duration: Optional[float] = None
 ) -> Tuple[float, float]:
     """
-    Intelligently identifies the exact active time window within a candidate moment
-    where speech, action, or the climactic punchline occurs, adhering strictly to target_dur.
+    Intelligently identifies the exact active time window for a candidate moment.
+    If the candidate is shorter than target_dur, expands context (setup + aftermath) around the play.
+    If longer, pinpoints the climactic anchor (shots, screams, keywords) and extracts target_dur.
     """
     c_start = float(candidate.get("startSec", candidate.get("start", 0.0)))
     c_end = float(candidate.get("endSec", candidate.get("end", c_start + target_dur)))
     c_dur = max(1.0, c_end - c_start)
 
-    if c_dur <= target_dur:
-        return round(c_start, 2), round(c_end, 2)
+    # 1. Expand outwards if candidate duration is shorter than requested clip window
+    if c_dur < target_dur:
+        deficit = target_dur - c_dur
+        new_start = max(0.0, c_start - (deficit * 0.40))
+        new_end = new_start + target_dur
+        if max_source_duration and new_end > max_source_duration:
+            new_end = max_source_duration
+            new_start = max(0.0, new_end - target_dur)
+        return round(new_start, 2), round(new_end, 2)
 
     hook_text = str(candidate.get("hook", ""))
     rationale_text = str(candidate.get("rationale", ""))
@@ -1283,95 +1292,106 @@ def plan_autoedit_narrative(
     provider: str = "local",
     model_name: Optional[str] = None,
     api_key: Optional[str] = None,
-    transcript_segments: Optional[List[Dict[str, Any]]] = None
+    transcript_segments: Optional[List[Dict[str, Any]]] = None,
+    trim_silences: bool = True,
+    assembly_style: str = "balanced",
+    excluded_moment_ids: Optional[List[str]] = None,
+    max_source_duration: Optional[float] = None
 ) -> Dict[str, Any]:
     """
     Plans an intelligent rough-cut assembly for YouTube (16:9) or Shorts (9:16).
-    Distributes the duration budget across highlights and extracts exact active windows
-    so the final video matches target_duration_minutes strictly.
+    Distributes duration budget with silence-trim compensation and dynamic clip filling
+    so the final video strictly matches target_duration_minutes.
+    Supports AI orchestration styles (balanced, action, humor, chronological, alternative, smart_shuffle).
     """
     if not candidates:
         return {"teaser_hook": None, "story_segments": []}
 
+    import random
+    pool = [dict(c) for c in candidates]
+    excluded_set = set(excluded_moment_ids or [])
+
+    # 1. Orchestrate pool based on assembly_style
+    if assembly_style == "alternative" and excluded_set:
+        fresh = [c for c in pool if c["id"] not in excluded_set]
+        reused = [c for c in pool if c["id"] in excluded_set]
+        pool = fresh + reused
+    elif assembly_style == "action":
+        def action_score(c):
+            t = f"{c.get('hook', '')} {c.get('rationale', '')}".lower()
+            bonus = 0.0
+            if "disparo" in t or "clutch" in t or "kill" in t or "combate" in t:
+                bonus += 0.40
+            if "grito" in t or "euforia" in t:
+                bonus += 0.20
+            return float(c.get("score", 0)) + bonus
+        pool.sort(key=action_score, reverse=True)
+    elif assembly_style == "humor":
+        def humor_score(c):
+            t = f"{c.get('hook', '')} {c.get('rationale', '')}".lower()
+            bonus = 0.0
+            if "risa" in t or "gracioso" in t or "fail" in t or "bloop" in t or "grito" in t or "euforia" in t:
+                bonus += 0.40
+            return float(c.get("score", 0)) + bonus
+        pool.sort(key=humor_score, reverse=True)
+    elif assembly_style == "chronological":
+        pool.sort(key=lambda c: float(c.get("startSec", c.get("start", 0))))
+    elif assembly_style == "smart_shuffle":
+        top = pool[0] if pool else None
+        rest = pool[1:] if len(pool) > 1 else []
+        random.shuffle(rest)
+        pool = ([top] if top else []) + rest
+    else:
+        # Balanced default: rank by score
+        pool.sort(key=lambda c: float(c.get("score", 0)), reverse=True)
+
     target_seconds = float(target_duration_minutes) * 60.0
+    # Silence trimming typically cuts ~15-18% of dead air; compensate planning budget so final output hits target_seconds!
+    budget_needed = target_seconds * (1.18 if trim_silences else 1.0)
 
-    # 1. Teaser Hook (if enabled)
+    # 2. Teaser Hook (if enabled)
     teaser_hook = None
-    best_candidate = max(candidates, key=lambda c: float(c.get("score", 0)))
+    best_candidate = pool[0] if pool else None
 
-    if include_teaser and target_seconds >= 45.0:
+    if include_teaser and target_seconds >= 45.0 and best_candidate:
         teaser_dur = 4.0 if format_mode == "shorts" else 5.0
-        t_sub_start, _ = locate_moment_active_window(best_candidate, teaser_dur, transcript_segments)
+        t_sub_start, _ = locate_moment_active_window(best_candidate, teaser_dur, transcript_segments, max_source_duration)
         clean_hook = strip_emojis_from_text(str(best_candidate.get("hook", "Gancho Inicial")))
         teaser_hook = {
             "start": t_sub_start,
             "end": round(t_sub_start + teaser_dur, 2),
             "hook": f"Teaser: {clean_hook}"
         }
+        budget_needed = max(15.0, budget_needed - teaser_dur)
 
-    remaining_budget = max(15.0, target_seconds - (4.0 if teaser_hook and format_mode == "shorts" else 5.0 if teaser_hook else 0.0))
-
-    # 2. Determine ideal number of highlight segments for this duration
-    if format_mode == "shorts":
-        if target_seconds <= 75.0:
-            num_clips = min(len(candidates), 2)
-        elif target_seconds <= 135.0:
-            num_clips = min(len(candidates), 3)
-        elif target_seconds <= 195.0:
-            num_clips = min(len(candidates), 4)
-        elif target_seconds <= 255.0:
-            num_clips = min(len(candidates), 5)
-        else:
-            num_clips = min(len(candidates), 6)
-    else:
-        # YouTube: longer narrative blocks (2 - 3 minutes per chapter)
-        num_clips = min(len(candidates), max(2, int(target_seconds // 120.0)))
-
-    num_clips = max(1, num_clips)
-
-    # 3. Select sequence of candidates (narrative arc)
-    storyline_plan = plan_summary_narrative(
-        candidates=candidates,
-        target_duration_minutes=target_duration_minutes,
-        provider=provider,
-        model_name=model_name,
-        api_key=api_key,
-        summary_vibe="tryhard" if format_mode == "shorts" else "balanced"
-    )
-
-    ordered_ids = storyline_plan.get("ordered_clip_ids", [])
-    candidate_map = {c["id"]: c for c in candidates}
+    # 3. Determine ideal clip count to fill the budget
+    clip_target_len = 45.0 if format_mode == "shorts" else 65.0
+    desired_clip_count = max(2, int(round(budget_needed / clip_target_len)))
 
     chosen_candidates = []
     seen_ids = set()
 
-    for cid in ordered_ids:
-        if cid in candidate_map and cid not in seen_ids:
-            chosen_candidates.append(candidate_map[cid])
-            seen_ids.add(cid)
-        if len(chosen_candidates) >= num_clips:
+    for c in pool:
+        if c["id"] not in seen_ids:
+            chosen_candidates.append(c)
+            seen_ids.add(c["id"])
+        if len(chosen_candidates) >= desired_clip_count:
             break
 
-    if len(chosen_candidates) < num_clips:
-        for c in sorted(candidates, key=lambda x: float(x.get("score", 0)), reverse=True):
-            if c["id"] not in seen_ids:
-                chosen_candidates.append(c)
-                seen_ids.add(c["id"])
-            if len(chosen_candidates) >= num_clips:
-                break
-
-    if not chosen_candidates:
-        chosen_candidates = [candidates[0]]
+    if not chosen_candidates and pool:
+        chosen_candidates = [pool[0]]
 
     # 4. Extract active windows strictly adhering to budget
     story_segments = []
-    budget_left = remaining_budget
+    budget_left = budget_needed
 
     for idx, c in enumerate(chosen_candidates):
         clips_remaining = len(chosen_candidates) - idx
         this_clip_target = budget_left / max(1, clips_remaining)
+        max_single = 90.0 if format_mode == "shorts" else 150.0
+        this_clip_target = min(max_single, max(15.0, this_clip_target))
 
-        s_start, s_end = locate_moment_active_window(c, this_clip_target, transcript_segments)
+        s_start, s_end = locate_moment_active_window(c, this_clip_target, transcript_segments, max_source_duration)
         actual_dur = max(1.0, s_end - s_start)
 
         clean_hook = strip_emojis_from_text(str(c.get("hook", f"Momento {idx + 1}")))
@@ -1380,6 +1400,24 @@ def plan_autoedit_narrative(
             "end": s_end,
             "hook": clean_hook
         })
+        budget_left -= actual_dur
+
+    # 5. Dynamic fill: IF budget_left remains > 15s, keep pulling more moments from pool!
+    for c in pool:
+        if budget_left < 15.0:
+            break
+        if c["id"] in seen_ids:
+            continue
+        this_clip_target = min(65.0, budget_left)
+        s_start, s_end = locate_moment_active_window(c, this_clip_target, transcript_segments, max_source_duration)
+        actual_dur = max(1.0, s_end - s_start)
+        clean_hook = strip_emojis_from_text(str(c.get("hook", f"Momento {len(story_segments) + 1}")))
+        story_segments.append({
+            "start": s_start,
+            "end": s_end,
+            "hook": clean_hook
+        })
+        seen_ids.add(c["id"])
         budget_left -= actual_dur
 
     return {

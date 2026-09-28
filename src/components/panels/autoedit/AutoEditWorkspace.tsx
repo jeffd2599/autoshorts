@@ -1,13 +1,15 @@
 import React from "react";
 import { AutoEditConfigPanel } from "./AutoEditConfigPanel";
 import { AutoEditGalleryPanel } from "./AutoEditGalleryPanel";
-import { AutoEditRecord } from "../../../types";
+import { AutoEditRecord, AutoEditAssemblyStyle } from "../../../types";
 
 interface AutoEditWorkspaceProps {
   formatMode: "youtube" | "shorts";
   setFormatMode: (mode: "youtube" | "shorts") => void;
   targetDurationMinutes: number;
   setTargetDurationMinutes: (m: number) => void;
+  assemblyStyle: AutoEditAssemblyStyle;
+  setAssemblyStyle: (style: AutoEditAssemblyStyle) => void;
   includeTeaser: boolean;
   setIncludeTeaser: (val: boolean) => void;
   trimSilences: boolean;
@@ -31,6 +33,8 @@ export const AutoEditWorkspace: React.FC<AutoEditWorkspaceProps> = ({
   setFormatMode,
   targetDurationMinutes,
   setTargetDurationMinutes,
+  assemblyStyle,
+  setAssemblyStyle,
   includeTeaser,
   setIncludeTeaser,
   trimSilences,
@@ -55,6 +59,8 @@ export const AutoEditWorkspace: React.FC<AutoEditWorkspaceProps> = ({
         setFormatMode={setFormatMode}
         targetDurationMinutes={targetDurationMinutes}
         setTargetDurationMinutes={setTargetDurationMinutes}
+        assemblyStyle={assemblyStyle}
+        setAssemblyStyle={setAssemblyStyle}
         includeTeaser={includeTeaser}
         setIncludeTeaser={setIncludeTeaser}
         trimSilences={trimSilences}

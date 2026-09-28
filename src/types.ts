@@ -172,4 +172,10 @@ export type AutoEditRecord = {
   exists?: boolean;
 };
 
-
+export type AutoEditAssemblyStyle =
+  | "balanced"
+  | "smart_shuffle"
+  | "action"
+  | "humor"
+  | "chronological"
+  | "alternative";

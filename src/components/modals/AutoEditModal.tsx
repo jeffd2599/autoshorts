@@ -13,9 +13,13 @@ import {
   Loader2,
   Layers,
   Sparkles,
-  FileText
+  FileText,
+  Shuffle,
+  Crosshair,
+  Flame,
+  Wand2
 } from "lucide-react";
-import { Project, AutoEditResult } from "../../types";
+import { Project, AutoEditResult, AutoEditAssemblyStyle } from "../../types";
 
 interface AutoEditModalProps {
   isOpen: boolean;
@@ -26,6 +30,8 @@ interface AutoEditModalProps {
   setFormatMode: (mode: "youtube" | "shorts") => void;
   targetMinutes: number;
   setTargetMinutes: (mins: number) => void;
+  assemblyStyle?: AutoEditAssemblyStyle;
+  setAssemblyStyle?: (style: AutoEditAssemblyStyle) => void;
   includeTeaser: boolean;
   setIncludeTeaser: (val: boolean) => void;
   trimSilences: boolean;
@@ -49,6 +55,8 @@ export function AutoEditModal({
   setFormatMode,
   targetMinutes,
   setTargetMinutes,
+  assemblyStyle = "balanced",
+  setAssemblyStyle,
   includeTeaser,
   setIncludeTeaser,
   trimSilences,
@@ -195,6 +203,43 @@ export function AutoEditModal({
                   })}
                 </div>
               </div>
+
+              {/* Orquestación de la IA */}
+              {setAssemblyStyle && (
+                <div className="autoedit-section">
+                  <label className="autoedit-section-label">
+                    <Wand2 size={14} /> Orquestación de la IA
+                  </label>
+                  <div className="autoedit-durations-row">
+                    {[
+                      { id: "balanced" as AutoEditAssemblyStyle, label: "Mezcla Épica", icon: Sparkles },
+                      { id: "smart_shuffle" as AutoEditAssemblyStyle, label: "Mezcla Dinámica", icon: Shuffle },
+                      { id: "alternative" as AutoEditAssemblyStyle, label: "Nueva Variación", icon: Layers },
+                      { id: "action" as AutoEditAssemblyStyle, label: "Clutches & Acción", icon: Crosshair },
+                      { id: "humor" as AutoEditAssemblyStyle, label: "Risas & Comedia", icon: Flame },
+                      { id: "chronological" as AutoEditAssemblyStyle, label: "Cronológico", icon: Clock },
+                    ].map((st) => {
+                      const isSelected = assemblyStyle === st.id;
+                      const IconC = st.icon;
+                      return (
+                        <button
+                          key={st.id}
+                          type="button"
+                          className={`autoedit-dur-chip ${isSelected ? "active" : ""}`}
+                          onClick={() => {
+                            if (status === "rendering") return;
+                            setAssemblyStyle(st.id);
+                          }}
+                          disabled={status === "rendering"}
+                        >
+                          <IconC size={13} style={{ marginRight: 5, verticalAlign: "middle" }} />
+                          {st.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
 
               {/* Opciones Inteligentes */}
               <div className="autoedit-section">
