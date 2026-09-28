@@ -1299,64 +1299,243 @@ def plan_autoedit_narrative(
     max_source_duration: Optional[float] = None
 ) -> Dict[str, Any]:
     """
-    Plans an intelligent rough-cut assembly for YouTube (16:9) or Shorts (9:16).
+    Plans an intelligent rough-cut assembly for YouTube (16:9) or Shorts (9:16)
+    orchestrated by a real LLM (Ollama or Cloud) acting as Director of Editing.
     Distributes duration budget with silence-trim compensation and dynamic clip filling
     so the final video strictly matches target_duration_minutes.
     Supports AI orchestration styles (balanced, action, humor, chronological, alternative, smart_shuffle).
+    Gracefully falls back to heuristic sorting if LLM is unavailable.
     """
     if not candidates:
         return {"teaser_hook": None, "story_segments": []}
 
     import random
+    cand_map = {c["id"]: c for c in candidates}
     pool = [dict(c) for c in candidates]
     excluded_set = set(excluded_moment_ids or [])
 
-    # 1. Orchestrate pool based on assembly_style
-    if assembly_style == "alternative" and excluded_set:
-        fresh = [c for c in pool if c["id"] not in excluded_set]
-        reused = [c for c in pool if c["id"] in excluded_set]
-        pool = fresh + reused
-    elif assembly_style == "action":
-        def action_score(c):
-            t = f"{c.get('hook', '')} {c.get('rationale', '')}".lower()
-            bonus = 0.0
-            if "disparo" in t or "clutch" in t or "kill" in t or "combate" in t:
-                bonus += 0.40
-            if "grito" in t or "euforia" in t:
-                bonus += 0.20
-            return float(c.get("score", 0)) + bonus
-        pool.sort(key=action_score, reverse=True)
-    elif assembly_style == "humor":
-        def humor_score(c):
-            t = f"{c.get('hook', '')} {c.get('rationale', '')}".lower()
-            bonus = 0.0
-            if "risa" in t or "gracioso" in t or "fail" in t or "bloop" in t or "grito" in t or "euforia" in t:
-                bonus += 0.40
-            return float(c.get("score", 0)) + bonus
-        pool.sort(key=humor_score, reverse=True)
-    elif assembly_style == "chronological":
-        pool.sort(key=lambda c: float(c.get("startSec", c.get("start", 0))))
-    elif assembly_style == "smart_shuffle":
-        top = pool[0] if pool else None
-        rest = pool[1:] if len(pool) > 1 else []
-        random.shuffle(rest)
-        pool = ([top] if top else []) + rest
-    else:
-        # Balanced default: rank by score
-        pool.sort(key=lambda c: float(c.get("score", 0)), reverse=True)
-
     target_seconds = float(target_duration_minutes) * 60.0
-    # Silence trimming typically cuts ~15-18% of dead air; compensate planning budget so final output hits target_seconds!
     budget_needed = target_seconds * (1.18 if trim_silences else 1.0)
+
+    # 1. Prepare candidate metadata for the LLM
+    clips_summary = []
+    for c in candidates:
+        c_dur = float(c.get("endSec", c.get("end", 0))) - float(c.get("startSec", c.get("start", 0)))
+        clips_summary.append({
+            "id": c["id"],
+            "hook": c.get("hook") or c.get("title") or "Sin título",
+            "score": round(float(c.get("score", 5.0)), 1),
+            "duration_sec": round(c_dur, 1),
+            "transcript_sample": (c.get("text") or c.get("rationale") or "")[:220]
+        })
+
+    style_guide = {
+        "balanced": "EQUILIBRIO ÉPICO: Estructura una narrativa con gancho inicial potente, desarrollo con tensión ascendente y clímax de alto impacto.",
+        "smart_shuffle": "MEZCLA DINÁMICA: Crea una secuencia fresca y variada de momentos destacados manteniendo ritmo alto y evitando fórmulas predecibles.",
+        "action": "CLUTCHES Y ACCIÓN: Prioriza jugadas de combate, bajas, disparos [DISPAROS], clutches y momentos de máxima adrenalina.",
+        "humor": "RISAS Y COMEDIA: Prioriza momentos divertidos, risas, bromas, fails cómicos y reacciones exageradas del streamer.",
+        "chronological": "FLUJO CRONOLÓGICO: Ordena los mejores momentos respetando el orden temporal del stream para contar la historia secuencialmente.",
+        "alternative": "NUEVA VARIACIÓN: Descarta o evita momentos repetidos y enfócate en momentos secundarios o alternativos que también sean muy buenos."
+    }.get(assembly_style, "Estructura narrativa atractiva y de alta retención.")
+
+    format_guide = (
+        "MODO SHORTS / TIKTOK (9:16): Ritmo ultra ágil y directo al grano, transiciones dinámicas."
+        if format_mode == "shorts"
+        else "MODO YOUTUBE (16:9): Ritmo por capítulos con espacio para entender el contexto, desarrollo y remate."
+    )
+
+    teaser_instruction = (
+        "Elige un momento impactante para un gancho/teaser de 3-5 segundos que irá antes de comenzar el video (campo 'teaser_clip_id')."
+        if include_teaser
+        else "No incluyas teaser inicial ('teaser_clip_id': null)."
+    )
+
+    min_clips = max(2, int(round(target_seconds / 75.0)))
+    max_clips = max(3, int(round(target_seconds / 40.0)))
+
+    prompt = f"""Eres un Director de Montaje y Edición de Video profesional para creadores de contenido de YouTube y TikTok.
+Tu tarea es orquestar la selección y secuencia ideal de momentos para armar un video de aproximadamente {target_duration_minutes:.0f} minutos ({int(target_seconds)} segundos).
+
+ESTILO DE MONTAJE REQUERIDO:
+{style_guide}
+
+FORMATO:
+{format_guide}
+
+REGLAS DE MONTAJE:
+1. {teaser_instruction}
+2. Selecciona entre {min_clips} y {max_clips} momentos que juntos conformen el video perfecto.
+3. Ordena los momentos elegidos en 'story_segments' con una secuencia que mantenga la atención del espectador.
+4. Para cada momento seleccionado, asigna un 'chapter_title' corto y atractivo (sin emojis), y un 'target_seconds' sugerido (entre 20s y 80s).
+5. Usa EXCLUSIVAMENTE los IDs existentes en la lista proporcionada. No inventes IDs.
+
+MOMENTOS CANDIDATOS DISPONIBLES ({len(clips_summary)} clips):
+{json.dumps(clips_summary, ensure_ascii=False, indent=2)}
+
+Responde ÚNICAMENTE con este JSON válido:
+{{
+  "teaser_clip_id": "id_del_clip_para_el_teaser_o_null",
+  "editorial_reasoning": "Breve explicación de la estrategia narrativa",
+  "story_segments": [
+    {{
+      "clip_id": "id_del_clip",
+      "chapter_title": "Título del capítulo",
+      "target_seconds": 45.0
+    }}
+  ]
+}}"""
+
+    llm_planned_segments = None
+    llm_teaser_id = None
+
+    try:
+        raw_response = ""
+        if provider in ["local", "ollama"]:
+            url = "http://127.0.0.1:11434/api/chat"
+            active_model = model_name or "qwen2.5:7b"
+            has_thinking = detect_model_thinking_capability(active_model)
+            sys_msg = "Eres un director de montaje audiovisual experto. Devuelve únicamente JSON válido."
+            if has_thinking:
+                sys_msg += " Piensa brevemente en el orden narrativo y luego entrega el bloque JSON final."
+
+            payload: Dict[str, Any] = {
+                "model": active_model,
+                "messages": [
+                    {"role": "system", "content": sys_msg},
+                    {"role": "user", "content": prompt}
+                ],
+                "stream": False,
+                "options": {"temperature": 0.35}
+            }
+            if not has_thinking:
+                payload["format"] = "json"
+
+            resp = requests.post(url, json=payload, timeout=75)
+            if resp.ok:
+                msg = resp.json().get("message", {})
+                content = msg.get("content", "")
+                thinking = msg.get("thinking", "")
+                if "<think>" in content:
+                    content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
+                if not content and thinking:
+                    m = re.search(r"(\{.*\"story_segments\".*\})", thinking, re.DOTALL)
+                    if m:
+                        content = m.group(1)
+                raw_response = content
+            else:
+                print(f"[AutoEdit IA] Ollama no respondió al plan narrativo: {resp.text}")
+
+        elif provider in ["claude", "deepseek", "gemini", "openai", "openrouter", "groq"]:
+            if provider == "gemini":
+                model = model_name or os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+                payload = {
+                    "contents": [{"parts": [{"text": prompt}]}],
+                    "generationConfig": {"responseMimeType": "application/json", "temperature": 0.3}
+                }
+                resp = robust_cloud_post(url, headers={}, payload=payload, provider_name="Gemini")
+                if resp.ok:
+                    raw_response = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
+            elif provider == "openrouter":
+                url = "https://openrouter.ai/api/v1/chat/completions"
+                model = model_name or os.getenv("OPENROUTER_MODEL", "meta-llama/llama-3.3-70b-instruct:free")
+                headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+                payload = {
+                    "model": model,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "temperature": 0.3,
+                    "response_format": {"type": "json_object"}
+                }
+                resp = robust_cloud_post(url, headers, payload, provider_name="OpenRouter")
+                if resp.ok:
+                    raw_response = resp.json()["choices"][0]["message"]["content"]
+            elif provider in ["deepseek", "groq", "openai"]:
+                endpoint = (
+                    "https://api.deepseek.com/chat/completions" if provider == "deepseek"
+                    else "https://api.groq.com/openai/v1/chat/completions" if provider == "groq"
+                    else "https://api.openai.com/v1/chat/completions"
+                )
+                model = model_name or ("deepseek-chat" if provider == "deepseek" else "llama-3.3-70b-versatile" if provider == "groq" else "gpt-4o-mini")
+                headers = {"Authorization": f"Bearer {api_key}"}
+                payload = {
+                    "model": model,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "temperature": 0.3,
+                    "response_format": {"type": "json_object"}
+                }
+                resp = robust_cloud_post(endpoint, headers, payload, provider_name=provider)
+                if resp.ok:
+                    raw_response = resp.json()["choices"][0]["message"]["content"]
+            elif provider == "claude":
+                url = "https://api.anthropic.com/v1/messages"
+                model = model_name or "claude-3-5-sonnet-latest"
+                headers = {"x-api-key": api_key, "anthropic-version": "2023-06-01"}
+                payload = {
+                    "model": model,
+                    "max_tokens": 1500,
+                    "temperature": 0.3,
+                    "messages": [{"role": "user", "content": prompt}]
+                }
+                resp = robust_cloud_post(url, headers, payload, provider_name="Claude")
+                if resp.ok:
+                    content = resp.json().get("content", [])
+                    raw_response = content[0].get("text", "") if content else ""
+
+        if raw_response:
+            clean_json = raw_response.strip()
+            if "```json" in clean_json:
+                clean_json = clean_json.split("```json")[1].split("```")[0].strip()
+            elif "```" in clean_json:
+                clean_json = clean_json.split("```")[1].split("```")[0].strip()
+
+            parsed = json.loads(clean_json)
+            valid_segments = []
+            if "story_segments" in parsed and isinstance(parsed["story_segments"], list):
+                for item in parsed["story_segments"]:
+                    cid = item.get("clip_id")
+                    if cid in cand_map and cid not in [s["clip_id"] for s in valid_segments]:
+                        valid_segments.append({
+                            "clip_id": cid,
+                            "candidate": cand_map[cid],
+                            "chapter_title": item.get("chapter_title") or cand_map[cid].get("hook"),
+                            "target_seconds": float(item.get("target_seconds", 50.0))
+                        })
+            elif "ordered_clip_ids" in parsed and isinstance(parsed["ordered_clip_ids"], list):
+                for cid in parsed["ordered_clip_ids"]:
+                    if cid in cand_map and cid not in [s["clip_id"] for s in valid_segments]:
+                        valid_segments.append({
+                            "clip_id": cid,
+                            "candidate": cand_map[cid],
+                            "chapter_title": cand_map[cid].get("hook"),
+                            "target_seconds": 50.0
+                        })
+
+            if valid_segments:
+                llm_planned_segments = valid_segments
+                llm_teaser_id = parsed.get("teaser_clip_id")
+                reasoning = parsed.get("editorial_reasoning", "Estructura narrativa orquestada con IA")
+                print(f"[AutoEdit IA] Guion generado con IA ({len(valid_segments)} momentos). Estrategia: {reasoning}")
+
+    except Exception as e:
+        print(f"[AutoEdit IA] Aviso: Fallback heurístico activado ({e})")
+    finally:
+        # Crucial: Unload Ollama immediately so RAM/VRAM is 100% free for FFmpeg!
+        if provider in ["local", "ollama"]:
+            unload_all_ollama_models(model_name)
 
     # 2. Teaser Hook (if enabled)
     teaser_hook = None
-    best_candidate = pool[0] if pool else None
+    teaser_cand = None
+    if include_teaser and target_seconds >= 45.0:
+        if llm_teaser_id and llm_teaser_id in cand_map:
+            teaser_cand = cand_map[llm_teaser_id]
+        elif pool:
+            teaser_cand = pool[0]
 
-    if include_teaser and target_seconds >= 45.0 and best_candidate:
+    if teaser_cand:
         teaser_dur = 4.0 if format_mode == "shorts" else 5.0
-        t_sub_start, _ = locate_moment_active_window(best_candidate, teaser_dur, transcript_segments, max_source_duration)
-        clean_hook = strip_emojis_from_text(str(best_candidate.get("hook", "Gancho Inicial")))
+        t_sub_start, _ = locate_moment_active_window(teaser_cand, teaser_dur, transcript_segments, max_source_duration)
+        clean_hook = strip_emojis_from_text(str(teaser_cand.get("hook", "Gancho Inicial")))
         teaser_hook = {
             "start": t_sub_start,
             "end": round(t_sub_start + teaser_dur, 2),
@@ -1364,45 +1543,96 @@ def plan_autoedit_narrative(
         }
         budget_needed = max(15.0, budget_needed - teaser_dur)
 
-    # 3. Determine ideal clip count to fill the budget
-    clip_target_len = 45.0 if format_mode == "shorts" else 65.0
-    desired_clip_count = max(2, int(round(budget_needed / clip_target_len)))
-
-    chosen_candidates = []
-    seen_ids = set()
-
-    for c in pool:
-        if c["id"] not in seen_ids:
-            chosen_candidates.append(c)
-            seen_ids.add(c["id"])
-        if len(chosen_candidates) >= desired_clip_count:
-            break
-
-    if not chosen_candidates and pool:
-        chosen_candidates = [pool[0]]
-
-    # 4. Extract active windows strictly adhering to budget
     story_segments = []
     budget_left = budget_needed
+    seen_ids = set()
+    if teaser_cand:
+        seen_ids.add(teaser_cand["id"])
 
-    for idx, c in enumerate(chosen_candidates):
-        clips_remaining = len(chosen_candidates) - idx
-        this_clip_target = budget_left / max(1, clips_remaining)
-        max_single = 90.0 if format_mode == "shorts" else 150.0
-        this_clip_target = min(max_single, max(15.0, this_clip_target))
+    # 3. Assemble story segments from LLM or Heuristics
+    if llm_planned_segments:
+        total_planned = len(llm_planned_segments)
+        for idx, item in enumerate(llm_planned_segments):
+            c = item["candidate"]
+            clips_remaining = total_planned - idx
+            clip_dur = item.get("target_seconds", budget_left / max(1, clips_remaining))
+            max_single = 90.0 if format_mode == "shorts" else 150.0
+            clip_dur = min(max_single, max(15.0, clip_dur))
 
-        s_start, s_end = locate_moment_active_window(c, this_clip_target, transcript_segments, max_source_duration)
-        actual_dur = max(1.0, s_end - s_start)
+            s_start, s_end = locate_moment_active_window(c, clip_dur, transcript_segments, max_source_duration)
+            actual_dur = max(1.0, s_end - s_start)
+            clean_hook = strip_emojis_from_text(str(item.get("chapter_title") or c.get("hook", f"Momento {idx + 1}")))
 
-        clean_hook = strip_emojis_from_text(str(c.get("hook", f"Momento {idx + 1}")))
-        story_segments.append({
-            "start": s_start,
-            "end": s_end,
-            "hook": clean_hook
-        })
-        budget_left -= actual_dur
+            story_segments.append({
+                "start": s_start,
+                "end": s_end,
+                "hook": clean_hook
+            })
+            seen_ids.add(c["id"])
+            budget_left -= actual_dur
 
-    # 5. Dynamic fill: IF budget_left remains > 15s, keep pulling more moments from pool!
+    else:
+        # Fallback heuristic pool ranking
+        if assembly_style == "alternative" and excluded_set:
+            fresh = [c for c in pool if c["id"] not in excluded_set]
+            reused = [c for c in pool if c["id"] in excluded_set]
+            pool = fresh + reused
+        elif assembly_style == "action":
+            def action_score(c):
+                t = f"{c.get('hook', '')} {c.get('rationale', '')}".lower()
+                bonus = 0.0
+                if "disparo" in t or "clutch" in t or "kill" in t or "combate" in t:
+                    bonus += 0.40
+                if "grito" in t or "euforia" in t:
+                    bonus += 0.20
+                return float(c.get("score", 0)) + bonus
+            pool.sort(key=action_score, reverse=True)
+        elif assembly_style == "humor":
+            def humor_score(c):
+                t = f"{c.get('hook', '')} {c.get('rationale', '')}".lower()
+                bonus = 0.0
+                if "risa" in t or "gracioso" in t or "fail" in t or "bloop" in t or "grito" in t or "euforia" in t:
+                    bonus += 0.40
+                return float(c.get("score", 0)) + bonus
+            pool.sort(key=humor_score, reverse=True)
+        elif assembly_style == "chronological":
+            pool.sort(key=lambda c: float(c.get("startSec", c.get("start", 0))))
+        elif assembly_style == "smart_shuffle":
+            top = pool[0] if pool else None
+            rest = pool[1:] if len(pool) > 1 else []
+            random.shuffle(rest)
+            pool = ([top] if top else []) + rest
+        else:
+            pool.sort(key=lambda c: float(c.get("score", 0)), reverse=True)
+
+        clip_target_len = 45.0 if format_mode == "shorts" else 65.0
+        desired_clip_count = max(2, int(round(budget_needed / clip_target_len)))
+        chosen_candidates = []
+        for c in pool:
+            if c["id"] not in seen_ids:
+                chosen_candidates.append(c)
+                seen_ids.add(c["id"])
+            if len(chosen_candidates) >= desired_clip_count:
+                break
+        if not chosen_candidates and pool:
+            chosen_candidates = [pool[0]]
+
+        for idx, c in enumerate(chosen_candidates):
+            clips_remaining = len(chosen_candidates) - idx
+            this_clip_target = budget_left / max(1, clips_remaining)
+            max_single = 90.0 if format_mode == "shorts" else 150.0
+            this_clip_target = min(max_single, max(15.0, this_clip_target))
+            s_start, s_end = locate_moment_active_window(c, this_clip_target, transcript_segments, max_source_duration)
+            actual_dur = max(1.0, s_end - s_start)
+            clean_hook = strip_emojis_from_text(str(c.get("hook", f"Momento {idx + 1}")))
+            story_segments.append({
+                "start": s_start,
+                "end": s_end,
+                "hook": clean_hook
+            })
+            budget_left -= actual_dur
+
+    # 4. Dynamic fill: IF budget_left remains > 15s, keep pulling more moments from pool!
     for c in pool:
         if budget_left < 15.0:
             break
