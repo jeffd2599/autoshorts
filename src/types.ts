@@ -179,3 +179,6 @@ export type AutoEditAssemblyStyle =
   | "humor"
   | "chronological"
   | "alternative";
+
+export type AutoEditAspectRatio = "original" | "9:16" | "16:9";
+

@@ -3110,6 +3110,40 @@ textarea:focus {
   line-height: 1.35;
 }
 
+/* Aspect Ratio Selector */
+.aspect-ratio-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.aspect-chip {
+  background: #18181c;
+  border: 1px solid #27272e;
+  color: #d4d4d8;
+  padding: 0.5rem 0.85rem;
+  border-radius: 6px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.15s ease;
+}
+
+.aspect-chip:hover:not(:disabled) {
+  background: #202026;
+  border-color: #3f3f46;
+}
+
+.aspect-chip.active {
+  background: rgba(139, 92, 246, 0.12);
+  color: #c4b5fd;
+  border-color: #8b5cf6;
+  box-shadow: 0 0 0 1px #8b5cf6;
+}
+
 /* Duration Chips */
 .duration-chips-row {
   display: flex;

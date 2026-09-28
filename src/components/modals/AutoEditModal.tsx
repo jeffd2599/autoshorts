@@ -17,9 +17,11 @@ import {
   Shuffle,
   Crosshair,
   Flame,
-  Wand2
+  Wand2,
+  Maximize2,
+  Monitor
 } from "lucide-react";
-import { Project, AutoEditResult, AutoEditAssemblyStyle } from "../../types";
+import { Project, AutoEditResult, AutoEditAssemblyStyle, AutoEditAspectRatio } from "../../types";
 
 interface AutoEditModalProps {
   isOpen: boolean;
@@ -28,6 +30,8 @@ interface AutoEditModalProps {
   candidateCount: number;
   formatMode: "youtube" | "shorts";
   setFormatMode: (mode: "youtube" | "shorts") => void;
+  aspectRatio?: AutoEditAspectRatio;
+  setAspectRatio?: (ar: AutoEditAspectRatio) => void;
   targetMinutes: number;
   setTargetMinutes: (mins: number) => void;
   assemblyStyle?: AutoEditAssemblyStyle;
@@ -55,6 +59,8 @@ export function AutoEditModal({
   setFormatMode,
   targetMinutes,
   setTargetMinutes,
+  aspectRatio = "original",
+  setAspectRatio,
   assemblyStyle = "balanced",
   setAssemblyStyle,
   includeTeaser,
@@ -74,8 +80,7 @@ export function AutoEditModal({
 
   if (!isOpen) return null;
 
-  const youtubeDurations = [8, 12, 15, 20];
-  const shortsDurations = [1, 2, 3, 4, 5];
+  const allDurations = [1, 2, 3, 4, 5, 8, 10, 12, 15, 20, 25, 30];
 
   const handleCopyChapters = async () => {
     if (!result?.chaptersText) return;
@@ -134,9 +139,6 @@ export function AutoEditModal({
                     onClick={() => {
                       if (status === "rendering") return;
                       setFormatMode("youtube");
-                      if (!youtubeDurations.includes(targetMinutes)) {
-                        setTargetMinutes(12);
-                      }
                     }}
                     disabled={status === "rendering"}
                   >
@@ -144,9 +146,9 @@ export function AutoEditModal({
                       <Video size={22} />
                     </div>
                     <div className="autoedit-format-card-text">
-                      <span className="autoedit-format-name">Modo YouTube (16:9)</span>
+                      <span className="autoedit-format-name">Ritmo Narrativo (YouTube)</span>
                       <span className="autoedit-format-desc">
-                        Horizontal largo con progresión narrativa y capítulos para YouTube.
+                        Estructurado por capítulos, deja respirar el contexto, desarrollo y remate.
                       </span>
                     </div>
                   </button>
@@ -157,9 +159,6 @@ export function AutoEditModal({
                     onClick={() => {
                       if (status === "rendering") return;
                       setFormatMode("shorts");
-                      if (!shortsDurations.includes(targetMinutes)) {
-                        setTargetMinutes(2);
-                      }
                     }}
                     disabled={status === "rendering"}
                   >
@@ -167,14 +166,48 @@ export function AutoEditModal({
                       <Smartphone size={22} />
                     </div>
                     <div className="autoedit-format-card-text">
-                      <span className="autoedit-format-name">Modo Shorts / TikTok (9:16)</span>
+                      <span className="autoedit-format-name">Ritmo Dinámico (Shorts / TikTok)</span>
                       <span className="autoedit-format-desc">
-                        Vertical corto con ritmo ultra-rápido y recorte centrado 9:16.
+                        Cortes rápidos y continuos con alta velocidad narrativa sin pausas.
                       </span>
                     </div>
                   </button>
                 </div>
               </div>
+
+              {/* Relación de Aspecto */}
+              {setAspectRatio && (
+                <div className="autoedit-section">
+                  <label className="autoedit-section-label">
+                    <Maximize2 size={14} /> Relación de Aspecto
+                  </label>
+                  <div className="autoedit-durations-row">
+                    {[
+                      { id: "original" as AutoEditAspectRatio, label: "Nativo del Video", icon: Maximize2 },
+                      { id: "9:16" as AutoEditAspectRatio, label: "Vertical (9:16)", icon: Smartphone },
+                      { id: "16:9" as AutoEditAspectRatio, label: "Horizontal (16:9)", icon: Monitor }
+                    ].map((ar) => {
+                      const isSelected = aspectRatio === ar.id;
+                      const IconComponent = ar.icon;
+                      return (
+                        <button
+                          key={ar.id}
+                          type="button"
+                          className={`autoedit-dur-chip ${isSelected ? "active" : ""}`}
+                          onClick={() => {
+                            if (status === "rendering") return;
+                            setAspectRatio(ar.id);
+                          }}
+                          disabled={status === "rendering"}
+                        >
+                          <IconComponent size={13} style={{ marginRight: 5, verticalAlign: "middle" }} />
+                          {ar.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
 
               {/* Duración Objetivo */}
               <div className="autoedit-section">
@@ -182,9 +215,9 @@ export function AutoEditModal({
                   <Clock size={14} /> Duración Objetivo
                 </label>
                 <div className="autoedit-durations-row">
-                  {(formatMode === "youtube" ? youtubeDurations : shortsDurations).map((d) => {
+                  {allDurations.map((d) => {
                     const isSelected = targetMinutes === d;
-                    const label = formatMode === "youtube" ? `${d} min` : d === 1 ? "60 seg" : `${d} min`;
+                    const label = d === 1 ? "1 min" : `${d} min`;
                     return (
                       <button
                         key={d}

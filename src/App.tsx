@@ -17,6 +17,7 @@ import type {
   AutoEditResult,
   AutoEditRecord,
   AutoEditAssemblyStyle,
+  AutoEditAspectRatio,
   TargetDuration,
   Transcript,
   TranscriptionEngine,
@@ -92,6 +93,7 @@ export function App() {
   const [autoEditIncludeTeaser, setAutoEditIncludeTeaser] = useState<boolean>(true);
   const [autoEditTrimSilences, setAutoEditTrimSilences] = useState<boolean>(true);
   const [autoEditAssemblyStyle, setAutoEditAssemblyStyle] = useState<AutoEditAssemblyStyle>("balanced");
+  const [autoEditAspectRatio, setAutoEditAspectRatio] = useState<AutoEditAspectRatio>("original");
   const [autoEditStatus, setAutoEditStatus] = useState<"idle" | "rendering" | "done">("idle");
   const [autoEditProgressMsg, setAutoEditProgressMsg] = useState<string>("");
   const [autoEditProgressPct, setAutoEditProgressPct] = useState<number>(0);
@@ -1200,6 +1202,8 @@ export function App() {
         includeTeaser: autoEditIncludeTeaser,
         trimSilences: autoEditTrimSilences,
         assemblyStyle: autoEditAssemblyStyle,
+        aspectRatio: autoEditAspectRatio,
+        modelName: localLlmModel,
         outputDir: customOutputDir || null,
       });
       setAutoEditResult(res);
@@ -1442,6 +1446,8 @@ export function App() {
                   setFormatMode={setAutoEditFormatMode}
                   targetDurationMinutes={autoEditTargetMinutes}
                   setTargetDurationMinutes={setAutoEditTargetMinutes}
+                  aspectRatio={autoEditAspectRatio}
+                  setAspectRatio={setAutoEditAspectRatio}
                   assemblyStyle={autoEditAssemblyStyle}
                   setAssemblyStyle={setAutoEditAssemblyStyle}
                   includeTeaser={autoEditIncludeTeaser}
@@ -1701,6 +1707,8 @@ export function App() {
           setFormatMode={setAutoEditFormatMode}
           targetMinutes={autoEditTargetMinutes}
           setTargetMinutes={setAutoEditTargetMinutes}
+          aspectRatio={autoEditAspectRatio}
+          setAspectRatio={setAutoEditAspectRatio}
           assemblyStyle={autoEditAssemblyStyle}
           setAssemblyStyle={setAutoEditAssemblyStyle}
           includeTeaser={autoEditIncludeTeaser}

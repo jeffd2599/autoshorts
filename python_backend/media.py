@@ -854,15 +854,19 @@ def render_autoedit_video(
                 "-i", source_path
             ]
 
-            filters = []
             if aspect_ratio == "9:16":
                 filters.append("crop=w='2*trunc(min(iw,ih*9/16)/2)':h='2*trunc(min(ih,iw*16/9)/2)'")
                 filters.append("scale=1080:1920:force_original_aspect_ratio=decrease")
                 filters.append("pad=1080:1920:(ow-iw)/2:(oh-ih)/2")
                 filters.append("setsar=1")
-            else:
+            elif aspect_ratio == "16:9":
+                filters.append("crop=w='2*trunc(min(iw,ih*16/9)/2)':h='2*trunc(min(ih,iw*9/16)/2)'")
                 filters.append("scale=1920:1080:force_original_aspect_ratio=decrease")
                 filters.append("pad=1920:1080:(ow-iw)/2:(oh-ih)/2")
+                filters.append("setsar=1")
+            else:
+                # "original" aspect ratio: preserves source native resolution (whether vertical, horizontal, etc.)
+                filters.append("scale=trunc(iw/2)*2:trunc(ih/2)*2")
                 filters.append("setsar=1")
 
             # For teaser, apply a fast 0.25s fade to black at the end

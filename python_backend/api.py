@@ -1008,11 +1008,24 @@ class Api:
 
         app_cfg = self.get_app_config()
         llm_engine = app_cfg.get("llmEngine", "local")
-        model_name = app_cfg.get("localLlmModel") if llm_engine == "local" else (
-            app_cfg.get("deepseekModel") if llm_engine == "deepseek" else (
-                app_cfg.get("openrouterModel") if llm_engine == "openrouter" else None
-            )
-        )
+        model_name = args.get("modelName")
+        if not model_name:
+            if llm_engine == "local":
+                try:
+                    ps_res = requests.get("http://127.0.0.1:11434/api/ps", timeout=1.0)
+                    if ps_res.ok:
+                        ps_models = ps_res.json().get("models", [])
+                        if ps_models:
+                            model_name = ps_models[0].get("name")
+                            print(f"[AutoEdit] Usando modelo activo en Ollama: {model_name}")
+                except Exception:
+                    pass
+                if not model_name:
+                    model_name = app_cfg.get("localLlmModel")
+            elif llm_engine == "deepseek":
+                model_name = app_cfg.get("deepseekModel")
+            elif llm_engine == "openrouter":
+                model_name = app_cfg.get("openrouterModel")
         api_key = (
             app_cfg.get("anthropicKey") if llm_engine == "claude" else (
                 app_cfg.get("deepseekKey") if llm_engine == "deepseek" else (
@@ -1098,7 +1111,8 @@ class Api:
         output_filename = f"AutoEdit_{mode_label}_{dur_label}{style_slug}_{clean_name}_{time_tag}.mp4"
         output_path = out_dir / output_filename
 
-        aspect_ratio = "9:16" if format_mode == "shorts" else "original"
+        raw_aspect = str(args.get("aspectRatio", "original")).strip().lower()
+        aspect_ratio = raw_aspect if raw_aspect in ["original", "9:16", "16:9"] else "original"
 
         def on_render_progress(current_idx: int, total_segs: int, msg: str):
             pct = 15 + int((current_idx / max(1, total_segs)) * 80)

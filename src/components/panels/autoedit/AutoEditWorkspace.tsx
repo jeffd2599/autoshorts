@@ -1,11 +1,13 @@
 import React from "react";
 import { AutoEditConfigPanel } from "./AutoEditConfigPanel";
 import { AutoEditGalleryPanel } from "./AutoEditGalleryPanel";
-import { AutoEditRecord, AutoEditAssemblyStyle } from "../../../types";
+import { AutoEditRecord, AutoEditAssemblyStyle, AutoEditAspectRatio } from "../../../types";
 
 interface AutoEditWorkspaceProps {
   formatMode: "youtube" | "shorts";
   setFormatMode: (mode: "youtube" | "shorts") => void;
+  aspectRatio: AutoEditAspectRatio;
+  setAspectRatio: (ar: AutoEditAspectRatio) => void;
   targetDurationMinutes: number;
   setTargetDurationMinutes: (m: number) => void;
   assemblyStyle: AutoEditAssemblyStyle;
@@ -31,6 +33,8 @@ interface AutoEditWorkspaceProps {
 export const AutoEditWorkspace: React.FC<AutoEditWorkspaceProps> = ({
   formatMode,
   setFormatMode,
+  aspectRatio,
+  setAspectRatio,
   targetDurationMinutes,
   setTargetDurationMinutes,
   assemblyStyle,
@@ -57,6 +61,8 @@ export const AutoEditWorkspace: React.FC<AutoEditWorkspaceProps> = ({
       <AutoEditConfigPanel
         formatMode={formatMode}
         setFormatMode={setFormatMode}
+        aspectRatio={aspectRatio}
+        setAspectRatio={setAspectRatio}
         targetDurationMinutes={targetDurationMinutes}
         setTargetDurationMinutes={setTargetDurationMinutes}
         assemblyStyle={assemblyStyle}

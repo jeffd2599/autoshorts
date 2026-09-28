@@ -12,13 +12,18 @@ import {
   Check,
   X,
   Loader2,
-  Wand2
+  Wand2,
+  Maximize2,
+  Smartphone,
+  Monitor
 } from "lucide-react";
-import { AutoEditAssemblyStyle } from "../../../types";
+import { AutoEditAssemblyStyle, AutoEditAspectRatio } from "../../../types";
 
 interface AutoEditConfigPanelProps {
   formatMode: "youtube" | "shorts";
   setFormatMode: (mode: "youtube" | "shorts") => void;
+  aspectRatio: AutoEditAspectRatio;
+  setAspectRatio: (ar: AutoEditAspectRatio) => void;
   targetDurationMinutes: number;
   setTargetDurationMinutes: (m: number) => void;
   assemblyStyle: AutoEditAssemblyStyle;
@@ -34,8 +39,7 @@ interface AutoEditConfigPanelProps {
   onCancel: () => void;
 }
 
-const YOUTUBE_DURATIONS = [8, 12, 15, 20];
-const SHORTS_DURATIONS = [1, 2, 3, 4, 5];
+const ALL_DURATIONS = [1, 2, 3, 4, 5, 8, 10, 12, 15, 20, 25, 30];
 
 const ASSEMBLY_STYLES: {
   id: AutoEditAssemblyStyle;
@@ -91,6 +95,8 @@ const ASSEMBLY_STYLES: {
 export const AutoEditConfigPanel: React.FC<AutoEditConfigPanelProps> = ({
   formatMode,
   setFormatMode,
+  aspectRatio,
+  setAspectRatio,
   targetDurationMinutes,
   setTargetDurationMinutes,
   assemblyStyle,
@@ -105,8 +111,6 @@ export const AutoEditConfigPanel: React.FC<AutoEditConfigPanelProps> = ({
   onAssemble,
   onCancel
 }) => {
-  const currentDurations = formatMode === "youtube" ? YOUTUBE_DURATIONS : SHORTS_DURATIONS;
-
   return (
     <aside className="autoedit-config-panel">
       <div className="panel-header-clean">
@@ -120,50 +124,79 @@ export const AutoEditConfigPanel: React.FC<AutoEditConfigPanelProps> = ({
       </div>
 
       <div className="config-scroll-body">
-        {/* Format Selector */}
+        {/* Editorial Rhythm Mode */}
         <div className="config-section">
           <label className="section-label">
-            <Video size={14} /> Formato de Video
+            <Video size={14} /> Ritmo y Enfoque Narrativo
           </label>
           <div className="format-cards-grid">
             <button
               type="button"
               className={`format-card ${formatMode === "youtube" ? "active" : ""}`}
-              onClick={() => {
-                setFormatMode("youtube");
-                if (!YOUTUBE_DURATIONS.includes(targetDurationMinutes)) {
-                  setTargetDurationMinutes(12);
-                }
-              }}
+              onClick={() => setFormatMode("youtube")}
               disabled={isRendering}
             >
               <div className="format-card-header">
                 <Video size={18} />
-                <span className="aspect-badge">16:9</span>
+                <span className="aspect-badge">Capítulos</span>
               </div>
-              <div className="format-title">YouTube Video</div>
-              <div className="format-desc">Horizontal clásico, ritmo narrativo por capítulos.</div>
+              <div className="format-title">Ritmo Narrativo</div>
+              <div className="format-desc">Ideal para YouTube o compilaciones. Da espacio para setup, jugada y remate.</div>
             </button>
 
             <button
               type="button"
               className={`format-card ${formatMode === "shorts" ? "active" : ""}`}
-              onClick={() => {
-                setFormatMode("shorts");
-                if (!SHORTS_DURATIONS.includes(targetDurationMinutes)) {
-                  setTargetDurationMinutes(2);
-                }
-              }}
+              onClick={() => setFormatMode("shorts")}
               disabled={isRendering}
             >
               <div className="format-card-header">
                 <Zap size={18} />
-                <span className="aspect-badge">9:16</span>
+                <span className="aspect-badge">Ágil</span>
               </div>
-              <div className="format-title">Shorts / TikTok</div>
-              <div className="format-desc">Vertical dinámico, ritmo ágil y ganchos rápidos.</div>
+              <div className="format-title">Ritmo Dinámico</div>
+              <div className="format-desc">Ideal para Shorts, Reels o TikTok. Cortes continuos y alta retención sin pausas.</div>
             </button>
           </div>
+        </div>
+
+        {/* Aspect Ratio Selector */}
+        <div className="config-section">
+          <label className="section-label">
+            <Maximize2 size={14} /> Relación de Aspecto
+          </label>
+          <div className="aspect-ratio-row">
+            <button
+              type="button"
+              className={`aspect-chip ${aspectRatio === "original" ? "active" : ""}`}
+              onClick={() => setAspectRatio("original")}
+              disabled={isRendering}
+            >
+              <Maximize2 size={13} />
+              <span>Original del Video (Nativo)</span>
+            </button>
+            <button
+              type="button"
+              className={`aspect-chip ${aspectRatio === "9:16" ? "active" : ""}`}
+              onClick={() => setAspectRatio("9:16")}
+              disabled={isRendering}
+            >
+              <Smartphone size={13} />
+              <span>Vertical (9:16)</span>
+            </button>
+            <button
+              type="button"
+              className={`aspect-chip ${aspectRatio === "16:9" ? "active" : ""}`}
+              onClick={() => setAspectRatio("16:9")}
+              disabled={isRendering}
+            >
+              <Monitor size={13} />
+              <span>Horizontal (16:9)</span>
+            </button>
+          </div>
+          <p className="field-hint">
+            Por defecto, el montaje respeta la resolución nativa de tu video fuente sin recortes no deseados.
+          </p>
         </div>
 
         {/* Target Duration Chips */}
@@ -172,7 +205,7 @@ export const AutoEditConfigPanel: React.FC<AutoEditConfigPanelProps> = ({
             <Clock size={14} /> Duración Objetivo
           </label>
           <div className="duration-chips-row">
-            {currentDurations.map((dur) => (
+            {ALL_DURATIONS.map((dur) => (
               <button
                 key={dur}
                 type="button"
@@ -185,7 +218,7 @@ export const AutoEditConfigPanel: React.FC<AutoEditConfigPanelProps> = ({
             ))}
           </div>
           <p className="field-hint">
-            El motor de ensamblado compensará silencios y expandirá contexto para alcanzar exactamente {targetDurationMinutes} min.
+            Puedes generar videos de cualquier duración (ej. 20 min en vertical o 3 min en horizontal) con plena libertad.
           </p>
         </div>
 
@@ -219,7 +252,7 @@ export const AutoEditConfigPanel: React.FC<AutoEditConfigPanelProps> = ({
             })}
           </div>
           <p className="field-hint">
-            Puedes generar múltiples versiones (por ejemplo con Mezcla Dinámica o Nueva Variación) y conservarlas todas en tu galería.
+            La IA analizará los momentos, los diálogos y los disparos para secuenciar el video según el estilo seleccionado.
           </p>
         </div>
 
