@@ -5,6 +5,7 @@ import re
 import shutil
 import struct
 import subprocess
+import threading
 import time
 import wave
 from pathlib import Path
@@ -57,13 +58,24 @@ def probe_media(path: str) -> Dict[str, Any]:
 def extract_audio(
     source_path: str,
     project_dir: Path,
-    is_cancelled: Optional[Callable[[], bool]] = None
+    is_cancelled: Optional[Callable[[], bool]] = None,
+    force: bool = False
 ) -> Path:
     if not command_exists("ffmpeg"):
         raise RuntimeError("ffmpeg is not installed or not available on PATH")
 
     os.makedirs(project_dir, exist_ok=True)
     output_path = project_dir / "transcription_audio.wav"
+
+    # Reuse if already extracted, valid WAV, and not forced
+    if not force and output_path.exists() and output_path.stat().st_size > 1024:
+        try:
+            with wave.open(str(output_path), "rb") as wf:
+                if wf.getnchannels() > 0 and wf.getnframes() > 0 and wf.getframerate() > 0:
+                    print(f"Pista de audio existente encontrada y verificada: {output_path} ({output_path.stat().st_size / (1024*1024):.1f} MB). Reutilizando.")
+                    return output_path
+        except Exception:
+            pass
 
     cmd = [
         "ffmpeg",
@@ -76,12 +88,28 @@ def extract_audio(
     ]
     proc = subprocess.Popen(
         cmd,
-        stdout=subprocess.PIPE,
+        stdout=subprocess.DEVNULL,
         stderr=subprocess.PIPE,
         text=True,
         encoding="utf-8",
-        errors="replace"
+        errors="replace",
+        bufsize=1
     )
+
+    stderr_lines: List[str] = []
+
+    def drain_stderr():
+        try:
+            if proc.stderr:
+                for line in proc.stderr:
+                    stderr_lines.append(line)
+                    if len(stderr_lines) > 50:
+                        stderr_lines.pop(0)
+        except Exception:
+            pass
+
+    drain_thread = threading.Thread(target=drain_stderr, daemon=True)
+    drain_thread.start()
 
     while proc.poll() is None:
         if is_cancelled and is_cancelled():
@@ -98,9 +126,11 @@ def extract_audio(
             raise InterruptedError("Extracción de audio cancelada por el usuario.")
         time.sleep(0.15)
 
+    drain_thread.join(timeout=2.0)
+
     if proc.returncode != 0:
-        stderr_output = proc.stderr.read() if proc.stderr else ""
-        raise RuntimeError(f"ffmpeg audio extraction failed: {stderr_output.strip()[-300:]}")
+        stderr_output = "".join(stderr_lines).strip()[-400:]
+        raise RuntimeError(f"ffmpeg audio extraction failed: {stderr_output}")
 
     return output_path
 

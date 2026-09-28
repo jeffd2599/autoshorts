@@ -73,11 +73,13 @@ def transcribe_local(
         "discord, twitch, youtube, shorts, partida, gameplay, sniper, kill"
     )
 
-    import whisper.transcribe
-    orig_whisper_tqdm = getattr(whisper.transcribe, "tqdm", None)
-    orig_tqdm = tqdm.tqdm
+    import sys
+    _ORIGINAL_TQDM = getattr(tqdm, "_ORIGINAL_TQDM", None)
+    if _ORIGINAL_TQDM is None:
+        _ORIGINAL_TQDM = tqdm.tqdm
+        tqdm._ORIGINAL_TQDM = _ORIGINAL_TQDM
 
-    class ProgressTqdm(orig_tqdm):
+    class ProgressTqdm(_ORIGINAL_TQDM):
         def update(self, n=1):
             if is_cancelled and is_cancelled():
                 raise InterruptedError("Transcripción cancelada por el usuario.")
@@ -91,8 +93,18 @@ def transcribe_local(
             return res
 
     tqdm.tqdm = ProgressTqdm
-    if hasattr(whisper.transcribe, "tqdm"):
-        whisper.transcribe.tqdm = ProgressTqdm
+    whisper_transcribe_mod = sys.modules.get("whisper.transcribe")
+    if whisper_transcribe_mod and hasattr(whisper_transcribe_mod, "tqdm"):
+        if hasattr(whisper_transcribe_mod.tqdm, "tqdm"):
+            whisper_transcribe_mod.tqdm.tqdm = ProgressTqdm
+        else:
+            whisper_transcribe_mod.tqdm = ProgressTqdm
+
+    if progress_callback:
+        try:
+            progress_callback(0)
+        except Exception:
+            pass
 
     try:
         result = model.transcribe(
@@ -110,9 +122,11 @@ def transcribe_local(
             torch.cuda.empty_cache()
         raise
     finally:
-        tqdm.tqdm = orig_tqdm
-        if orig_whisper_tqdm is not None:
-            whisper.transcribe.tqdm = orig_whisper_tqdm
+        tqdm.tqdm = _ORIGINAL_TQDM
+        whisper_transcribe_mod = sys.modules.get("whisper.transcribe")
+        if whisper_transcribe_mod and hasattr(whisper_transcribe_mod, "tqdm"):
+            if hasattr(whisper_transcribe_mod.tqdm, "tqdm"):
+                whisper_transcribe_mod.tqdm.tqdm = _ORIGINAL_TQDM
 
     del model
     if torch.cuda.is_available():

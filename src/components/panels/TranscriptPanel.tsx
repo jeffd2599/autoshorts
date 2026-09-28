@@ -104,7 +104,7 @@ export function TranscriptPanel({
               }}
             >
               <AudioLines size={16} />
-              Transcribir
+              {detail?.transcript ? "Volver a Transcribir" : "Transcribir"}
             </button>
           )}
         </div>

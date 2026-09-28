@@ -312,6 +312,7 @@ class Api:
         proj_dir = self.get_project_dir(project)
 
         try:
+            self.emit("transcription-progress", {"percentage": 0, "message": "Preparando pista de audio..."})
             audio_path = extract_audio(
                 project["sourcePath"],
                 proj_dir / "audio",
@@ -330,8 +331,10 @@ class Api:
                 key = api_key or os.getenv("DEEPGRAM_API_KEY")
                 if not key:
                     raise ValueError("Deepgram API Key is required")
+                self.emit("transcription-progress", {"percentage": 0, "message": "Transcribiendo con Deepgram..."})
                 transcript = transcribe_deepgram(str(audio_path), key)
             else:
+                self.emit("transcription-progress", {"percentage": 0, "message": f"Cargando modelo Whisper '{whisper_model}'..."})
                 transcript = transcribe_local(
                     str(audio_path),
                     model_name=whisper_model,
@@ -374,6 +377,7 @@ class Api:
 
             # 3. Detect gunfire/explosions during silence and streamer shouts/screams
             try:
+                self.emit("transcription-progress", {"percentage": 98, "message": "Analizando acústica (disparos y gritos)..."})
                 print("Analizando audio para detectar disparos en silencio y gritos de streamer...")
                 segs, words = inject_acoustic_cues_into_transcript(
                     transcript.get("segments", []),
@@ -384,6 +388,8 @@ class Api:
                 transcript["words"] = words
             except Exception as e:
                 print(f"Nota en detección acústica de disparos y gritos: {e}")
+
+            self.emit("transcription-progress", {"percentage": 100, "message": "Transcripción completada"})
 
             raw_json = json.dumps(transcript, ensure_ascii=False, indent=2)
             saved = self.db.save_transcript(

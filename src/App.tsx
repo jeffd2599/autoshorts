@@ -529,6 +529,7 @@ export function App() {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setBusy("idle");
+      setTranscriptionProgress(null);
     }
   }
 
@@ -934,6 +935,7 @@ export function App() {
 
   async function transcribe() {
     if (!detail) return;
+    setTranscriptionProgress({ percentage: 0, message: "Iniciando transcripción..." });
     await run("transcribe", async () => {
       const activeLlmKey =
         llmEngine === "claude"
@@ -1044,10 +1046,10 @@ export function App() {
   async function cancelTranscription() {
     try {
       await invoke("cancel_transcription");
-      setCandidateProgress({ message: "Cancelando transcripción...", current: 0, total: 1 });
+      setTranscriptionProgress({ percentage: 0, message: "Cancelando transcripción..." });
       setTimeout(() => {
         setBusy("idle");
-        setCandidateProgress(null);
+        setTranscriptionProgress(null);
         if (detail) {
           void refresh(detail.project.id);
         }
@@ -1055,7 +1057,7 @@ export function App() {
     } catch (err) {
       console.error("Error al cancelar transcripción:", err);
       setBusy("idle");
-      setCandidateProgress(null);
+      setTranscriptionProgress(null);
     }
   }
 
