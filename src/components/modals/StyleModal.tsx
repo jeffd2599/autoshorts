@@ -31,6 +31,9 @@ interface StyleModalProps {
   setLlmEngine: (engine: LlmEngine) => void;
   localLlmModel: string;
   setLocalLlmModel: (model: string) => void;
+  lmstudioModel?: string;
+  setLmstudioModel?: (model: string) => void;
+  canUseLmStudio?: boolean;
   deepseekModel: string;
   setDeepseekModel: (model: string) => void;
   openrouterModel: string;
@@ -78,6 +81,9 @@ export function StyleModal({
   setLlmEngine,
   localLlmModel,
   setLocalLlmModel,
+  lmstudioModel = "",
+  setLmstudioModel,
+  canUseLmStudio = false,
   deepseekModel,
   setDeepseekModel,
   openrouterModel,
@@ -382,7 +388,7 @@ export function StyleModal({
                     Motor & Modelo de IA para Analizar Momentos:
                   </label>
                   <span style={{ fontSize: "0.75rem", opacity: 0.75 }}>
-                    {llmEngine === "local" ? "Local y Privado" : "API Cloud"}
+                    {llmEngine === "local" || llmEngine === "lmstudio" ? "Local y Privado" : "API Cloud"}
                   </span>
                 </div>
 
@@ -401,19 +407,15 @@ export function StyleModal({
                       style={{ width: "100%", padding: "0.45rem 0.6rem", fontSize: "0.82rem", borderRadius: "6px" }}
                     >
                       <option value="local">Ollama (Local)</option>
-                      <option value="deepseek">DeepSeek API</option>
-                      <option value="claude">Claude (Anthropic)</option>
-                      <option value="openai">OpenAI (GPT-4o)</option>
-                      <option value="groq">Groq</option>
-                      <option value="gemini">Gemini</option>
-                      <option value="openrouter">OpenRouter</option>
+                      <option value="lmstudio">LM Studio (Local)</option>
+                      <option value="openrouter">OpenRouter (Cloud)</option>
                     </select>
                   </div>
 
                   {/* Model Selector / Input */}
                   <div>
                     <label style={{ fontSize: "0.72rem", opacity: 0.7, display: "block", marginBottom: "0.2rem" }}>
-                      {llmEngine === "local" ? "Modelo de Ollama instalado" : "Modelo / Clave"}
+                      {llmEngine === "local" ? "Modelo de Ollama instalado" : llmEngine === "lmstudio" ? "Modelo de LM Studio" : "Modelo / Clave"}
                     </label>
 
                     {llmEngine === "local" ? (
@@ -446,32 +448,64 @@ export function StyleModal({
                           style={{ width: "100%", padding: "0.45rem 0.6rem", fontSize: "0.82rem", borderRadius: "6px" }}
                         />
                       )
+                    ) : llmEngine === "lmstudio" ? (
+                      environment?.installedLmStudioModels && environment.installedLmStudioModels.length > 0 ? (
+                        <select
+                          className="form-select"
+                          value={lmstudioModel}
+                          onChange={(e) => {
+                            if (setLmstudioModel) setLmstudioModel(e.target.value);
+                            localStorage.setItem("autoshorts_lmstudio_model", e.target.value);
+                          }}
+                          style={{ width: "100%", padding: "0.45rem 0.6rem", fontSize: "0.82rem", borderRadius: "6px" }}
+                        >
+                          {environment.installedLmStudioModels.map((m) => (
+                            <option key={m} value={m}>
+                              {m}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+                          <input
+                            type="text"
+                            className="form-input"
+                            value={lmstudioModel}
+                            onChange={(e) => {
+                              if (setLmstudioModel) setLmstudioModel(e.target.value);
+                              localStorage.setItem("autoshorts_lmstudio_model", e.target.value);
+                            }}
+                            placeholder="Ej: gemma-4-e4b-uncensored-hauhaucs-aggressive"
+                            style={{ flex: 1, padding: "0.45rem 0.6rem", fontSize: "0.82rem", borderRadius: "6px" }}
+                          />
+                          <span style={{ fontSize: "0.75rem", whiteSpace: "nowrap" }}>
+                            {canUseLmStudio ? (
+                              <span style={{ color: "#10b981", fontWeight: 600 }}>LM Studio OK</span>
+                            ) : (
+                              <span
+                                onClick={onOpenSettings}
+                                style={{ color: "#f59e0b", cursor: "pointer", textDecoration: "underline", fontWeight: 600 }}
+                                title="Verifica que LM Studio esté corriendo en el puerto 1234"
+                              >
+                                Desconectado (Configurar)
+                              </span>
+                            )}
+                          </span>
+                        </div>
+                      )
                     ) : (
                       <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
                         <input
                           type="text"
                           className="form-input"
-                          value={
-                            llmEngine === "deepseek" ? (deepseekModel || "deepseek-chat") :
-                            llmEngine === "openrouter" ? (openrouterModel || "anthropic/claude-3.5-sonnet") :
-                            llmEngine === "claude" ? "claude-3-5-sonnet-20241022" :
-                            llmEngine === "openai" ? "gpt-4o" :
-                            llmEngine === "groq" ? "llama-3.3-70b-versatile" : "gemini-1.5-flash"
-                          }
+                          value={openrouterModel || "anthropic/claude-3.5-sonnet"}
                           onChange={(e) => {
-                            if (llmEngine === "deepseek") setDeepseekModel(e.target.value);
-                            if (llmEngine === "openrouter") setOpenrouterModel(e.target.value);
+                            if (setOpenrouterModel) setOpenrouterModel(e.target.value);
                           }}
-                          readOnly={llmEngine !== "deepseek" && llmEngine !== "openrouter"}
                           style={{ flex: 1, padding: "0.45rem 0.6rem", fontSize: "0.82rem", borderRadius: "6px" }}
                         />
                         <span style={{ fontSize: "0.75rem", whiteSpace: "nowrap" }}>
-                          {((llmEngine === "deepseek" && canUseDeepseek) ||
-                            (llmEngine === "claude" && canUseClaude) ||
-                            (llmEngine === "openai" && canUseOpenai) ||
-                            (llmEngine === "groq" && canUseGroq) ||
-                            (llmEngine === "gemini" && canUseGemini) ||
-                            (llmEngine === "openrouter" && canUseOpenrouter)) ? (
+                          {canUseOpenrouter ? (
                             <span style={{ color: "#10b981", fontWeight: 600 }}>API Key OK</span>
                           ) : (
                             <span

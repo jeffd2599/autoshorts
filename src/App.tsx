@@ -124,6 +124,12 @@ export function App() {
   const [localLlmModel, setLocalLlmModel] = useState(() => {
     return localStorage.getItem("autoshorts_local_llm_model") || "llama3.2";
   });
+  const [lmstudioModel, setLmstudioModel] = useState(() => {
+    return localStorage.getItem("autoshorts_lmstudio_model") || "";
+  });
+  const [lmstudioBaseUrl, setLmstudioBaseUrl] = useState(() => {
+    return localStorage.getItem("autoshorts_lmstudio_base_url") || "http://127.0.0.1:1234/v1";
+  });
   const [deepgramKey, setDeepgramKey] = useState(() => {
     return localStorage.getItem("autoshorts_deepgram_key") || "";
   });
@@ -209,6 +215,7 @@ export function App() {
   const canUseOpenai = Boolean(environment?.hasOpenaiKey || openaiKey.trim().length > 0);
   const canUseOpenrouter = Boolean(environment?.hasOpenrouterKey || openrouterKey.trim().length > 0);
   const canUseGroq = Boolean(environment?.hasGroqKey || groqKey.trim().length > 0);
+  const canUseLmStudio = Boolean(environment?.hasLmStudio);
 
   const canTranscribe =
     transcriptionEngine === "local"
@@ -218,18 +225,10 @@ export function App() {
   const canUseActiveLlm =
     llmEngine === "local"
       ? Boolean(environment?.hasOllama)
-      : llmEngine === "claude"
-      ? canUseClaude
-      : llmEngine === "deepseek"
-      ? canUseDeepseek
-      : llmEngine === "gemini"
-      ? canUseGemini
-      : llmEngine === "openai"
-      ? canUseOpenai
+      : llmEngine === "lmstudio"
+      ? canUseLmStudio
       : llmEngine === "openrouter"
       ? canUseOpenrouter
-      : llmEngine === "groq"
-      ? canUseGroq
       : false;
 
   useEffect(() => {
@@ -271,6 +270,8 @@ export function App() {
           if (cfg?.customMomentsPrompt !== undefined) setCustomMomentsPrompt(cfg.customMomentsPrompt);
           if (cfg?.llmEngine) setLlmEngine(cfg.llmEngine);
           if (cfg?.localLlmModel) setLocalLlmModel(cfg.localLlmModel);
+          if (cfg?.lmstudioModel) setLmstudioModel(cfg.lmstudioModel);
+          if (cfg?.lmstudioBaseUrl) setLmstudioBaseUrl(cfg.lmstudioBaseUrl);
           if (cfg?.deepseekKey) setDeepseekKey(cfg.deepseekKey);
           if (cfg?.deepseekModel) setDeepseekModel(cfg.deepseekModel);
           if (cfg?.anthropicKey) setAnthropicKey(cfg.anthropicKey);
@@ -365,6 +366,26 @@ export function App() {
   }, [localLlmModel]);
 
   useEffect(() => {
+    localStorage.setItem("autoshorts_lmstudio_model", lmstudioModel);
+    syncConfig({ lmstudioModel });
+  }, [lmstudioModel]);
+
+  useEffect(() => {
+    localStorage.setItem("autoshorts_lmstudio_base_url", lmstudioBaseUrl);
+    syncConfig({ lmstudioBaseUrl });
+  }, [lmstudioBaseUrl]);
+
+  useEffect(() => {
+    if (environment?.installedLmStudioModels && environment.installedLmStudioModels.length > 0) {
+      const installed = environment.installedLmStudioModels;
+      if (!lmstudioModel || !installed.includes(lmstudioModel)) {
+        setLmstudioModel(installed[0]);
+        syncConfig({ lmstudioModel: installed[0] });
+      }
+    }
+  }, [environment?.installedLmStudioModels]);
+
+  useEffect(() => {
     if (environment?.installedOllamaModels && environment.installedOllamaModels.length > 0) {
       const installed = environment.installedOllamaModels;
       if (!installed.includes(localLlmModel)) {
@@ -427,25 +448,12 @@ export function App() {
     setIsGeneratingCopy(true);
     setError(null);
     try {
-      const activeLlmKey =
-        llmEngine === "claude"
-          ? anthropicKey.trim()
-          : llmEngine === "deepseek"
-          ? deepseekKey.trim()
-          : llmEngine === "gemini"
-          ? geminiKey.trim()
-          : llmEngine === "openai"
-          ? openaiKey.trim()
-          : llmEngine === "openrouter"
-          ? openrouterKey.trim()
-          : llmEngine === "groq"
-          ? groqKey.trim()
-          : "";
+      const activeLlmKey = llmEngine === "openrouter" ? openrouterKey.trim() : "";
       const activeLlmModel =
         llmEngine === "local"
           ? localLlmModel.trim()
-          : llmEngine === "deepseek"
-          ? deepseekModel.trim() || null
+          : llmEngine === "lmstudio"
+          ? lmstudioModel.trim() || null
           : llmEngine === "openrouter"
           ? openrouterModel.trim() || null
           : null;
@@ -679,51 +687,15 @@ export function App() {
         setError("Import successful. Local Ollama server is not running at http://localhost:11434. Please start it to find viral moments.");
         return;
       }
+    } else if (llmEngine === "lmstudio") {
+      if (!env.hasLmStudio) {
+        setError("Import successful. LM Studio is not running at http://127.0.0.1:1234. Please start LM Studio local server to find viral moments.");
+        return;
+      }
     } else {
-      const activeKey =
-        llmEngine === "claude"
-          ? anthropicKey
-          : llmEngine === "deepseek"
-          ? deepseekKey
-          : llmEngine === "gemini"
-          ? geminiKey
-          : llmEngine === "openai"
-          ? openaiKey
-          : llmEngine === "openrouter"
-          ? openrouterKey
-          : llmEngine === "groq"
-          ? groqKey
-          : "";
-      const hasActiveKey =
-        llmEngine === "claude"
-          ? env.hasAnthropicKey || activeKey.trim().length > 0
-          : llmEngine === "deepseek"
-          ? env.hasDeepseekKey || activeKey.trim().length > 0
-          : llmEngine === "gemini"
-          ? env.hasGeminiKey || activeKey.trim().length > 0
-          : llmEngine === "openai"
-          ? env.hasOpenaiKey || activeKey.trim().length > 0
-          : llmEngine === "openrouter"
-          ? env.hasOpenrouterKey || activeKey.trim().length > 0
-          : llmEngine === "groq"
-          ? env.hasGroqKey || activeKey.trim().length > 0
-          : false;
+      const hasActiveKey = env.hasOpenrouterKey || openrouterKey.trim().length > 0;
       if (!hasActiveKey) {
-        const engineName =
-          llmEngine === "claude"
-            ? "Claude"
-            : llmEngine === "deepseek"
-            ? "DeepSeek"
-            : llmEngine === "gemini"
-            ? "Gemini"
-            : llmEngine === "openai"
-            ? "OpenAI"
-            : llmEngine === "openrouter"
-            ? "OpenRouter"
-            : llmEngine === "groq"
-            ? "Groq"
-            : "LLM";
-        setError(`Transcription complete. ${engineName} API Key is missing. Please add it in settings to analyze viral moments.`);
+        setError("Transcription complete. OpenRouter API Key is missing. Please add it in settings to analyze viral moments.");
         return;
       }
     }
@@ -731,25 +703,12 @@ export function App() {
     // 1. Transcription
     try {
       setBusy("transcribe");
-      const activeLlmKey =
-        llmEngine === "claude"
-          ? anthropicKey.trim()
-          : llmEngine === "deepseek"
-          ? deepseekKey.trim()
-          : llmEngine === "gemini"
-          ? geminiKey.trim()
-          : llmEngine === "openai"
-          ? openaiKey.trim()
-          : llmEngine === "openrouter"
-          ? openrouterKey.trim()
-          : llmEngine === "groq"
-          ? groqKey.trim()
-          : "";
+      const activeLlmKey = llmEngine === "openrouter" ? openrouterKey.trim() : "";
       const activeLlmModel =
         llmEngine === "local"
           ? localLlmModel.trim()
-          : llmEngine === "deepseek"
-          ? deepseekModel.trim() || null
+          : llmEngine === "lmstudio"
+          ? lmstudioModel.trim() || null
           : llmEngine === "openrouter"
           ? openrouterModel.trim() || null
           : null;
@@ -780,20 +739,7 @@ export function App() {
 
     try {
       setBusy("moments");
-      const activeKey =
-        llmEngine === "claude"
-          ? anthropicKey.trim()
-          : llmEngine === "deepseek"
-          ? deepseekKey.trim()
-          : llmEngine === "gemini"
-          ? geminiKey.trim()
-          : llmEngine === "openai"
-          ? openaiKey.trim()
-          : llmEngine === "openrouter"
-          ? openrouterKey.trim()
-          : llmEngine === "groq"
-          ? groqKey.trim()
-          : "";
+      const activeKey = llmEngine === "openrouter" ? openrouterKey.trim() : "";
       await invoke<Candidate[]>("generate_candidates", {
         projectId,
         apiKey: activeKey || null,
@@ -801,8 +747,8 @@ export function App() {
         modelName:
           llmEngine === "local"
             ? localLlmModel.trim()
-            : llmEngine === "deepseek"
-            ? deepseekModel.trim() || null
+            : llmEngine === "lmstudio"
+            ? lmstudioModel.trim() || null
             : llmEngine === "openrouter"
             ? openrouterModel.trim() || null
             : null,
@@ -937,25 +883,12 @@ export function App() {
     if (!detail) return;
     setTranscriptionProgress({ percentage: 0, message: "Iniciando transcripción..." });
     await run("transcribe", async () => {
-      const activeLlmKey =
-        llmEngine === "claude"
-          ? anthropicKey.trim()
-          : llmEngine === "deepseek"
-          ? deepseekKey.trim()
-          : llmEngine === "gemini"
-          ? geminiKey.trim()
-          : llmEngine === "openai"
-          ? openaiKey.trim()
-          : llmEngine === "openrouter"
-          ? openrouterKey.trim()
-          : llmEngine === "groq"
-          ? groqKey.trim()
-          : "";
+      const activeLlmKey = llmEngine === "openrouter" ? openrouterKey.trim() : "";
       const activeLlmModel =
         llmEngine === "local"
           ? localLlmModel.trim()
-          : llmEngine === "deepseek"
-          ? deepseekModel.trim() || null
+          : llmEngine === "lmstudio"
+          ? lmstudioModel.trim() || null
           : llmEngine === "openrouter"
           ? openrouterModel.trim() || null
           : null;
@@ -980,25 +913,12 @@ export function App() {
     try {
       setIsRefiningTranscript(true);
       setError(null);
-      const activeLlmKey =
-        llmEngine === "claude"
-          ? anthropicKey.trim()
-          : llmEngine === "deepseek"
-          ? deepseekKey.trim()
-          : llmEngine === "gemini"
-          ? geminiKey.trim()
-          : llmEngine === "openai"
-          ? openaiKey.trim()
-          : llmEngine === "openrouter"
-          ? openrouterKey.trim()
-          : llmEngine === "groq"
-          ? groqKey.trim()
-          : "";
+      const activeLlmKey = llmEngine === "openrouter" ? openrouterKey.trim() : "";
       const activeLlmModel =
         llmEngine === "local"
           ? localLlmModel.trim()
-          : llmEngine === "deepseek"
-          ? deepseekModel.trim() || null
+          : llmEngine === "lmstudio"
+          ? lmstudioModel.trim() || null
           : llmEngine === "openrouter"
           ? openrouterModel.trim() || null
           : null;
@@ -1082,20 +1002,7 @@ export function App() {
   async function moments(allowDemo: boolean = false) {
     if (!detail) return;
     await run("moments", async () => {
-      const activeKey =
-        llmEngine === "claude"
-          ? anthropicKey.trim()
-          : llmEngine === "deepseek"
-          ? deepseekKey.trim()
-          : llmEngine === "gemini"
-          ? geminiKey.trim()
-          : llmEngine === "openai"
-          ? openaiKey.trim()
-          : llmEngine === "openrouter"
-          ? openrouterKey.trim()
-          : llmEngine === "groq"
-          ? groqKey.trim()
-          : "";
+      const activeKey = llmEngine === "openrouter" ? openrouterKey.trim() : "";
       try {
         await invoke<Candidate[]>("generate_candidates", {
           projectId: detail.project.id,
@@ -1104,8 +1011,8 @@ export function App() {
           modelName:
             llmEngine === "local"
               ? localLlmModel.trim()
-              : llmEngine === "deepseek"
-              ? deepseekModel.trim() || null
+              : llmEngine === "lmstudio"
+              ? lmstudioModel.trim() || null
               : llmEngine === "openrouter"
               ? openrouterModel.trim() || null
               : null,
@@ -1366,6 +1273,10 @@ export function App() {
       setLlmEngine={setLlmEngine}
       localLlmModel={localLlmModel}
       setLocalLlmModel={setLocalLlmModel}
+      lmstudioModel={lmstudioModel}
+      setLmstudioModel={setLmstudioModel}
+      lmstudioBaseUrl={lmstudioBaseUrl}
+      setLmstudioBaseUrl={setLmstudioBaseUrl}
       enableThinking={enableThinking}
       setEnableThinking={setEnableThinking}
       environment={environment}
@@ -1541,8 +1452,7 @@ export function App() {
         environment={environment}
         telemetry={telemetry}
         canUseCloudKey={canUseCloudKey}
-        canUseClaude={canUseClaude}
-        canUseDeepseek={canUseDeepseek}
+        canUseOpenrouter={canUseOpenrouter}
       />
 
       {settingsNode}
@@ -1566,6 +1476,9 @@ export function App() {
         setLlmEngine={setLlmEngine}
         localLlmModel={localLlmModel}
         setLocalLlmModel={setLocalLlmModel}
+        lmstudioModel={lmstudioModel}
+        setLmstudioModel={setLmstudioModel}
+        canUseLmStudio={canUseLmStudio}
         deepseekModel={deepseekModel}
         setDeepseekModel={setDeepseekModel}
         openrouterModel={openrouterModel}
@@ -1619,14 +1532,9 @@ export function App() {
         onClose={() => setShowQuickCopyModal(false)}
         llmEngine={llmEngine}
         localLlmModel={localLlmModel}
-        anthropicKey={anthropicKey}
-        deepseekKey={deepseekKey}
-        deepseekModel={deepseekModel}
-        geminiKey={geminiKey}
-        openaiKey={openaiKey}
+        lmstudioModel={lmstudioModel}
         openrouterKey={openrouterKey}
         openrouterModel={openrouterModel}
-        groqKey={groqKey}
         enableThinking={enableThinking}
       />
 

@@ -31,8 +31,10 @@ export type EnvironmentStatus = {
   llmProvider: string;
   hasLocalWhisperModel: boolean;
   hasOllama: boolean;
+  hasLmStudio?: boolean;
   hasYtdlp: boolean;
   installedOllamaModels?: string[];
+  installedLmStudioModels?: string[];
   whisperModels?: WhisperModel[];
 };
 
@@ -116,7 +118,7 @@ export type ContentType = "gaming" | "tutorial" | "podcast" | "general";
 
 export type TranscriptionEngine = "deepgram" | "local";
 
-export type LlmEngine = "claude" | "deepseek" | "local" | "gemini" | "openai" | "openrouter" | "groq";
+export type LlmEngine = "local" | "lmstudio" | "openrouter";
 
 export type SummaryResult = {
   outputPath: string;

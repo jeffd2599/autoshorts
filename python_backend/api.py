@@ -164,6 +164,21 @@ class Api:
         except Exception:
             pass
 
+        has_lmstudio = False
+        installed_lmstudio_models = []
+        lmstudio_url = os.getenv("LMSTUDIO_BASE_URL", "http://127.0.0.1:1234/v1")
+        try:
+            r = requests.get(f"{lmstudio_url.rstrip('/')}/models", timeout=1.5)
+            if r.ok:
+                has_lmstudio = True
+                data = r.json()
+                installed_lmstudio_models = [
+                    m["id"] for m in data.get("data", [])
+                    if "id" in m and not m["id"].startswith("text-embedding")
+                ]
+        except Exception:
+            pass
+
         has_ytdlp = False
         try:
             import yt_dlp
@@ -176,18 +191,15 @@ class Api:
             "hasFfmpeg": command_exists("ffmpeg"),
             "hasFfprobe": command_exists("ffprobe"),
             "hasDeepgramKey": bool(os.getenv("DEEPGRAM_API_KEY")),
-            "hasAnthropicKey": bool(os.getenv("ANTHROPIC_API_KEY")),
-            "hasDeepseekKey": bool(os.getenv("DEEPSEEK_API_KEY")),
-            "hasGeminiKey": bool(os.getenv("GEMINI_API_KEY")),
-            "hasOpenaiKey": bool(os.getenv("OPENAI_API_KEY")),
             "hasOpenrouterKey": bool(os.getenv("OPENROUTER_API_KEY")),
-            "hasGroqKey": bool(os.getenv("GROQ_API_KEY")),
             "llmProvider": os.getenv("LLM_PROVIDER", "local"),
             "hasLocalWhisperModel": whisper_available(),
             "whisperModels": get_installed_whisper_models(),
             "hasOllama": has_ollama,
+            "hasLmStudio": has_lmstudio,
             "hasYtdlp": has_ytdlp,
-            "installedOllamaModels": installed_models
+            "installedOllamaModels": installed_models,
+            "installedLmStudioModels": installed_lmstudio_models
         }
 
     def list_projects(self, _args: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
@@ -803,24 +815,14 @@ class Api:
         # Read active LLM config for narrative sequencing
         app_cfg = self.get_app_config()
         llm_engine = app_cfg.get("llmEngine", "local")
-        model_name = app_cfg.get("localLlmModel") if llm_engine == "local" else (
-            app_cfg.get("deepseekModel") if llm_engine == "deepseek" else (
-                app_cfg.get("openrouterModel") if llm_engine == "openrouter" else None
-            )
-        )
-        api_key = (
-            app_cfg.get("anthropicKey") if llm_engine == "claude" else (
-                app_cfg.get("deepseekKey") if llm_engine == "deepseek" else (
-                    app_cfg.get("geminiKey") if llm_engine == "gemini" else (
-                        app_cfg.get("openaiKey") if llm_engine == "openai" else (
-                            app_cfg.get("openrouterKey") if llm_engine == "openrouter" else (
-                                app_cfg.get("groqKey") if llm_engine == "groq" else None
-                            )
-                        )
-                    )
+        model_name = (
+            app_cfg.get("localLlmModel") if llm_engine == "local" else (
+                app_cfg.get("lmstudioModel") if llm_engine == "lmstudio" else (
+                    app_cfg.get("openrouterModel") if llm_engine == "openrouter" else None
                 )
             )
         )
+        api_key = app_cfg.get("openrouterKey") if llm_engine == "openrouter" else None
 
         summary_vibe = args.get("summaryVibe", "balanced")
         narrative_title = "Resumen del Stream"
@@ -1028,23 +1030,22 @@ class Api:
                     pass
                 if not model_name:
                     model_name = app_cfg.get("localLlmModel")
-            elif llm_engine == "deepseek":
-                model_name = app_cfg.get("deepseekModel")
+            elif llm_engine == "lmstudio":
+                try:
+                    lm_res = requests.get("http://127.0.0.1:1234/v1/models", timeout=1.0)
+                    if lm_res.ok:
+                        lm_data = lm_res.json().get("data", [])
+                        valid_models = [m["id"] for m in lm_data if not m.get("id", "").startswith("text-embedding")]
+                        if valid_models:
+                            model_name = valid_models[0]
+                            print(f"[AutoEdit] Usando modelo activo en LM Studio: {model_name}")
+                except Exception:
+                    pass
+                if not model_name:
+                    model_name = app_cfg.get("lmstudioModel")
             elif llm_engine == "openrouter":
                 model_name = app_cfg.get("openrouterModel")
-        api_key = (
-            app_cfg.get("anthropicKey") if llm_engine == "claude" else (
-                app_cfg.get("deepseekKey") if llm_engine == "deepseek" else (
-                    app_cfg.get("geminiKey") if llm_engine == "gemini" else (
-                        app_cfg.get("openaiKey") if llm_engine == "openai" else (
-                            app_cfg.get("openrouterKey") if llm_engine == "openrouter" else (
-                                app_cfg.get("groqKey") if llm_engine == "groq" else None
-                            )
-                        )
-                    )
-                )
-            )
-        )
+        api_key = app_cfg.get("openrouterKey") if llm_engine == "openrouter" else None
 
         self.emit("autoedit-progress", {
             "status": "planning",
@@ -1281,24 +1282,14 @@ class Api:
 
         app_cfg = self.get_app_config()
         llm_engine = app_cfg.get("llmEngine", "local")
-        model_name = app_cfg.get("localLlmModel") if llm_engine == "local" else (
-            app_cfg.get("deepseekModel") if llm_engine == "deepseek" else (
-                app_cfg.get("openrouterModel") if llm_engine == "openrouter" else None
-            )
-        )
-        api_key = (
-            app_cfg.get("anthropicKey") if llm_engine == "claude" else (
-                app_cfg.get("deepseekKey") if llm_engine == "deepseek" else (
-                    app_cfg.get("geminiKey") if llm_engine == "gemini" else (
-                        app_cfg.get("openaiKey") if llm_engine == "openai" else (
-                            app_cfg.get("openrouterKey") if llm_engine == "openrouter" else (
-                                app_cfg.get("groqKey") if llm_engine == "groq" else None
-                            )
-                        )
-                    )
+        model_name = (
+            app_cfg.get("localLlmModel") if llm_engine == "local" else (
+                app_cfg.get("lmstudioModel") if llm_engine == "lmstudio" else (
+                    app_cfg.get("openrouterModel") if llm_engine == "openrouter" else None
                 )
             )
         )
+        api_key = app_cfg.get("openrouterKey") if llm_engine == "openrouter" else None
 
         copy_res = generate_social_copy_with_llm(
             transcript_text=context,

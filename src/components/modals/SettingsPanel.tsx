@@ -40,6 +40,10 @@ interface SettingsPanelProps {
   setOpenrouterKey: (key: string) => void;
   openrouterModel: string;
   setOpenrouterModel: (model: string) => void;
+  lmstudioModel?: string;
+  setLmstudioModel?: (model: string) => void;
+  lmstudioBaseUrl?: string;
+  setLmstudioBaseUrl?: (url: string) => void;
   deepseekKey: string;
   setDeepseekKey: (key: string) => void;
   deepseekModel: string;
@@ -88,6 +92,10 @@ export function SettingsPanel({
   setOpenrouterKey,
   openrouterModel,
   setOpenrouterModel,
+  lmstudioModel = "",
+  setLmstudioModel,
+  lmstudioBaseUrl = "http://127.0.0.1:1234/v1",
+  setLmstudioBaseUrl,
   deepseekKey,
   setDeepseekKey,
   deepseekModel,
@@ -247,12 +255,8 @@ export function SettingsPanel({
             style={{ width: "100%" }}
           >
             <option value="local">Ollama (Offline Local en tu PC)</option>
-            <option value="openrouter">OpenRouter (Cloud - Modelos Libres / Pagos)</option>
-            <option value="deepseek">DeepSeek API (Cloud)</option>
-            <option value="claude">Claude Anthropic (Cloud)</option>
-            <option value="openai">OpenAI GPT-4o (Cloud)</option>
-            <option value="groq">Groq (Cloud - Ultra Rápido)</option>
-            <option value="gemini">Google Gemini (Cloud)</option>
+            <option value="lmstudio">LM Studio (Local en tu PC - Puerto 1234)</option>
+            <option value="openrouter">OpenRouter (Cloud - Por si acaso)</option>
           </select>
         </label>
 
@@ -409,110 +413,85 @@ export function SettingsPanel({
           </div>
         )}
 
-        {/* DeepSeek */}
-        {llmEngine === "deepseek" && (
-          <div style={{ gridColumn: "1 / -1", display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
-            <label>
-              <span style={{ fontWeight: 600, fontSize: "0.78rem", color: "var(--text-secondary)", display: "block", marginBottom: "0.3rem" }}>DEEPSEEK API KEY</span>
-              <input
-                type="password"
-                className="form-input"
-                value={deepseekKey}
-                onChange={(event) => {
-                  setDeepseekKey(event.target.value);
-                  syncConfig({ deepseekKey: event.target.value });
-                }}
-                placeholder={environment?.hasDeepseekKey ? "Cargado desde variables de entorno" : "sk-..."}
-                style={{ width: "100%" }}
-              />
-            </label>
-            <label>
-              <span style={{ fontWeight: 600, fontSize: "0.78rem", color: "var(--text-secondary)", display: "block", marginBottom: "0.3rem" }}>MODELO DE DEEPSEEK</span>
-              <input
-                type="text"
-                className="form-input"
-                value={deepseekModel}
-                onChange={(event) => {
-                  setDeepseekModel(event.target.value);
-                  syncConfig({ deepseekModel: event.target.value });
-                }}
-                placeholder="deepseek-chat (opcional)"
-                style={{ width: "100%" }}
-              />
-            </label>
+        {/* LM Studio */}
+        {llmEngine === "lmstudio" && (
+          <div style={{ gridColumn: "1 / -1", padding: "1rem", borderRadius: "8px", background: "var(--bg-surface)", border: "1px solid var(--border-default)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <span style={{ fontWeight: 600, fontSize: "0.82rem", color: "var(--text-primary)" }}>
+                  Modelos detectados en LM Studio:
+                </span>
+                <span
+                  style={{
+                    fontSize: "0.72rem",
+                    fontWeight: 600,
+                    padding: "2px 8px",
+                    borderRadius: "4px",
+                    background: environment?.hasLmStudio ? "rgba(16, 185, 129, 0.15)" : "rgba(239, 68, 68, 0.15)",
+                    color: environment?.hasLmStudio ? "#10b981" : "#ef4444",
+                    border: `1px solid ${environment?.hasLmStudio ? "rgba(16, 185, 129, 0.3)" : "rgba(239, 68, 68, 0.3)"}`
+                  }}
+                >
+                  {environment?.hasLmStudio ? "Servidor Conectado" : "Servidor No Detectado"}
+                </span>
+              </div>
+              <button
+                type="button"
+                className="btn-cancel"
+                style={{ height: "28px", padding: "0 10px", fontSize: "0.75rem", display: "inline-flex", alignItems: "center", gap: "6px" }}
+                onClick={() => void onRefreshEnv()}
+                title="Actualizar lista de modelos desde LM Studio"
+              >
+                <RefreshCw size={12} /> Refrescar lista
+              </button>
+            </div>
+
+            {environment?.installedLmStudioModels && environment.installedLmStudioModels.length > 0 ? (
+              <div style={{ display: "flex", gap: "10px", alignItems: "center", marginBottom: "0.8rem" }}>
+                <select
+                  className="form-select"
+                  value={lmstudioModel || environment.installedLmStudioModels[0] || ""}
+                  onChange={(event) => {
+                    if (setLmstudioModel) setLmstudioModel(event.target.value);
+                    syncConfig({ lmstudioModel: event.target.value });
+                  }}
+                  style={{ flex: 1, padding: "0.5rem 0.75rem" }}
+                >
+                  {environment.installedLmStudioModels.map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
+                </select>
+                <span style={{ fontSize: "0.75rem", fontFamily: "var(--font-mono, monospace)", color: "var(--text-secondary)", background: "rgba(255, 255, 255, 0.03)", border: "1px solid var(--border-default)", padding: "6px 10px", borderRadius: "6px", whiteSpace: "nowrap" }}>
+                  {environment.installedLmStudioModels.length} modelos cargados
+                </span>
+              </div>
+            ) : (
+              <div style={{ fontSize: "0.8rem", color: "var(--text-secondary)", padding: "0.4rem 0", marginBottom: "0.6rem" }}>
+                No se detectaron modelos en LM Studio. Asegúrate de tener LM Studio abierto con un modelo cargado y el servidor local encendido (puerto 1234).
+              </div>
+            )}
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: "0.6rem", marginTop: "0.4rem" }}>
+              <label>
+                <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", display: "block", marginBottom: "0.25rem" }}>
+                  URL del Servidor Local de LM Studio (OpenAI Compatible):
+                </span>
+                <input
+                  type="text"
+                  className="form-input"
+                  value={lmstudioBaseUrl}
+                  onChange={(e) => {
+                    if (setLmstudioBaseUrl) setLmstudioBaseUrl(e.target.value);
+                    syncConfig({ lmstudioBaseUrl: e.target.value });
+                  }}
+                  placeholder="http://127.0.0.1:1234/v1"
+                  style={{ width: "100%", fontSize: "0.78rem", padding: "0.4rem 0.6rem" }}
+                />
+              </label>
+            </div>
           </div>
-        )}
-
-        {/* Claude */}
-        {llmEngine === "claude" && (
-          <label style={{ gridColumn: "1 / -1" }}>
-            <span style={{ fontWeight: 600, fontSize: "0.78rem", color: "var(--text-secondary)", display: "block", marginBottom: "0.3rem" }}>CLAUDE (ANTHROPIC) API KEY</span>
-            <input
-              type="password"
-              className="form-input"
-              value={anthropicKey}
-              onChange={(event) => {
-                setAnthropicKey(event.target.value);
-                syncConfig({ anthropicKey: event.target.value });
-              }}
-              placeholder={environment?.hasAnthropicKey ? "Cargado desde variables de entorno" : "sk-ant-..."}
-              style={{ width: "100%" }}
-            />
-          </label>
-        )}
-
-        {/* OpenAI */}
-        {llmEngine === "openai" && (
-          <label style={{ gridColumn: "1 / -1" }}>
-            <span style={{ fontWeight: 600, fontSize: "0.78rem", color: "var(--text-secondary)", display: "block", marginBottom: "0.3rem" }}>OPENAI API KEY</span>
-            <input
-              type="password"
-              className="form-input"
-              value={openaiKey}
-              onChange={(event) => {
-                setOpenaiKey(event.target.value);
-                syncConfig({ openaiKey: event.target.value });
-              }}
-              placeholder={environment?.hasOpenaiKey ? "Cargado desde variables de entorno" : "sk-..."}
-              style={{ width: "100%" }}
-            />
-          </label>
-        )}
-
-        {/* Groq */}
-        {llmEngine === "groq" && (
-          <label style={{ gridColumn: "1 / -1" }}>
-            <span style={{ fontWeight: 600, fontSize: "0.78rem", color: "var(--text-secondary)", display: "block", marginBottom: "0.3rem" }}>GROQ API KEY</span>
-            <input
-              type="password"
-              className="form-input"
-              value={groqKey}
-              onChange={(event) => {
-                setGroqKey(event.target.value);
-                syncConfig({ groqKey: event.target.value });
-              }}
-              placeholder={environment?.hasGroqKey ? "Cargado desde variables de entorno" : "gsk_..."}
-              style={{ width: "100%" }}
-            />
-          </label>
-        )}
-
-        {/* Gemini */}
-        {llmEngine === "gemini" && (
-          <label style={{ gridColumn: "1 / -1" }}>
-            <span style={{ fontWeight: 600, fontSize: "0.78rem", color: "var(--text-secondary)", display: "block", marginBottom: "0.3rem" }}>GEMINI API KEY</span>
-            <input
-              type="password"
-              className="form-input"
-              value={geminiKey}
-              onChange={(event) => {
-                setGeminiKey(event.target.value);
-                syncConfig({ geminiKey: event.target.value });
-              }}
-              placeholder={environment?.hasGeminiKey ? "Cargado desde variables de entorno" : "AIzaSy..."}
-              style={{ width: "100%" }}
-            />
-          </label>
         )}
 
         {/* Deepgram Key if selected */}

@@ -6,16 +6,14 @@ interface StatusBarProps {
   environment: EnvironmentStatus | null;
   telemetry: HardwareTelemetry | null;
   canUseCloudKey: boolean;
-  canUseClaude: boolean;
-  canUseDeepseek: boolean;
+  canUseOpenrouter?: boolean;
 }
 
 export const StatusBar: React.FC<StatusBarProps> = ({
   environment,
   telemetry,
   canUseCloudKey,
-  canUseClaude,
-  canUseDeepseek,
+  canUseOpenrouter = false,
 }) => {
   return (
     <footer className="status-bar">
@@ -67,14 +65,14 @@ export const StatusBar: React.FC<StatusBarProps> = ({
           <span className={`indicator ${environment?.hasOllama ? "active" : ""}`} title="Ollama status">
             Ollama
           </span>
+          <span className={`indicator ${environment?.hasLmStudio ? "active" : ""}`} title="LM Studio status">
+            LM Studio
+          </span>
           <span className={`indicator ${canUseCloudKey ? "active" : ""}`} title="Deepgram Key status">
             Deepgram
           </span>
-          <span className={`indicator ${canUseClaude ? "active" : ""}`} title="Claude Key status">
-            Claude
-          </span>
-          <span className={`indicator ${canUseDeepseek ? "active" : ""}`} title="DeepSeek Key status">
-            DeepSeek
+          <span className={`indicator ${canUseOpenrouter ? "active" : ""}`} title="OpenRouter Key status">
+            OpenRouter
           </span>
         </div>
       </div>

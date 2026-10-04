@@ -1,13 +1,13 @@
 import React, { useEffect, useState } from "react";
 import { BadgeCheck, Check, Clapperboard, Cloud, Copy, Database, Loader2 } from "lucide-react";
-import { EnvironmentStatus } from "../../types";
+import { EnvironmentStatus, LlmEngine } from "../../types";
 import { invoke, listen } from "../../apiBridge";
 
 interface OnboardingModalProps {
   environment: EnvironmentStatus | null;
   onComplete: () => void;
   setTranscriptionEngine: (engine: "deepgram" | "local") => void;
-  setLlmEngine: (engine: "claude" | "deepseek" | "local" | "groq") => void;
+  setLlmEngine: (engine: LlmEngine) => void;
   setLocalLlmModel: (model: string) => void;
   setDeepgramKey: (key: string) => void;
   setAnthropicKey: (key: string) => void;
@@ -72,21 +72,14 @@ export function OnboardingModal({
     localStorage.setItem("autoshorts_deepgram_key", dgKey.trim());
     localStorage.setItem("autoshorts_transcription_engine", "deepgram");
 
-    if (antKey.trim()) {
-      setLlmEngine("claude");
-      setAnthropicKey(antKey.trim());
-      localStorage.setItem("autoshorts_anthropic_key", antKey.trim());
-      localStorage.setItem("autoshorts_llm_engine", "claude");
-    } else if (dsKey.trim()) {
-      setLlmEngine("deepseek");
-      setDeepseekKey(dsKey.trim());
-      localStorage.setItem("autoshorts_deepseek_key", dsKey.trim());
-      localStorage.setItem("autoshorts_llm_engine", "deepseek");
-    } else if (grKey.trim()) {
-      setLlmEngine("groq");
-      setGroqKey(grKey.trim());
-      localStorage.setItem("autoshorts_groq_key", grKey.trim());
-      localStorage.setItem("autoshorts_llm_engine", "groq");
+    if (antKey.trim() || dsKey.trim() || grKey.trim()) {
+      setLlmEngine("openrouter");
+      const key = antKey.trim() || dsKey.trim() || grKey.trim();
+      localStorage.setItem("autoshorts_openrouter_key", key);
+      localStorage.setItem("autoshorts_llm_engine", "openrouter");
+    } else {
+      setLlmEngine("local");
+      localStorage.setItem("autoshorts_llm_engine", "local");
     }
 
     localStorage.setItem("autoshorts_onboarded", "true");

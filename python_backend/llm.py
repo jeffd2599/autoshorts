@@ -577,6 +577,42 @@ def robust_cloud_post(
     return last_resp
 
 
+def call_lmstudio(
+    prompt: str,
+    model_name: Optional[str] = None,
+    content_type: str = "gaming",
+    target_duration: str = "60s",
+    custom_prompt: Optional[str] = None,
+    base_url: Optional[str] = None
+) -> str:
+    url = (base_url or os.getenv("LMSTUDIO_BASE_URL", "http://127.0.0.1:1234/v1")).rstrip("/") + "/chat/completions"
+    system_prompt = build_system_prompt(content_type, target_duration, custom_prompt=custom_prompt)
+    model = model_name or "local-model"
+
+    payload = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system_prompt + "\n\nResponde ÚNICAMENTE en formato JSON válido."},
+            {"role": "user", "content": prompt}
+        ],
+        "temperature": 0.2
+    }
+
+    try:
+        resp = requests.post(url, json=payload, timeout=90)
+    except Exception as e:
+        raise RuntimeError(f"No se pudo conectar a LM Studio en {url}. ¿Está iniciado el servidor local en LM Studio? Detalle: {e}")
+
+    if not resp.ok:
+        raise RuntimeError(f"LM Studio call failed ({resp.status_code}): {resp.text}")
+
+    data = resp.json()
+    choices = data.get("choices", [])
+    if not choices:
+        raise RuntimeError(f"LM Studio returned empty choices: {resp.text}")
+    return choices[0]["message"]["content"]
+
+
 def call_cloud_llm(
     provider: str,
     api_key: str,
@@ -886,6 +922,14 @@ def detect_candidates_pipeline(
                         enable_thinking=enable_thinking,
                         custom_prompt=custom_prompt
                     )
+                elif provider == "lmstudio":
+                    resp_text = call_lmstudio(
+                        prompt_text,
+                        model_name=model_name,
+                        content_type=content_type,
+                        target_duration=target_duration,
+                        custom_prompt=custom_prompt
+                    )
                 else:
                     resp_text = call_cloud_llm(
                         provider,
@@ -1077,6 +1121,32 @@ Responde EXCLUSIVAMENTE con este objeto JSON:
                 raw_response = content
             else:
                 print(f"Ollama narrative planning failed: {resp.text}")
+
+        elif provider == "lmstudio":
+            url = (os.getenv("LMSTUDIO_BASE_URL", "http://127.0.0.1:1234/v1")).rstrip("/") + "/chat/completions"
+            active_model = model_name or "local-model"
+            summary_sys = "Eres un editor experto de videos para streamers de YouTube. Responde siempre en formato JSON."
+            payload = {
+                "model": active_model,
+                "messages": [
+                    {"role": "system", "content": summary_sys + "\n\nResponde ÚNICAMENTE con el objeto JSON solicitado."},
+                    {"role": "user", "content": prompt}
+                ],
+                "temperature": 0.3
+            }
+            try:
+                resp = requests.post(url, json=payload, timeout=90)
+                if resp.ok:
+                    choices = resp.json().get("choices", [])
+                    if choices:
+                        content = choices[0]["message"]["content"]
+                        if "<think>" in content:
+                            content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
+                        raw_response = content
+                else:
+                    print(f"LM Studio narrative planning failed: {resp.text}")
+            except Exception as e:
+                print(f"Fallo de conexión con LM Studio: {e}")
 
         elif provider in ["claude", "deepseek", "gemini", "openai", "openrouter", "groq"]:
             # Direct cloud call
@@ -1448,6 +1518,32 @@ Responde ÚNICAMENTE con este JSON válido:
             else:
                 print(f"[AutoEdit IA] Ollama no respondió al plan narrativo: {resp.text}")
 
+        elif provider == "lmstudio":
+            url = (os.getenv("LMSTUDIO_BASE_URL", "http://127.0.0.1:1234/v1")).rstrip("/") + "/chat/completions"
+            active_model = model_name or "local-model"
+            sys_msg = "Eres un director de montaje audiovisual experto. Devuelve únicamente JSON válido."
+            payload = {
+                "model": active_model,
+                "messages": [
+                    {"role": "system", "content": sys_msg + "\n\nResponde ÚNICAMENTE con el objeto JSON solicitado."},
+                    {"role": "user", "content": prompt}
+                ],
+                "temperature": 0.35
+            }
+            try:
+                resp = requests.post(url, json=payload, timeout=120)
+                if resp.ok:
+                    choices = resp.json().get("choices", [])
+                    if choices:
+                        content = choices[0]["message"]["content"]
+                        if "<think>" in content:
+                            content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
+                        raw_response = content
+                else:
+                    print(f"[AutoEdit IA] LM Studio error ({resp.status_code}): {resp.text}")
+            except Exception as e:
+                print(f"[AutoEdit IA] Fallo de conexión con LM Studio: {e}")
+
         elif provider in ["claude", "deepseek", "gemini", "openai", "openrouter", "groq"]:
             if provider == "gemini":
                 model = model_name or os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
@@ -1761,6 +1857,30 @@ def refine_transcript_with_llm(
                     if "<think>" in content:
                         content = re.sub(r"<think>.*$", "", content, flags=re.DOTALL).strip()
                     raw_resp = content or thinking
+            elif provider == "lmstudio":
+                url = (os.getenv("LMSTUDIO_BASE_URL", "http://127.0.0.1:1234/v1")).rstrip("/") + "/chat/completions"
+                payload = {
+                    "model": model_name or "local-model",
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt}
+                    ],
+                    "temperature": 0.1
+                }
+                try:
+                    resp = requests.post(url, json=payload, timeout=120)
+                    if resp.ok:
+                        data = resp.json()
+                        choices = data.get("choices", [])
+                        if choices:
+                            content = choices[0]["message"]["content"]
+                            if "<think>" in content:
+                                content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
+                            raw_resp = content
+                    else:
+                        print(f"LM Studio refine error ({resp.status_code}): {resp.text}")
+                except Exception as e:
+                    print(f"Fallo de conexión con LM Studio en refinamiento: {e}")
             else:
                 raw_resp = call_cloud_llm(
                     provider=provider,
@@ -1867,6 +1987,21 @@ IMPORTANTE: Escribe en Español natural, convincente y sin rodeos."""
             if not resp.ok:
                 raise RuntimeError(f"Ollama call failed ({resp.status_code}): {resp.text}")
             content = resp.json().get("message", {}).get("content", "")
+        elif provider == "lmstudio":
+            url = (os.getenv("LMSTUDIO_BASE_URL", "http://127.0.0.1:1234/v1")).rstrip("/") + "/chat/completions"
+            payload = {
+                "model": model_name or "local-model",
+                "messages": [
+                    {"role": "system", "content": system_prompt + "\n\nResponde ÚNICAMENTE en JSON válido."},
+                    {"role": "user", "content": user_prompt}
+                ],
+                "temperature": 0.5
+            }
+            resp = requests.post(url, json=payload, timeout=120)
+            if not resp.ok:
+                raise RuntimeError(f"LM Studio call failed ({resp.status_code}): {resp.text}")
+            choices = resp.json().get("choices", [])
+            content = choices[0]["message"]["content"] if choices else ""
         else:
             content = call_cloud_llm(
                 provider=provider,
