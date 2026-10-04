@@ -27,6 +27,7 @@ from .transcription import transcribe_local, transcribe_deepgram, whisper_availa
 from .llm import (
     detect_candidates_pipeline,
     unload_all_ollama_models,
+    unload_all_lmstudio_models,
     plan_summary_narrative,
     plan_autoedit_narrative,
     refine_transcript_with_llm,
@@ -522,6 +523,10 @@ class Api:
             unload_all_ollama_models()
         except Exception:
             pass
+        try:
+            unload_all_lmstudio_models()
+        except Exception:
+            pass
         return True
 
     def get_hardware_telemetry(self, _args: Any = None) -> Dict[str, Any]:
@@ -977,6 +982,14 @@ class Api:
 
     def cancel_auto_edit(self, _args: Any = None) -> bool:
         self._cancel_autoedit_flag = True
+        try:
+            unload_all_ollama_models()
+        except Exception:
+            pass
+        try:
+            unload_all_lmstudio_models()
+        except Exception:
+            pass
         return True
 
     def render_auto_edit(self, args: Any) -> Dict[str, Any]:

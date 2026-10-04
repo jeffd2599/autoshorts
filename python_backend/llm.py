@@ -35,6 +35,26 @@ def unload_all_ollama_models(specific_model: Optional[str] = None):
         print(f"Nota al descargar modelos de Ollama: {e}")
 
 
+def unload_all_lmstudio_models(base_url: Optional[str] = None):
+    """
+    Unloads all LM Studio models/instances from VRAM immediately and aborts active generations.
+    """
+    try:
+        raw_url = (base_url or os.getenv("LMSTUDIO_BASE_URL", "http://127.0.0.1:1234/v1")).rstrip("/")
+        root_url = raw_url[:-3] if raw_url.endswith("/v1") else raw_url
+        resp = requests.get(f"{root_url}/api/v1/models", timeout=3)
+        if resp.ok:
+            data = resp.json()
+            for m in data.get("models", []):
+                for inst in m.get("loaded_instances", []):
+                    inst_id = inst.get("id")
+                    if inst_id:
+                        requests.post(f"{root_url}/api/v1/models/unload", json={"instance_id": inst_id}, timeout=3)
+                        print(f"VRAM liberada: Modelo de LM Studio '{inst_id}' descargado de memoria.")
+    except Exception as e:
+        print(f"Nota al descargar modelos de LM Studio: {e}")
+
+
 def compact_segments(segments: List[Dict[str, Any]]) -> str:
     lines = []
     for s in segments:
@@ -455,11 +475,13 @@ def call_lmstudio(
         ],
         "temperature": 0.2,
         "enable_thinking": bool(enable_thinking),
-        "chat_template_config": {"enable_thinking": bool(enable_thinking)}
+        "chat_template_config": {"reasoning": "on" if enable_thinking else "off", "enable_thinking": bool(enable_thinking)}
     }
+    if not enable_thinking:
+        payload["reasoning_effort"] = "none"
 
     try:
-        resp = requests.post(url, json=payload, timeout=90)
+        resp = requests.post(url, json=payload, timeout=240)
     except Exception as e:
         raise RuntimeError(f"No se pudo conectar a LM Studio en {url}. ¿Está iniciado el servidor local en LM Studio? Detalle: {e}")
 
@@ -471,7 +493,13 @@ def call_lmstudio(
     if not choices:
         raise RuntimeError(f"LM Studio returned empty choices: {resp.text}")
 
-    content = choices[0]["message"]["content"]
+    msg_obj = choices[0].get("message", {})
+    content = msg_obj.get("content") or ""
+    if not content and msg_obj.get("reasoning_content"):
+        rc = msg_obj.get("reasoning_content", "")
+        m = re.search(r"(\{.*\"candidates\".*\})", rc, re.DOTALL)
+        content = m.group(1) if m else rc
+
     if "<think>" in content:
         content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
         content = re.sub(r"<think>.*$", "", content, flags=re.DOTALL).strip()
@@ -859,9 +887,11 @@ def detect_candidates_pipeline(
         return unique_candidates[:100]
 
     finally:
-        # Free VRAM immediately in Ollama so other models can be used
+        # Free VRAM immediately in Ollama or LM Studio so other models can be used
         if provider in ["local", "ollama"]:
             unload_all_ollama_models(model_name)
+        elif provider == "lmstudio":
+            unload_all_lmstudio_models()
 
 
 def plan_summary_narrative(
@@ -1799,6 +1829,8 @@ IMPORTANTE: Escribe en Español natural, convincente y sin rodeos."""
     finally:
         if provider in ["local", "ollama"]:
             unload_all_ollama_models(model_name)
+        elif provider == "lmstudio":
+            unload_all_lmstudio_models()
 
     # Clean and parse JSON
     if "<think>" in content:
