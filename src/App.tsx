@@ -25,6 +25,10 @@ import { ModalContainer } from "./components/modals/ModalContainer";
 export function App() {
   const [showSettings, setShowSettings] = useState(false);
 
+  // References for cross-hook callbacks to guarantee safe access
+  const mediaPipelineRef = React.useRef<ReturnType<typeof useMediaPipeline> | null>(null);
+  const autoEditStateRef = React.useRef<ReturnType<typeof useAutoEditState> | null>(null);
+
   // 1. Settings & Persistence Hook
   const settings = useAppSettings();
 
@@ -33,14 +37,18 @@ export function App() {
     transcriptionEngine: settings.transcriptionEngine,
     setEnvironment: settings.setEnvironment,
     onAutoPipeline: async (projectId, contentType, dur) => {
-      await mediaPipeline.runAutoPipeline(projectId, contentType, dur);
+      if (mediaPipelineRef.current) {
+        await mediaPipelineRef.current.runAutoPipeline(projectId, contentType, dur);
+      }
     },
     onProjectSelected: (projectId) => {
-      if (!projectId) {
-        autoEditState.setAutoedits([]);
-        autoEditState.setProjectViewTab("moments");
-      } else {
-        void autoEditState.loadAutoedits(projectId);
+      if (autoEditStateRef.current) {
+        if (!projectId) {
+          autoEditStateRef.current.setAutoedits([]);
+          autoEditStateRef.current.setProjectViewTab("moments");
+        } else {
+          void autoEditStateRef.current.loadAutoedits(projectId);
+        }
       }
     },
   });
@@ -67,6 +75,7 @@ export function App() {
     autoDetectMoments: projectActions.autoDetectMoments,
     pullModelDirectly: settings.pullModelDirectly,
   });
+  mediaPipelineRef.current = mediaPipeline;
 
   // 4. AutoEdit State & Actions Hook
   const autoEditState = useAutoEditState({
@@ -75,6 +84,7 @@ export function App() {
     customOutputDir: settings.customOutputDir,
     setError: projectActions.setError,
   });
+  autoEditStateRef.current = autoEditState;
 
   // Initial refresh
   useEffect(() => {
