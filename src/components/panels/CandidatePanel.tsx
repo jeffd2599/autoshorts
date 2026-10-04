@@ -78,6 +78,13 @@ export const CandidatePanel: React.FC<CandidatePanelProps> = ({
 }) => {
   const [filterTab, setFilterTab] = useState<"all" | "pending" | "exported">("all");
   const [copiedClipPathId, setCopiedClipPathId] = useState<string | null>(null);
+  const listRef = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    if (listRef.current) {
+      listRef.current.scrollTop = 0;
+    }
+  }, [filterTab]);
 
   const exportedCandidates = detail.candidates.filter((c) => {
     const clip = clipByCandidate.get(c.id);
@@ -463,7 +470,7 @@ export const CandidatePanel: React.FC<CandidatePanelProps> = ({
         </>
       )}
 
-      <div className="candidate-list">
+      <div className="candidate-list" ref={listRef}>
         {displayedCandidates.map((candidate) => {
           const clip = clipByCandidate.get(candidate.id);
           const isCut = clip?.status === "done" && Boolean(clip.outputPath);
@@ -586,49 +593,77 @@ export const CandidatePanel: React.FC<CandidatePanelProps> = ({
 
                 {clip?.outputPath && (
                   <div
-                    className="output-path"
                     style={{
+                      marginTop: "0.5rem",
+                      padding: "0.35rem 0.6rem",
+                      borderRadius: "6px",
+                      background: "var(--bg-surface-raised)",
+                      border: "1px solid var(--border-default)",
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "space-between",
-                      gap: "6px",
+                      gap: "8px",
+                      fontSize: "0.72rem",
                     }}
                   >
-                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {clip.outputPath}
-                    </span>
+                    <div style={{ display: "flex", alignItems: "center", gap: "6px", overflow: "hidden", minWidth: 0 }}>
+                      <span style={{ color: "#4ade80", fontWeight: 700, fontSize: "0.68rem" }}>MP4</span>
+                      <span
+                        style={{
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                          fontFamily: "var(--font-mono)",
+                          color: "var(--text-secondary)",
+                        }}
+                        title={clip.outputPath}
+                      >
+                        {clip.outputPath}
+                      </span>
+                    </div>
                     <button
                       type="button"
                       onClick={() => handleCopyPath(candidate.id, clip.outputPath!)}
                       style={{
-                        background: "none",
-                        border: "none",
-                        color: copiedClipPathId === candidate.id ? "#4ade80" : "var(--text-muted)",
+                        background: "var(--bg-surface)",
+                        border: "1px solid var(--border-default)",
+                        color: copiedClipPathId === candidate.id ? "#4ade80" : "var(--text-secondary)",
                         cursor: "pointer",
-                        padding: "0 2px",
-                        fontSize: "0.72rem",
+                        padding: "2px 7px",
+                        borderRadius: "4px",
+                        fontSize: "0.7rem",
                         display: "inline-flex",
                         alignItems: "center",
-                        gap: "2px",
+                        gap: "3px",
+                        flexShrink: 0,
                       }}
-                      title="Copiar ruta del archivo exportado"
+                      title="Copiar ruta completa al portapapeles"
                     >
                       <Copy size={11} />
                       <span>{copiedClipPathId === candidate.id ? "Copiado" : "Copiar"}</span>
                     </button>
                   </div>
                 )}
-                {clip?.captionAssPath && (
+                {clip?.captionAssPath && clip.captionAssPath.toLowerCase().endsWith(".ass") && (
                   <div
-                    className="output-path"
                     style={{
-                      background: "var(--bg-surface)",
-                      borderColor: "var(--border-default)",
-                      color: "var(--text-secondary)",
                       marginTop: "4px",
+                      padding: "0.3rem 0.6rem",
+                      borderRadius: "6px",
+                      background: "rgba(56, 189, 248, 0.06)",
+                      border: "1px solid rgba(56, 189, 248, 0.2)",
+                      fontSize: "0.7rem",
+                      color: "#38bdf8",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "6px",
+                      overflow: "hidden",
                     }}
                   >
-                    Subtítulos ASS: {clip.captionAssPath}
+                    <span style={{ fontWeight: 600 }}>ASS:</span>
+                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: "var(--font-mono)" }}>
+                      {clip.captionAssPath}
+                    </span>
                   </div>
                 )}
                 {clip?.renderLog && <div className="render-log">{clip.renderLog}</div>}

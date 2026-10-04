@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   Scissors,
   X,
@@ -6,11 +6,10 @@ import {
   AlignVerticalJustifyCenter,
   AlignVerticalJustifyStart,
   AlignVerticalJustifyEnd,
-  AlertTriangle,
-  CheckCircle2,
   Clock,
-  Sparkles,
-  Zap,
+  Play,
+  Pause,
+  Eye,
 } from "lucide-react";
 import { Candidate, Clip, ProjectDetail } from "../../types";
 import { formatTime } from "../../utils/format";
@@ -51,6 +50,10 @@ export function CandidatePreviewModal({
 }: CandidatePreviewModalProps) {
   if (!candidate || !detail) return null;
 
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [currentPlayTime, setCurrentPlayTime] = useState<number>(0);
+  const [isPlaying, setIsPlaying] = useState<boolean>(true);
+
   const [burnSubtitles, setBurnSubtitles] = useState<boolean>(() => {
     const saved = localStorage.getItem("autoshorts_burn_subtitles");
     return saved !== null ? saved === "true" : true;
@@ -76,24 +79,52 @@ export function CandidatePreviewModal({
     localStorage.setItem("autoshorts_caption_position", captionPosition);
   }, [captionPosition]);
 
-  const currentDuration = Math.max(0, trimEnd - trimStart);
-  const originalDuration = Math.max(0, candidate.endSec - candidate.startSec);
-  const delta = currentDuration - originalDuration;
-  const isOver60s = currentDuration > 60.0;
-  const overSeconds = isOver60s ? currentDuration - 60.0 : 0;
+  const clipDuration = Math.max(0.1, trimEnd - trimStart);
+  const isExported = Boolean(clipByCandidate.get(candidate.id)?.outputPath);
 
-  const handleSnapTo59 = () => {
-    setTrimEnd(Number((trimStart + 59.0).toFixed(1)));
+  const handleTimeUpdate = () => {
+    if (!videoRef.current) return;
+    const time = videoRef.current.currentTime;
+    if (isExported) {
+      setCurrentPlayTime(time);
+    } else {
+      const rel = Math.max(0, Math.min(clipDuration, time - trimStart));
+      setCurrentPlayTime(rel);
+      if (time >= trimEnd) {
+        videoRef.current.currentTime = trimStart;
+        videoRef.current.play().catch(() => {});
+      }
+    }
   };
+
+  const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newRelTime = parseFloat(e.target.value);
+    setCurrentPlayTime(newRelTime);
+    if (videoRef.current) {
+      videoRef.current.currentTime = isExported ? newRelTime : trimStart + newRelTime;
+    }
+  };
+
+  const togglePlayPause = () => {
+    if (!videoRef.current) return;
+    if (videoRef.current.paused) {
+      videoRef.current.play().then(() => setIsPlaying(true)).catch(() => {});
+    } else {
+      videoRef.current.pause();
+      setIsPlaying(false);
+    }
+  };
+
+  const absoluteCurrentTime = isExported ? currentPlayTime : trimStart + currentPlayTime;
 
   return (
     <div className="style-modal-overlay" onClick={onClose}>
-      <div className="style-modal" style={{ maxWidth: "700px", maxHeight: "90vh", display: "flex", flexDirection: "column" }} onClick={(e) => e.stopPropagation()}>
-        <div className="style-modal-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "1.2rem 1.5rem", borderBottom: "1px solid var(--border-default)" }}>
+      <div className="style-modal" style={{ maxWidth: "720px", maxHeight: "92vh", display: "flex", flexDirection: "column" }} onClick={(e) => e.stopPropagation()}>
+        <div className="style-modal-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "1.1rem 1.5rem", borderBottom: "1px solid var(--border-default)" }}>
           <div>
             <h3 style={{ margin: 0, fontSize: "1.05rem", fontWeight: 700, color: "var(--text-primary)" }}>Previsualizar Clip #{candidate.rank}</h3>
             <p style={{ margin: "4px 0 0", fontSize: "0.82rem", color: "var(--text-secondary)", fontFamily: "var(--font-mono)", fontVariantNumeric: "tabular-nums" }}>
-              {formatTime(candidate.startSec)} - {formatTime(candidate.endSec)} ({originalDuration.toFixed(1)}s inicial)
+              {formatTime(trimStart)} - {formatTime(trimEnd)} ({clipDuration.toFixed(1)}s de duración)
             </p>
           </div>
           <button
@@ -111,97 +142,134 @@ export function CandidatePreviewModal({
             "{cleanHook(candidate.hook)}"
           </h4>
 
-          <div style={{ background: "#000", borderRadius: "8px", overflow: "hidden", maxHeight: "360px", display: "flex", justifyContent: "center" }}>
+          {/* Reproductor de Video */}
+          <div style={{ background: "#000", borderRadius: "8px 8px 0 0", overflow: "hidden", maxHeight: "360px", display: "flex", justifyContent: "center" }}>
             <video
+              ref={videoRef}
               key={`${candidate.id}-${trimStart}-${trimEnd}`}
               src={`http://127.0.0.1:1422/stream?file=${encodeURIComponent(
                 clipByCandidate.get(candidate.id)?.outputPath || detail.project.sourcePath
-              )}#t=${clipByCandidate.get(candidate.id)?.outputPath ? 0 : trimStart},${clipByCandidate.get(candidate.id)?.outputPath ? '' : trimEnd}`}
-              controls
+              )}#t=${isExported ? 0 : trimStart},${isExported ? '' : trimEnd}`}
               autoPlay
-              style={{ maxHeight: "360px", maxWidth: "100%", borderRadius: "8px" }}
+              onTimeUpdate={handleTimeUpdate}
+              onPlay={() => setIsPlaying(true)}
+              onPause={() => setIsPlaying(false)}
+              onClick={togglePlayPause}
+              style={{ maxHeight: "360px", maxWidth: "100%", cursor: "pointer" }}
             />
           </div>
 
-          {/* Ajuste Fino de Recorte (Trim Controls) con Línea de Duración y Calculadora */}
+          {/* Barra de Tiempo en Vivo Tipo VLC */}
+          <div
+            style={{
+              background: "#18181b",
+              borderLeft: "1px solid var(--border-default)",
+              borderRight: "1px solid var(--border-default)",
+              borderBottom: "1px solid var(--border-default)",
+              borderRadius: "0 0 8px 8px",
+              padding: "0.55rem 0.85rem",
+              display: "flex",
+              flexDirection: "column",
+              gap: "4px",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+              {/* Botón Play / Pause */}
+              <button
+                type="button"
+                onClick={togglePlayPause}
+                style={{
+                  background: "var(--bg-surface-raised)",
+                  border: "1px solid var(--border-default)",
+                  color: "#fafafa",
+                  cursor: "pointer",
+                  padding: "5px 7px",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  borderRadius: "5px",
+                }}
+                title={isPlaying ? "Pausar video" : "Reproducir video"}
+              >
+                {isPlaying ? <Pause size={14} /> : <Play size={14} />}
+              </button>
+
+              {/* Tiempo en Vivo (VLC Izquierda: ej 00:18) */}
+              <span
+                style={{
+                  fontSize: "0.86rem",
+                  fontWeight: 700,
+                  color: "#38bdf8",
+                  fontFamily: "var(--font-mono, monospace)",
+                  fontVariantNumeric: "tabular-nums",
+                  minWidth: "46px",
+                }}
+                title="Tiempo actual reproducido dentro del clip"
+              >
+                {formatTime(currentPlayTime)}
+              </span>
+
+              {/* Barra Deslizadora estilo VLC (Azul con cursor) */}
+              <div style={{ flex: 1, position: "relative", display: "flex", alignItems: "center" }}>
+                <input
+                  type="range"
+                  min={0}
+                  max={clipDuration}
+                  step={0.1}
+                  value={Math.min(currentPlayTime, clipDuration)}
+                  onChange={handleSeek}
+                  style={{
+                    width: "100%",
+                    height: "7px",
+                    borderRadius: "4px",
+                    accentColor: "#0284c7",
+                    cursor: "pointer",
+                    outline: "none",
+                  }}
+                  title="Arrastra para avanzar o retroceder en el clip"
+                />
+              </div>
+
+              {/* Duración Total del Clip (VLC Derecha: ej 01:19) */}
+              <span
+                style={{
+                  fontSize: "0.86rem",
+                  fontWeight: 600,
+                  color: "var(--text-secondary)",
+                  fontFamily: "var(--font-mono, monospace)",
+                  fontVariantNumeric: "tabular-nums",
+                  minWidth: "46px",
+                  textAlign: "right",
+                }}
+                title="Duración total del recorte"
+              >
+                {formatTime(clipDuration)}
+              </span>
+            </div>
+
+            {/* Lectura en tiempo real para guiar los botones de recorte */}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "0.72rem", color: "var(--text-muted)", paddingLeft: "34px", flexWrap: "wrap", gap: "6px" }}>
+              <span>
+                Tiempo clip: <strong style={{ color: "#38bdf8", fontFamily: "var(--font-mono)" }}>{currentPlayTime.toFixed(1)}s</strong> / {clipDuration.toFixed(1)}s
+              </span>
+              <span>
+                Posición en video original: <strong style={{ color: "#fafafa", fontFamily: "var(--font-mono)" }}>{formatTime(absoluteCurrentTime)} ({absoluteCurrentTime.toFixed(1)}s)</strong>
+              </span>
+            </div>
+          </div>
+
+          {/* Ajuste Fino de Recorte (Trim Controls) */}
           <div style={{ marginTop: "1rem", padding: "0.85rem", borderRadius: "8px", background: "var(--bg-surface)", border: "1px solid var(--border-default)" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.6rem", flexWrap: "wrap", gap: "6px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.6rem" }}>
               <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
                 <Clock size={14} color="var(--text-secondary)" />
                 <span style={{ fontWeight: 600, fontSize: "0.8rem", letterSpacing: "0.02em", color: "var(--text-secondary)" }}>
                   AJUSTE FINO DE RECORTE (TRIM)
                 </span>
               </div>
-
-              {/* Métricas y calculadora en vivo */}
-              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                <span style={{ fontSize: "0.76rem", color: Math.abs(delta) < 0.1 ? "var(--text-muted)" : delta > 0 ? "#60a5fa" : "#f59e0b", fontFamily: "var(--font-mono)", fontVariantNumeric: "tabular-nums" }}>
-                  Δ vs IA: {delta > 0.05 ? `+${delta.toFixed(1)}s` : delta < -0.05 ? `${delta.toFixed(1)}s` : "0.0s"}
-                </span>
-
-                <span
-                  style={{
-                    fontSize: "0.78rem",
-                    padding: "2px 8px",
-                    borderRadius: "4px",
-                    fontWeight: 700,
-                    fontFamily: "var(--font-mono)",
-                    fontVariantNumeric: "tabular-nums",
-                    background: isOver60s ? "rgba(239, 68, 68, 0.15)" : "rgba(34, 197, 94, 0.15)",
-                    color: isOver60s ? "#f87171" : "#4ade80",
-                    border: isOver60s ? "1px solid rgba(239, 68, 68, 0.3)" : "1px solid rgba(34, 197, 94, 0.3)",
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: "4px",
-                  }}
-                >
-                  {isOver60s ? <AlertTriangle size={12} /> : <CheckCircle2 size={12} />}
-                  {currentDuration.toFixed(1)}s {isOver60s ? `(+${overSeconds.toFixed(1)}s sobre límite 60s)` : "(Apto Shorts)"}
-                </span>
-
-                {isOver60s && (
-                  <button
-                    type="button"
-                    onClick={handleSnapTo59}
-                    title="Ajustar automáticamente el final para que dure exactamente 59 segundos y no exceda Shorts/TikTok"
-                    style={{
-                      padding: "2px 8px",
-                      fontSize: "0.72rem",
-                      borderRadius: "4px",
-                      background: "#fafafa",
-                      color: "#09090b",
-                      border: "none",
-                      fontWeight: 600,
-                      cursor: "pointer",
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: "3px",
-                    }}
-                  >
-                    <Zap size={11} />
-                    Ajustar a 59s
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {/* Barra visual de duración relativa a 60s */}
-            <div style={{ marginBottom: "0.75rem" }}>
-              <div style={{ height: "6px", width: "100%", background: "var(--bg-base)", borderRadius: "3px", overflow: "hidden", position: "relative" }}>
-                <div
-                  style={{
-                    height: "100%",
-                    width: `${Math.min(100, (currentDuration / 60.0) * 100)}%`,
-                    background: isOver60s ? "#ef4444" : "#10b981",
-                    transition: "width 0.15s ease, background 0.15s ease",
-                  }}
-                />
-              </div>
-              <div style={{ display: "flex", justifyContent: "space-between", marginTop: "3px", fontSize: "0.68rem", color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
-                <span>0s</span>
-                <span style={{ color: currentDuration >= 60 ? "#ef4444" : "var(--text-muted)" }}>Límite 60s (Shorts/TikTok)</span>
-                <span>{Math.max(60, Math.ceil(currentDuration))}s</span>
-              </div>
+              <span style={{ fontSize: "0.76rem", color: "var(--text-secondary)", fontFamily: "var(--font-mono)" }}>
+                Duración: <strong style={{ color: "#fafafa" }}>{clipDuration.toFixed(1)}s</strong>
+              </span>
             </div>
 
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem", marginBottom: "0.75rem" }}>
@@ -217,7 +285,7 @@ export function CandidatePreviewModal({
                     className="btn-cancel"
                     style={{ flex: 1, padding: 0, height: "26px", minHeight: "26px", fontSize: "0.72rem", fontFamily: "var(--font-mono, monospace)" }}
                     onClick={() => setTrimStart((curr) => Math.max(0, Number((curr - 5).toFixed(1))))}
-                    title="Retroceder 5 segundos"
+                    title="Retroceder inicio 5 segundos"
                   >
                     -5s
                   </button>
@@ -226,7 +294,7 @@ export function CandidatePreviewModal({
                     className="btn-cancel"
                     style={{ flex: 1, padding: 0, height: "26px", minHeight: "26px", fontSize: "0.72rem", fontFamily: "var(--font-mono, monospace)" }}
                     onClick={() => setTrimStart((curr) => Math.max(0, Number((curr - 1).toFixed(1))))}
-                    title="Retroceder 1 segundo"
+                    title="Retroceder inicio 1 segundo"
                   >
                     -1s
                   </button>
@@ -235,7 +303,7 @@ export function CandidatePreviewModal({
                     className="btn-cancel"
                     style={{ flex: 1, padding: 0, height: "26px", minHeight: "26px", fontSize: "0.72rem", fontFamily: "var(--font-mono, monospace)" }}
                     onClick={() => setTrimStart((curr) => Math.min(trimEnd - 1, Number((curr + 1).toFixed(1))))}
-                    title="Avanzar 1 segundo"
+                    title="Avanzar inicio 1 segundo"
                   >
                     +1s
                   </button>
@@ -244,7 +312,7 @@ export function CandidatePreviewModal({
                     className="btn-cancel"
                     style={{ flex: 1, padding: 0, height: "26px", minHeight: "26px", fontSize: "0.72rem", fontFamily: "var(--font-mono, monospace)" }}
                     onClick={() => setTrimStart((curr) => Math.min(trimEnd - 1, Number((curr + 5).toFixed(1))))}
-                    title="Avanzar 5 segundos"
+                    title="Avanzar inicio 5 segundos"
                   >
                     +5s
                   </button>
@@ -263,7 +331,7 @@ export function CandidatePreviewModal({
                     className="btn-cancel"
                     style={{ flex: 1, padding: 0, height: "26px", minHeight: "26px", fontSize: "0.72rem", fontFamily: "var(--font-mono, monospace)" }}
                     onClick={() => setTrimEnd((curr) => Math.max(trimStart + 1, Number((curr - 5).toFixed(1))))}
-                    title="Acortar 5 segundos"
+                    title="Acortar fin 5 segundos"
                   >
                     -5s
                   </button>
@@ -272,7 +340,7 @@ export function CandidatePreviewModal({
                     className="btn-cancel"
                     style={{ flex: 1, padding: 0, height: "26px", minHeight: "26px", fontSize: "0.72rem", fontFamily: "var(--font-mono, monospace)" }}
                     onClick={() => setTrimEnd((curr) => Math.max(trimStart + 1, Number((curr - 1).toFixed(1))))}
-                    title="Acortar 1 segundo"
+                    title="Acortar fin 1 segundo"
                   >
                     -1s
                   </button>
@@ -281,7 +349,7 @@ export function CandidatePreviewModal({
                     className="btn-cancel"
                     style={{ flex: 1, padding: 0, height: "26px", minHeight: "26px", fontSize: "0.72rem", fontFamily: "var(--font-mono, monospace)" }}
                     onClick={() => setTrimEnd((curr) => Number((curr + 1).toFixed(1)))}
-                    title="Extender 1 segundo"
+                    title="Extender fin 1 segundo"
                   >
                     +1s
                   </button>
@@ -290,7 +358,7 @@ export function CandidatePreviewModal({
                     className="btn-cancel"
                     style={{ flex: 1, padding: 0, height: "26px", minHeight: "26px", fontSize: "0.72rem", fontFamily: "var(--font-mono, monospace)" }}
                     onClick={() => setTrimEnd((curr) => Number((curr + 5).toFixed(1)))}
-                    title="Extender 5 segundos"
+                    title="Extender fin 5 segundos"
                   >
                     +5s
                   </button>
@@ -328,7 +396,7 @@ export function CandidatePreviewModal({
             </div>
           </div>
 
-          {/* Opciones de Subtítulos y Posicionamiento para Exportación */}
+          {/* Opciones de Subtítulos y Posicionamiento para Exportación con Vista Previa en Vivo */}
           <div style={{ marginTop: "1rem", padding: "0.85rem", borderRadius: "8px", background: "var(--bg-surface)", border: "1px solid var(--border-default)" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.6rem" }}>
               <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
@@ -352,116 +420,224 @@ export function CandidatePreviewModal({
 
             <p style={{ margin: "0 0 0.75rem", fontSize: "0.74rem", color: "var(--text-muted)" }}>
               {burnSubtitles
-                ? "Los subtítulos se renderizarán directamente sobre el video. También se exportará el archivo .srt editable en tu carpeta."
+                ? "Los subtítulos se renderizarán sobre el video en la posición que elijas. También se guardará el archivo .srt editable por separado."
                 : "El video se exportará limpio (sin subtítulos incrustados) y se creará un archivo .srt sincronizado por separado."}
             </p>
 
             {burnSubtitles && (
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem", paddingTop: "0.25rem", borderTop: "1px dashed var(--border-default)" }}>
-                {/* Estilo de Subtítulo */}
-                <div>
-                  <label style={{ display: "block", fontSize: "0.74rem", color: "var(--text-secondary)", marginBottom: "0.4rem" }}>
-                    Estilo de animación:
-                  </label>
-                  <select
-                    value={captionStyle}
-                    onChange={(e) => setCaptionStyle(e.target.value)}
-                    style={{
-                      width: "100%",
-                      padding: "0.35rem 0.5rem",
-                      borderRadius: "6px",
-                      background: "var(--bg-surface-raised)",
-                      border: "1px solid var(--border-default)",
-                      color: "#fafafa",
-                      fontSize: "0.76rem",
-                      cursor: "pointer",
-                    }}
-                  >
-                    <option value="tiktok-karaoke">✨ TikTok Karaoke (Palabra Activa Resaltada)</option>
-                    <option value="modern-box">⬛ Caja Moderna (Fondo Oscuro Suave)</option>
-                    <option value="classic-outline">🟨 Clásico Contorno (Amarillo con Borde)</option>
-                    <option value="minimal-shadow">⬜ Minimalista (Blanco Limpio con Sombra)</option>
-                  </select>
-                </div>
+              <>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem", paddingTop: "0.25rem", borderTop: "1px dashed var(--border-default)" }}>
+                  {/* Estilo de Subtítulo */}
+                  <div>
+                    <label style={{ display: "block", fontSize: "0.74rem", color: "var(--text-secondary)", marginBottom: "0.4rem" }}>
+                      Estilo de animación:
+                    </label>
+                    <select
+                      value={captionStyle}
+                      onChange={(e) => setCaptionStyle(e.target.value)}
+                      style={{
+                        width: "100%",
+                        padding: "0.38rem 0.5rem",
+                        borderRadius: "6px",
+                        background: "var(--bg-surface-raised)",
+                        border: "1px solid var(--border-default)",
+                        color: "#fafafa",
+                        fontSize: "0.76rem",
+                        cursor: "pointer",
+                      }}
+                    >
+                      <option value="tiktok-karaoke">✨ TikTok Karaoke (Palabra Resaltada)</option>
+                      <option value="modern-box">⬛ Caja Moderna (Fondo Oscuro)</option>
+                      <option value="classic-outline">🟨 Clásico Contorno (Amarillo y Negro)</option>
+                      <option value="minimal-shadow">⬜ Minimalista (Blanco con Sombra)</option>
+                    </select>
+                  </div>
 
-                {/* Posición en Pantalla (Evitar estorbar cámaras / HUD) */}
-                <div>
-                  <label style={{ display: "block", fontSize: "0.74rem", color: "var(--text-secondary)", marginBottom: "0.4rem" }}>
-                    Posición en pantalla:
-                  </label>
-                  <div style={{ display: "flex", gap: "0.3rem" }}>
-                    <button
-                      type="button"
-                      onClick={() => setCaptionPosition("bottom")}
-                      title="Abajo (Estándar para reels/shorts)"
-                      style={{
-                        flex: 1,
-                        padding: "0.35rem 0.2rem",
-                        borderRadius: "5px",
-                        border: captionPosition === "bottom" ? "1px solid #fafafa" : "1px solid var(--border-default)",
-                        background: captionPosition === "bottom" ? "#fafafa" : "var(--bg-surface-raised)",
-                        color: captionPosition === "bottom" ? "#09090b" : "var(--text-secondary)",
-                        fontSize: "0.72rem",
-                        fontWeight: captionPosition === "bottom" ? 600 : 400,
-                        cursor: "pointer",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        gap: "4px",
-                      }}
-                    >
-                      <AlignVerticalJustifyEnd size={12} />
-                      Abajo
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setCaptionPosition("center")}
-                      title="Centro (No tapa la interfaz del juego ni subtítulos inferiores)"
-                      style={{
-                        flex: 1,
-                        padding: "0.35rem 0.2rem",
-                        borderRadius: "5px",
-                        border: captionPosition === "center" ? "1px solid #fafafa" : "1px solid var(--border-default)",
-                        background: captionPosition === "center" ? "#fafafa" : "var(--bg-surface-raised)",
-                        color: captionPosition === "center" ? "#09090b" : "var(--text-secondary)",
-                        fontSize: "0.72rem",
-                        fontWeight: captionPosition === "center" ? 600 : 400,
-                        cursor: "pointer",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        gap: "4px",
-                      }}
-                    >
-                      <AlignVerticalJustifyCenter size={12} />
-                      Centro
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setCaptionPosition("top")}
-                      title="Arriba (No estorba la cámara del streamer ni HUD inferior)"
-                      style={{
-                        flex: 1,
-                        padding: "0.35rem 0.2rem",
-                        borderRadius: "5px",
-                        border: captionPosition === "top" ? "1px solid #fafafa" : "1px solid var(--border-default)",
-                        background: captionPosition === "top" ? "#fafafa" : "var(--bg-surface-raised)",
-                        color: captionPosition === "top" ? "#09090b" : "var(--text-secondary)",
-                        fontSize: "0.72rem",
-                        fontWeight: captionPosition === "top" ? 600 : 400,
-                        cursor: "pointer",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        gap: "4px",
-                      }}
-                    >
-                      <AlignVerticalJustifyStart size={12} />
-                      Arriba
-                    </button>
+                  {/* Posición en Pantalla (Evitar estorbar cámaras / HUD) */}
+                  <div>
+                    <label style={{ display: "block", fontSize: "0.74rem", color: "var(--text-secondary)", marginBottom: "0.4rem" }}>
+                      Posición en pantalla:
+                    </label>
+                    <div style={{ display: "flex", gap: "0.3rem" }}>
+                      <button
+                        type="button"
+                        onClick={() => setCaptionPosition("bottom")}
+                        title="Abajo (Estándar para reels/shorts)"
+                        style={{
+                          flex: 1,
+                          padding: "0.38rem 0.2rem",
+                          borderRadius: "5px",
+                          border: captionPosition === "bottom" ? "1px solid #38bdf8" : "1px solid var(--border-default)",
+                          background: captionPosition === "bottom" ? "#0284c7" : "var(--bg-surface-raised)",
+                          color: "#fafafa",
+                          fontSize: "0.72rem",
+                          fontWeight: captionPosition === "bottom" ? 700 : 400,
+                          cursor: "pointer",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          gap: "4px",
+                        }}
+                      >
+                        <AlignVerticalJustifyEnd size={12} />
+                        Abajo
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setCaptionPosition("center")}
+                        title="Centro (No tapa la interfaz del juego ni subtítulos inferiores)"
+                        style={{
+                          flex: 1,
+                          padding: "0.38rem 0.2rem",
+                          borderRadius: "5px",
+                          border: captionPosition === "center" ? "1px solid #38bdf8" : "1px solid var(--border-default)",
+                          background: captionPosition === "center" ? "#0284c7" : "var(--bg-surface-raised)",
+                          color: "#fafafa",
+                          fontSize: "0.72rem",
+                          fontWeight: captionPosition === "center" ? 700 : 400,
+                          cursor: "pointer",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          gap: "4px",
+                        }}
+                      >
+                        <AlignVerticalJustifyCenter size={12} />
+                        Centro
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setCaptionPosition("top")}
+                        title="Arriba (No estorba la cámara del streamer ni HUD inferior)"
+                        style={{
+                          flex: 1,
+                          padding: "0.38rem 0.2rem",
+                          borderRadius: "5px",
+                          border: captionPosition === "top" ? "1px solid #38bdf8" : "1px solid var(--border-default)",
+                          background: captionPosition === "top" ? "#0284c7" : "var(--bg-surface-raised)",
+                          color: "#fafafa",
+                          fontSize: "0.72rem",
+                          fontWeight: captionPosition === "top" ? 700 : 400,
+                          cursor: "pointer",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          gap: "4px",
+                        }}
+                      >
+                        <AlignVerticalJustifyStart size={12} />
+                        Arriba
+                      </button>
+                    </div>
                   </div>
                 </div>
-              </div>
+
+                {/* VISTA PREVIA EN VIVO DEL ESTILO Y POSICIÓN DE SUBTÍTULOS */}
+                <div style={{ marginTop: "0.85rem", borderRadius: "8px", overflow: "hidden", border: "1px solid var(--border-default)", background: "#09090b" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.35rem 0.75rem", background: "var(--bg-surface-raised)", borderBottom: "1px solid var(--border-default)", fontSize: "0.72rem", color: "var(--text-secondary)" }}>
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: "4px", fontWeight: 600 }}>
+                      <Eye size={12} color="#38bdf8" />
+                      Vista previa en vivo del subtítulo:
+                    </span>
+                    <span style={{ fontSize: "0.68rem", opacity: 0.8, fontFamily: "var(--font-mono)" }}>
+                      Posición: {captionPosition === "bottom" ? "Abajo" : captionPosition === "center" ? "Centro" : "Arriba"}
+                    </span>
+                  </div>
+
+                  <div
+                    style={{
+                      position: "relative",
+                      height: "130px",
+                      background: "radial-gradient(ellipse at center, #1e1e24 0%, #09090b 100%)",
+                      display: "flex",
+                      flexDirection: "column",
+                      justifyContent: captionPosition === "top" ? "flex-start" : captionPosition === "center" ? "center" : "flex-end",
+                      alignItems: "center",
+                      padding: captionPosition === "center" ? "0 14px" : captionPosition === "top" ? "14px 14px 0" : "0 14px 14px",
+                      overflow: "hidden",
+                    }}
+                  >
+                    <div style={{ position: "absolute", top: "6px", left: "10px", fontSize: "0.62rem", color: "rgba(255,255,255,0.25)", fontFamily: "var(--font-mono)" }}>
+                      [SIMULACIÓN DE PANTALLA]
+                    </div>
+
+                    {captionStyle === "tiktok-karaoke" && (
+                      <div style={{ textAlign: "center", fontFamily: "'Arial Black', Impact, sans-serif", fontSize: "1.05rem", textTransform: "uppercase", letterSpacing: "0.03em", userSelect: "none" }}>
+                        <span style={{ color: "#ffffff", textShadow: "-2px -2px 0 #000, 2px -2px 0 #000, -2px 2px 0 #000, 2px 2px 0 #000, 0 3px 6px rgba(0,0,0,0.8)", marginRight: "6px" }}>
+                          ESTA
+                        </span>
+                        <span
+                          style={{
+                            display: "inline-block",
+                            color: "#facc15",
+                            transform: "scale(1.18)",
+                            transformOrigin: "center bottom",
+                            textShadow: "-2px -2px 0 #000, 2px -2px 0 #000, -2px 2px 0 #000, 2px 2px 0 #000, 0 4px 8px rgba(0,0,0,0.9)",
+                            fontWeight: 900,
+                            marginRight: "6px",
+                          }}
+                        >
+                          JUGADA
+                        </span>
+                        <span style={{ color: "#ffffff", textShadow: "-2px -2px 0 #000, 2px -2px 0 #000, -2px 2px 0 #000, 2px 2px 0 #000, 0 3px 6px rgba(0,0,0,0.8)" }}>
+                          ÉPICA!
+                        </span>
+                      </div>
+                    )}
+
+                    {captionStyle === "modern-box" && (
+                      <div
+                        style={{
+                          background: "rgba(0, 0, 0, 0.8)",
+                          padding: "5px 14px",
+                          borderRadius: "6px",
+                          color: "#ffffff",
+                          fontFamily: "Arial, sans-serif",
+                          fontWeight: 700,
+                          fontSize: "0.92rem",
+                          letterSpacing: "0.02em",
+                          textTransform: "uppercase",
+                          border: "1px solid rgba(255, 255, 255, 0.15)",
+                          boxShadow: "0 4px 12px rgba(0,0,0,0.5)",
+                        }}
+                      >
+                        ESTA JUGADA ÉPICA!
+                      </div>
+                    )}
+
+                    {captionStyle === "classic-outline" && (
+                      <div
+                        style={{
+                          color: "#ffff00",
+                          fontFamily: "'Arial Black', Impact, sans-serif",
+                          fontWeight: 900,
+                          fontSize: "1.05rem",
+                          textTransform: "uppercase",
+                          letterSpacing: "0.03em",
+                          textShadow: "-3px -3px 0 #000, 3px -3px 0 #000, -3px 3px 0 #000, 3px 3px 0 #000, 0 3px 6px #000",
+                        }}
+                      >
+                        ESTA JUGADA ÉPICA!
+                      </div>
+                    )}
+
+                    {captionStyle === "minimal-shadow" && (
+                      <div
+                        style={{
+                          color: "#ffffff",
+                          fontFamily: "system-ui, -apple-system, sans-serif",
+                          fontWeight: 600,
+                          fontSize: "0.95rem",
+                          textShadow: "0 2px 6px rgba(0, 0, 0, 0.9)",
+                          letterSpacing: "0.02em",
+                        }}
+                      >
+                        Esta jugada épica!
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </>
             )}
           </div>
 
