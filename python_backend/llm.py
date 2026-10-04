@@ -435,19 +435,27 @@ def call_lmstudio(
     content_type: str = "gaming",
     target_duration: str = "60s",
     custom_prompt: Optional[str] = None,
-    base_url: Optional[str] = None
+    base_url: Optional[str] = None,
+    enable_thinking: bool = False
 ) -> str:
     url = (base_url or os.getenv("LMSTUDIO_BASE_URL", "http://127.0.0.1:1234/v1")).rstrip("/") + "/chat/completions"
     system_prompt = build_system_prompt(content_type, target_duration, custom_prompt=custom_prompt)
     model = model_name or "local-model"
 
-    payload = {
+    if not enable_thinking:
+        thinking_instruction = "\n\n[MODO DIRECTO ULTRARRÁPIDO]: PROHIBIDO razonar o pensar en voz alta. NO uses etiquetas <think> ni explicaciones. Responde DIRECTAMENTE con el formato JSON solicitado."
+    else:
+        thinking_instruction = "\n\nResponde ÚNICAMENTE en formato JSON válido."
+
+    payload: Dict[str, Any] = {
         "model": model,
         "messages": [
-            {"role": "system", "content": system_prompt + "\n\nResponde ÚNICAMENTE en formato JSON válido."},
+            {"role": "system", "content": system_prompt + thinking_instruction},
             {"role": "user", "content": prompt}
         ],
-        "temperature": 0.2
+        "temperature": 0.2,
+        "enable_thinking": bool(enable_thinking),
+        "chat_template_config": {"enable_thinking": bool(enable_thinking)}
     }
 
     try:
@@ -462,7 +470,13 @@ def call_lmstudio(
     choices = data.get("choices", [])
     if not choices:
         raise RuntimeError(f"LM Studio returned empty choices: {resp.text}")
-    return choices[0]["message"]["content"]
+
+    content = choices[0]["message"]["content"]
+    if "<think>" in content:
+        content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
+        content = re.sub(r"<think>.*$", "", content, flags=re.DOTALL).strip()
+
+    return content
 
 
 def call_cloud_llm(
@@ -780,7 +794,8 @@ def detect_candidates_pipeline(
                         model_name=model_name,
                         content_type=content_type,
                         target_duration=target_duration,
-                        custom_prompt=custom_prompt
+                        custom_prompt=custom_prompt,
+                        enable_thinking=enable_thinking
                     )
                 else:
                     resp_text = call_cloud_llm(
@@ -981,10 +996,12 @@ Responde EXCLUSIVAMENTE con este objeto JSON:
             payload = {
                 "model": active_model,
                 "messages": [
-                    {"role": "system", "content": summary_sys + "\n\nResponde ÚNICAMENTE con el objeto JSON solicitado."},
+                    {"role": "system", "content": summary_sys + "\n\n[MODO DIRECTO]: PROHIBIDO razonar o usar <think>. Responde ÚNICAMENTE con el objeto JSON solicitado."},
                     {"role": "user", "content": prompt}
                 ],
-                "temperature": 0.3
+                "temperature": 0.3,
+                "enable_thinking": False,
+                "chat_template_config": {"enable_thinking": False}
             }
             try:
                 resp = requests.post(url, json=payload, timeout=90)
@@ -994,6 +1011,7 @@ Responde EXCLUSIVAMENTE con este objeto JSON:
                         content = choices[0]["message"]["content"]
                         if "<think>" in content:
                             content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
+                            content = re.sub(r"<think>.*$", "", content, flags=re.DOTALL).strip()
                         raw_response = content
                 else:
                     print(f"LM Studio narrative planning failed: {resp.text}")
@@ -1622,10 +1640,12 @@ def refine_transcript_with_llm(
                 payload = {
                     "model": model_name or "local-model",
                     "messages": [
-                        {"role": "system", "content": system_prompt},
+                        {"role": "system", "content": system_prompt + ("\n\n[MODO DIRECTO]: PROHIBIDO usar <think> o razonar." if not has_thinking else "")},
                         {"role": "user", "content": user_prompt}
                     ],
-                    "temperature": 0.1
+                    "temperature": 0.1,
+                    "enable_thinking": bool(has_thinking),
+                    "chat_template_config": {"enable_thinking": bool(has_thinking)}
                 }
                 try:
                     resp = requests.post(url, json=payload, timeout=120)
@@ -1636,6 +1656,7 @@ def refine_transcript_with_llm(
                             content = choices[0]["message"]["content"]
                             if "<think>" in content:
                                 content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
+                                content = re.sub(r"<think>.*$", "", content, flags=re.DOTALL).strip()
                             raw_resp = content
                     else:
                         print(f"LM Studio refine error ({resp.status_code}): {resp.text}")
@@ -1749,19 +1770,25 @@ IMPORTANTE: Escribe en Español natural, convincente y sin rodeos."""
             content = resp.json().get("message", {}).get("content", "")
         elif provider == "lmstudio":
             url = (os.getenv("LMSTUDIO_BASE_URL", "http://127.0.0.1:1234/v1")).rstrip("/") + "/chat/completions"
+            direct_hint = "\n\n[MODO DIRECTO]: PROHIBIDO usar <think> o razonar." if not has_thinking else ""
             payload = {
                 "model": model_name or "local-model",
                 "messages": [
-                    {"role": "system", "content": system_prompt + "\n\nResponde ÚNICAMENTE en JSON válido."},
+                    {"role": "system", "content": system_prompt + "\n\nResponde ÚNICAMENTE en JSON válido." + direct_hint},
                     {"role": "user", "content": user_prompt}
                 ],
-                "temperature": 0.5
+                "temperature": 0.5,
+                "enable_thinking": bool(has_thinking),
+                "chat_template_config": {"enable_thinking": bool(has_thinking)}
             }
             resp = requests.post(url, json=payload, timeout=120)
             if not resp.ok:
                 raise RuntimeError(f"LM Studio call failed ({resp.status_code}): {resp.text}")
             choices = resp.json().get("choices", [])
             content = choices[0]["message"]["content"] if choices else ""
+            if "<think>" in content:
+                content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
+                content = re.sub(r"<think>.*$", "", content, flags=re.DOTALL).strip()
         else:
             content = call_cloud_llm(
                 provider=provider,

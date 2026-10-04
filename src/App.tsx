@@ -59,6 +59,8 @@ export function App() {
     setDetail: projectActions.setDetail,
     refresh: projectActions.refresh,
     setError: projectActions.setError,
+    busy: projectActions.busy,
+    setBusy: projectActions.setBusy,
     transcriptionEngine: settings.transcriptionEngine,
     whisperModel: settings.whisperModel,
     deepgramKey: settings.deepgramKey,

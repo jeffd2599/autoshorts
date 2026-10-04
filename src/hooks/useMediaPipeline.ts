@@ -17,6 +17,8 @@ interface UseMediaPipelineOptions {
   setDetail: React.Dispatch<React.SetStateAction<ProjectDetail | null>>;
   refresh: (projectId?: string) => Promise<void>;
   setError: (err: string | null) => void;
+  busy: import("../types").BusyState;
+  setBusy: (busy: import("../types").BusyState) => void;
   transcriptionEngine: string;
   whisperModel: string;
   deepgramKey: string;
@@ -40,6 +42,8 @@ export function useMediaPipeline(options: UseMediaPipelineOptions) {
     setDetail,
     refresh,
     setError,
+    busy,
+    setBusy,
     transcriptionEngine,
     whisperModel,
     deepgramKey,
@@ -161,6 +165,7 @@ export function useMediaPipeline(options: UseMediaPipelineOptions) {
 
   const transcribe = useCallback(async () => {
     if (!detail) return;
+    setBusy("transcribe");
     setTranscriptionProgress({ percentage: 0, message: "Iniciando transcripción..." });
     setError(null);
     try {
@@ -180,6 +185,7 @@ export function useMediaPipeline(options: UseMediaPipelineOptions) {
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
+      setBusy("idle");
       setTranscriptionProgress(null);
     }
   }, [
@@ -192,6 +198,7 @@ export function useMediaPipeline(options: UseMediaPipelineOptions) {
     enableThinking,
     refresh,
     setError,
+    setBusy,
   ]);
 
   const cancelTranscription = useCallback(async () => {
@@ -199,6 +206,7 @@ export function useMediaPipeline(options: UseMediaPipelineOptions) {
       await invoke("cancel_transcription");
       setTranscriptionProgress({ percentage: 0, message: "Cancelando transcripción..." });
       setTimeout(() => {
+        setBusy("idle");
         setTranscriptionProgress(null);
         if (detail) {
           void refresh(detail.project.id);
@@ -206,9 +214,10 @@ export function useMediaPipeline(options: UseMediaPipelineOptions) {
       }, 400);
     } catch (err) {
       console.error("Error al cancelar transcripción:", err);
+      setBusy("idle");
       setTranscriptionProgress(null);
     }
-  }, [detail, refresh]);
+  }, [detail, refresh, setBusy]);
 
   const refineTranscript = useCallback(async () => {
     if (!detail?.transcript) return;
@@ -253,6 +262,7 @@ export function useMediaPipeline(options: UseMediaPipelineOptions) {
       await invoke("cancel_candidate_generation");
       setCandidateProgress({ message: "Cancelando y liberando VRAM...", current: 0, total: 1 });
       setTimeout(() => {
+        setBusy("idle");
         setCandidateProgress(null);
         if (detail) {
           void refresh(detail.project.id);
@@ -260,13 +270,15 @@ export function useMediaPipeline(options: UseMediaPipelineOptions) {
       }, 500);
     } catch (err) {
       console.error("Error al cancelar momentos:", err);
+      setBusy("idle");
       setCandidateProgress(null);
     }
-  }, [detail, refresh]);
+  }, [detail, refresh, setBusy]);
 
   const moments = useCallback(
     async (allowDemo: boolean = false) => {
       if (!detail) return;
+      setBusy("moments");
       setError(null);
       try {
         const { activeLlmKey, activeLlmModel } = getActiveLlmConfig();
@@ -295,6 +307,8 @@ export function useMediaPipeline(options: UseMediaPipelineOptions) {
           }
         }
         setError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setBusy("idle");
       }
     },
     [
@@ -309,6 +323,7 @@ export function useMediaPipeline(options: UseMediaPipelineOptions) {
       pullModelDirectly,
       refresh,
       setError,
+      setBusy,
     ]
   );
 
@@ -360,6 +375,7 @@ export function useMediaPipeline(options: UseMediaPipelineOptions) {
 
       // 1. Transcription
       try {
+        setBusy("transcribe");
         const { activeLlmKey, activeLlmModel } = getActiveLlmConfig();
         await invoke<Transcript>("transcribe_project", {
           projectId,
@@ -375,13 +391,18 @@ export function useMediaPipeline(options: UseMediaPipelineOptions) {
         await refresh(projectId);
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
+        setBusy("idle");
         return;
       }
 
       // 2. LLM Moments
-      if (!autoDetectMoments) return;
+      if (!autoDetectMoments) {
+        setBusy("idle");
+        return;
+      }
 
       try {
+        setBusy("moments");
         const { activeLlmKey, activeLlmModel } = getActiveLlmConfig();
         await invoke<Candidate[]>("generate_candidates", {
           projectId,
@@ -408,6 +429,8 @@ export function useMediaPipeline(options: UseMediaPipelineOptions) {
           }
         }
         setError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setBusy("idle");
       }
     },
     [
@@ -426,6 +449,7 @@ export function useMediaPipeline(options: UseMediaPipelineOptions) {
       pullModelDirectly,
       refresh,
       setError,
+      setBusy,
     ]
   );
 
@@ -473,6 +497,7 @@ export function useMediaPipeline(options: UseMediaPipelineOptions) {
     async (candidateId: string) => {
       if (!detail) return;
       setRenderingCandidateId(candidateId);
+      setBusy("cut");
       setError(null);
       try {
         await invoke<string>("render_flat_clip_for_candidate", {
@@ -484,14 +509,16 @@ export function useMediaPipeline(options: UseMediaPipelineOptions) {
         setError(err instanceof Error ? err.message : String(err));
       } finally {
         setRenderingCandidateId(null);
+        setBusy("idle");
         await refresh(detail.project.id);
       }
     },
-    [detail, customOutputDir, clipAspectRatio, refresh, setError]
+    [detail, customOutputDir, clipAspectRatio, refresh, setError, setBusy]
   );
 
   const cutSelected = useCallback(async () => {
     if (!detail) return;
+    setBusy("cut");
     setError(null);
     try {
       for (const candidate of selectedCandidates) {
@@ -506,9 +533,10 @@ export function useMediaPipeline(options: UseMediaPipelineOptions) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setRenderingCandidateId(null);
+      setBusy("idle");
       await refresh(detail.project.id);
     }
-  }, [detail, selectedCandidates, customOutputDir, clipAspectRatio, refresh, setError]);
+  }, [detail, selectedCandidates, customOutputDir, clipAspectRatio, refresh, setError, setBusy]);
 
   const generateSocialCopy = useCallback(
     async (extraContextOverride?: string) => {
