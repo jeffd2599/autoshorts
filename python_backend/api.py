@@ -16,6 +16,7 @@ from .media import (
     extract_audio,
     extract_video_thumbnail,
     generate_srt,
+    generate_ass_subtitles,
     build_drawtext_filters,
     probe_media,
     render_flat_clip,
@@ -725,9 +726,21 @@ class Api:
         candidate_id = args.get("candidateId") if isinstance(args, dict) else args
         custom_dir = args.get("outputDir") if isinstance(args, dict) else None
         aspect_ratio = args.get("aspectRatio", "original") if isinstance(args, dict) else "original"
+        burn_subtitles = bool(args.get("burnSubtitles", False)) if isinstance(args, dict) else False
 
         candidate, project = self.db.get_candidate_with_project(candidate_id)
         self.db.update_clip_for_candidate(candidate_id, "cutting")
+
+        caption_style = (
+            args.get("captionStyle")
+            if isinstance(args, dict) and args.get("captionStyle")
+            else (project.get("captionStyle") or "tiktok-karaoke")
+        )
+        caption_position = (
+            args.get("captionPosition", "bottom")
+            if isinstance(args, dict)
+            else "bottom"
+        )
 
         if custom_dir:
             out_dir = Path(custom_dir)
@@ -745,9 +758,10 @@ class Api:
         output_path = out_dir / f"{base_name}.mp4"
         exported_srt_path = out_dir / f"{base_name}.srt"
 
-        style = project.get("captionStyle") or "modern-box"
         drawtext_filters = None
+        subtitle_filter = None
         srt_path = None
+
         transcript_record = self.db.latest_transcript(project["id"])
         if transcript_record:
             try:
@@ -760,22 +774,23 @@ class Api:
                     f.write(srt_content)
                 srt_path = str(exported_srt_path)
 
-                # Only burn subtitles if style is not "none"
-                if style != "none":
-                    probe = probe_media(project["sourcePath"])
-                    iw = probe.get("width") or 1920
-                    ih = probe.get("height") or 1080
-                    if aspect_ratio == "9:16":
-                        cropped_width = int(round(min(iw, ih * 9 / 16)))
-                    else:
-                        cropped_width = int(iw)
-                    drawtext_filters = build_drawtext_filters(
+                # If the user chose to burn in subtitles into the video
+                if burn_subtitles and caption_style != "none":
+                    ass_content = generate_ass_subtitles(
                         words=words,
                         start_sec=candidate["startSec"],
                         end_sec=candidate["endSec"],
-                        cropped_width=cropped_width,
-                        caption_style=style
+                        caption_style=caption_style,
+                        position=caption_position,
+                        aspect_ratio=aspect_ratio
                     )
+                    if ass_content:
+                        exported_ass_path = out_dir / f"{base_name}.ass"
+                        with open(exported_ass_path, "w", encoding="utf-8") as f:
+                            f.write(ass_content)
+                        # Escape Windows path for ffmpeg: backslashes -> forward slashes, colons -> escaped \:
+                        escaped_ass = str(exported_ass_path.resolve()).replace("\\", "/").replace(":", "\\:")
+                        subtitle_filter = f"ass='{escaped_ass}'"
             except Exception as e:
                 print(f"Warning building captions: {e}")
 
@@ -785,7 +800,8 @@ class Api:
             end_sec=candidate["endSec"],
             output_path=output_path,
             drawtext_filters=drawtext_filters,
-            aspect_ratio=aspect_ratio
+            aspect_ratio=aspect_ratio,
+            subtitle_filter=subtitle_filter
         )
 
         self.db.update_clip_for_candidate(

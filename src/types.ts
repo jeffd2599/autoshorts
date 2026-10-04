@@ -46,6 +46,7 @@ export type Project = {
   status: string;
   transcriptionMode: string;
   captionStyle?: string | null;
+  aspectRatio?: string | null;
   sourceExists?: boolean;
   projectDir?: string | null;
   createdAt: string;
@@ -81,6 +82,7 @@ export type Clip = {
   outputPath: string | null;
   faceTrackJson: string | null;
   captionAssPath: string | null;
+  captionPath?: string | null;
   renderLog: string | null;
 };
 

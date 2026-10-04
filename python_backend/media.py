@@ -513,13 +513,146 @@ def build_drawtext_filters(
     return ",".join(drawtext_filters)
 
 
+def format_ass_time(sec: float) -> str:
+    h = int(sec // 3600)
+    m = int((sec % 3600) // 60)
+    s = int(sec % 60)
+    cs = int(round((sec - int(sec)) * 100))
+    if cs >= 100:
+        cs = 99
+    return f"{h}:{m:02d}:{s:02d}.{cs:02d}"
+
+
+def generate_ass_subtitles(
+    words: List[Dict[str, Any]],
+    start_sec: float,
+    end_sec: float,
+    caption_style: str = "tiktok-karaoke",
+    position: str = "bottom",
+    aspect_ratio: str = "9:16"
+) -> str:
+    clip_words = [w for w in words if w.get("end", 0) > start_sec and w.get("start", 0) < end_sec]
+    if not clip_words:
+        return ""
+
+    is_vertical = (aspect_ratio == "9:16")
+    res_x = 1080 if is_vertical else 1920
+    res_y = 1920 if is_vertical else 1080
+    font_size = 72 if is_vertical else 56
+
+    # Alignment and vertical margin
+    # ASS alignments: 2 = Bottom Center, 5 = Middle Center, 8 = Top Center
+    if position == "top":
+        alignment = 8
+        margin_v = 180 if is_vertical else 90
+    elif position == "center":
+        alignment = 5
+        margin_v = 0
+    else:  # bottom default
+        alignment = 2
+        margin_v = 160 if is_vertical else 80
+
+    # Colors in ASS: &HAABBGGRR& (ABGR hex format)
+    primary_color = "&H00FFFFFF&"
+    highlight_color = "&H0000FFFF&"  # Yellow pop
+    border_style = 1  # 1 = outline + shadow, 3 = opaque box
+    outline_size = 5 if is_vertical else 4
+    shadow_size = 3 if is_vertical else 2
+    back_colour = "&H80000000&"
+
+    if caption_style == "tiktok-karaoke":
+        highlight_color = "&H0000FFFF&"
+        primary_color = "&H00FFFFFF&"
+    elif caption_style == "modern-box":
+        primary_color = "&H00FFFFFF&"
+        border_style = 3
+        outline_size = 2
+        shadow_size = 0
+        back_colour = "&H99000000&"
+    elif caption_style == "classic-outline":
+        primary_color = "&H0000FFFF&"
+        outline_size = 6 if is_vertical else 5
+        shadow_size = 2
+    elif caption_style == "minimal-shadow":
+        primary_color = "&H00FFFFFF&"
+        outline_size = 1
+        shadow_size = 3
+
+    header = f"""[Script Info]
+ScriptType: v4.00+
+PlayResX: {res_x}
+PlayResY: {res_y}
+ScaledBorderAndShadow: yes
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: AutoStyle,Arial Black,{font_size},{primary_color},&H000000FF,&H00000000,{back_colour},-1,0,0,0,100,100,1,0,{border_style},{outline_size},{shadow_size},{alignment},40,40,{margin_v},1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+"""
+
+    dialogue_lines = []
+    chunk_size = 3 if is_vertical else 4
+
+    for i in range(0, len(clip_words), chunk_size):
+        chunk = clip_words[i:i + chunk_size]
+        if not chunk:
+            continue
+
+        chunk_start = max(0.0, chunk[0]["start"] - start_sec)
+        chunk_end = max(0.0, min(end_sec - start_sec, chunk[-1]["end"] - start_sec))
+        if chunk_end <= chunk_start:
+            continue
+
+        if caption_style == "tiktok-karaoke":
+            # Word-by-word active pop jump for each word in this chunk
+            for w_idx, active_w in enumerate(chunk):
+                w_start = max(chunk_start, active_w["start"] - start_sec)
+                w_end = min(chunk_end, active_w["end"] - start_sec)
+                if w_end <= w_start:
+                    w_end = min(chunk_end, w_start + 0.3)
+
+                words_text = []
+                for idx, w in enumerate(chunk):
+                    raw_w = re.sub(r"[^\wáéíóúÁÉÍÓÚñÑüÜ]", "", w.get("text", "")).upper()
+                    if not raw_w:
+                        raw_w = w.get("text", "").strip().upper()
+                    if not raw_w:
+                        continue
+                    if idx == w_idx:
+                        # Pop animation (118% scale) & vibrant color
+                        words_text.append(f"{{\\fscx118\\fscy118\\c{highlight_color}}}{raw_w}{{\\rAutoStyle\\fscx100\\fscy100}}")
+                    else:
+                        words_text.append(raw_w)
+
+                text_line = " ".join(words_text)
+                if text_line.strip():
+                    dialogue_lines.append(
+                        f"Dialogue: 0,{format_ass_time(w_start)},{format_ass_time(w_end)},AutoStyle,,0,0,0,,{text_line}"
+                    )
+        else:
+            clean_chunk = []
+            for w in chunk:
+                c = re.sub(r"[^\wáéíóúÁÉÍÓÚñÑüÜ]", "", w.get("text", "")).upper()
+                clean_chunk.append(c if c else w.get("text", "").strip().upper())
+            text_line = " ".join(clean_chunk)
+            if text_line.strip():
+                dialogue_lines.append(
+                    f"Dialogue: 0,{format_ass_time(chunk_start)},{format_ass_time(chunk_end)},AutoStyle,,0,0,0,,{text_line}"
+                )
+
+    return header + "\n".join(dialogue_lines) + "\n"
+
+
 def render_flat_clip(
     source_path: str,
     start_sec: float,
     end_sec: float,
     output_path: Path,
     drawtext_filters: Optional[str] = None,
-    aspect_ratio: str = "9:16"
+    aspect_ratio: str = "9:16",
+    subtitle_filter: Optional[str] = None
 ) -> Path:
     if not command_exists("ffmpeg"):
         raise RuntimeError("ffmpeg is not installed or not available on PATH")
@@ -545,7 +678,9 @@ def render_flat_clip(
         if aspect_ratio == "9:16":
             filters.append("crop=w='2*trunc(min(iw,ih*9/16)/2)':h='2*trunc(min(ih,iw*16/9)/2)'")
 
-        if drawtext_filters and drawtext_filters.strip():
+        if subtitle_filter and subtitle_filter.strip():
+            filters.append(subtitle_filter.strip())
+        elif drawtext_filters and drawtext_filters.strip():
             filters.append(drawtext_filters.strip())
 
         vf = ",".join(filters) if filters else None
@@ -570,9 +705,9 @@ def render_flat_clip(
 
     res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
     if res.returncode != 0:
-        # Fallback without drawtext if filters caused error
-        if drawtext_filters:
-            return render_flat_clip(source_path, start_sec, end_sec, output_path, None, aspect_ratio)
+        # Fallback without subtitle/drawtext if filters caused error
+        if subtitle_filter or drawtext_filters:
+            return render_flat_clip(source_path, start_sec, end_sec, output_path, None, aspect_ratio, None)
         raise RuntimeError(f"ffmpeg clip render failed: {res.stderr.strip()}")
 
     return output_path

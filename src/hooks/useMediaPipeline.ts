@@ -11,6 +11,12 @@ import type {
   TargetDuration,
   Transcript,
 } from "../types";
+export interface CutClipOptions {
+  burnSubtitles?: boolean;
+  captionStyle?: string;
+  captionPosition?: "bottom" | "center" | "top";
+  aspectRatio?: "original" | "9:16";
+}
 
 interface UseMediaPipelineOptions {
   detail: ProjectDetail | null;
@@ -494,7 +500,7 @@ export function useMediaPipeline(options: UseMediaPipelineOptions) {
   );
 
   const cutCandidate = useCallback(
-    async (candidateId: string) => {
+    async (candidateId: string, options?: CutClipOptions) => {
       if (!detail) return;
       setRenderingCandidateId(candidateId);
       setBusy("cut");
@@ -503,7 +509,10 @@ export function useMediaPipeline(options: UseMediaPipelineOptions) {
         await invoke<string>("render_flat_clip_for_candidate", {
           candidateId,
           outputDir: customOutputDir || null,
-          aspectRatio: clipAspectRatio,
+          aspectRatio: options?.aspectRatio || clipAspectRatio,
+          burnSubtitles: options?.burnSubtitles ?? false,
+          captionStyle: options?.captionStyle || "tiktok-karaoke",
+          captionPosition: options?.captionPosition || "bottom",
         });
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));

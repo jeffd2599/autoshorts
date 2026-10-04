@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import {
   Scissors,
   Sparkles,
@@ -8,6 +8,9 @@ import {
   Check,
   Copy,
   Ratio,
+  Filter,
+  FileText,
+  CheckCheck,
 } from "lucide-react";
 import type {
   Candidate,
@@ -73,6 +76,33 @@ export const CandidatePanel: React.FC<CandidatePanelProps> = ({
   renderingCandidateId,
   candidateProgress,
 }) => {
+  const [filterTab, setFilterTab] = useState<"all" | "pending" | "exported">("all");
+  const [copiedClipPathId, setCopiedClipPathId] = useState<string | null>(null);
+
+  const exportedCandidates = detail.candidates.filter((c) => {
+    const clip = clipByCandidate.get(c.id);
+    return clip?.status === "done" && Boolean(clip.outputPath);
+  });
+
+  const pendingCandidates = detail.candidates.filter((c) => {
+    const clip = clipByCandidate.get(c.id);
+    return !(clip?.status === "done" && Boolean(clip.outputPath));
+  });
+
+  const displayedCandidates =
+    filterTab === "exported"
+      ? exportedCandidates
+      : filterTab === "pending"
+      ? pendingCandidates
+      : detail.candidates;
+
+  const handleCopyPath = (candidateId: string, path: string) => {
+    void navigator.clipboard.writeText(path);
+    setCopiedClipPathId(candidateId);
+    setTimeout(() => {
+      setCopiedClipPathId((curr) => (curr === candidateId ? null : curr));
+    }, 2000);
+  };
   return (
     <section className="panel candidate-panel">
       <div className="panel-heading">
@@ -305,31 +335,136 @@ export const CandidatePanel: React.FC<CandidatePanelProps> = ({
       )}
 
       {detail.candidates.length > 0 && (
-        <div className="clip-control" style={{ display: "flex", alignItems: "center", gap: "0.75rem", padding: "0.5rem 1rem", borderBottom: "1px solid var(--border-default)" }}>
-          <SlidersHorizontal size={16} color="var(--text-secondary)" />
-          <input
-            type="range"
-            min="0"
-            max={detail.candidates.length}
-            value={selectedCount}
-            onChange={(event) => void updateClipCount(Number(event.target.value))}
-            style={{ flex: 1, accentColor: "#fafafa" }}
-          />
-          <strong style={{ minWidth: "50px", fontFamily: "var(--font-mono)", fontVariantNumeric: "tabular-nums", fontSize: "0.82rem" }}>
-            {selectedCount} / {detail.candidates.length}
-          </strong>
-          <button
-            className="icon-button"
-            style={{ fontSize: "0.75rem", padding: "0.25rem 0.6rem", whiteSpace: "nowrap" }}
-            onClick={() => void updateClipCount(selectedCount === detail.candidates.length ? 0 : detail.candidates.length)}
+        <>
+          {/* Barra de Filtros: Todos / Pendientes / Listos (Exportados) */}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              padding: "0.5rem 1rem",
+              background: "var(--bg-surface)",
+              borderBottom: "1px solid var(--border-default)",
+              gap: "0.5rem",
+              flexWrap: "wrap",
+            }}
           >
-            {selectedCount === detail.candidates.length ? "Deseleccionar" : "Seleccionar Todos"}
-          </button>
-        </div>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.35rem" }}>
+              <span style={{ fontSize: "0.74rem", color: "var(--text-secondary)", marginRight: "4px", display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                <Filter size={12} />
+                <span>Ver:</span>
+              </span>
+
+              <button
+                type="button"
+                onClick={() => setFilterTab("all")}
+                style={{
+                  padding: "0.22rem 0.6rem",
+                  borderRadius: "5px",
+                  fontSize: "0.74rem",
+                  fontWeight: filterTab === "all" ? 600 : 400,
+                  background: filterTab === "all" ? "#fafafa" : "var(--bg-surface-raised)",
+                  color: filterTab === "all" ? "#09090b" : "var(--text-secondary)",
+                  border: filterTab === "all" ? "1px solid #fafafa" : "1px solid var(--border-default)",
+                  cursor: "pointer",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "4px",
+                }}
+              >
+                <span>Todos</span>
+                <span style={{ fontSize: "0.7rem", opacity: 0.8, fontFamily: "var(--font-mono)" }}>
+                  {detail.candidates.length}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setFilterTab("pending")}
+                style={{
+                  padding: "0.22rem 0.6rem",
+                  borderRadius: "5px",
+                  fontSize: "0.74rem",
+                  fontWeight: filterTab === "pending" ? 600 : 400,
+                  background: filterTab === "pending" ? "#fafafa" : "var(--bg-surface-raised)",
+                  color: filterTab === "pending" ? "#09090b" : "var(--text-secondary)",
+                  border: filterTab === "pending" ? "1px solid #fafafa" : "1px solid var(--border-default)",
+                  cursor: "pointer",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "4px",
+                }}
+              >
+                <span>Pendientes</span>
+                <span style={{ fontSize: "0.7rem", opacity: 0.8, fontFamily: "var(--font-mono)" }}>
+                  {pendingCandidates.length}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setFilterTab("exported")}
+                style={{
+                  padding: "0.22rem 0.6rem",
+                  borderRadius: "5px",
+                  fontSize: "0.74rem",
+                  fontWeight: filterTab === "exported" ? 600 : 400,
+                  background: filterTab === "exported" ? "#fafafa" : "var(--bg-surface-raised)",
+                  color: filterTab === "exported" ? "#09090b" : "var(--text-secondary)",
+                  border: filterTab === "exported" ? "1px solid #fafafa" : "1px solid var(--border-default)",
+                  cursor: "pointer",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "5px",
+                }}
+              >
+                <CheckCheck size={12} color={filterTab === "exported" ? "#09090b" : "#4ade80"} />
+                <span>Exportados</span>
+                <span
+                  style={{
+                    fontSize: "0.68rem",
+                    fontWeight: 700,
+                    fontFamily: "var(--font-mono)",
+                    padding: "1px 5px",
+                    borderRadius: "8px",
+                    background: filterTab === "exported" ? "#09090b" : "rgba(34, 197, 94, 0.2)",
+                    color: filterTab === "exported" ? "#fafafa" : "#4ade80",
+                  }}
+                >
+                  {exportedCandidates.length}
+                </span>
+              </button>
+            </div>
+
+            {filterTab === "all" && (
+              <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", flex: 1, justifyContent: "flex-end", minWidth: "220px" }}>
+                <SlidersHorizontal size={14} color="var(--text-secondary)" />
+                <input
+                  type="range"
+                  min="0"
+                  max={detail.candidates.length}
+                  value={selectedCount}
+                  onChange={(event) => void updateClipCount(Number(event.target.value))}
+                  style={{ width: "90px", accentColor: "#fafafa" }}
+                />
+                <strong style={{ fontFamily: "var(--font-mono)", fontVariantNumeric: "tabular-nums", fontSize: "0.76rem" }}>
+                  {selectedCount}/{detail.candidates.length}
+                </strong>
+                <button
+                  className="icon-button"
+                  style={{ fontSize: "0.72rem", padding: "0.2rem 0.5rem", whiteSpace: "nowrap" }}
+                  onClick={() => void updateClipCount(selectedCount === detail.candidates.length ? 0 : detail.candidates.length)}
+                >
+                  {selectedCount === detail.candidates.length ? "Deseleccionar" : "Todos"}
+                </button>
+              </div>
+            )}
+          </div>
+        </>
       )}
 
       <div className="candidate-list">
-        {detail.candidates.map((candidate) => {
+        {displayedCandidates.map((candidate) => {
           const clip = clipByCandidate.get(candidate.id);
           const isCut = clip?.status === "done" && Boolean(clip.outputPath);
           return (
@@ -360,6 +495,26 @@ export const CandidatePanel: React.FC<CandidatePanelProps> = ({
                     {formatTime(candidate.startSec)} - {formatTime(candidate.endSec)}
                   </span>
                   <span className="candidate-score">{Math.round(candidate.score * 100)}% Match</span>
+                  {isCut && (
+                    <span
+                      style={{
+                        marginLeft: "auto",
+                        fontSize: "0.72rem",
+                        padding: "1px 6px",
+                        borderRadius: "4px",
+                        background: "rgba(34, 197, 94, 0.15)",
+                        color: "#4ade80",
+                        border: "1px solid rgba(34, 197, 94, 0.3)",
+                        fontWeight: 600,
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "3px",
+                      }}
+                    >
+                      <CheckCheck size={11} />
+                      Exportado
+                    </span>
+                  )}
                 </div>
                 <h4>{candidate.hook}</h4>
                 <p className="candidate-rationale">{candidate.rationale}</p>
@@ -383,18 +538,40 @@ export const CandidatePanel: React.FC<CandidatePanelProps> = ({
                 )}
 
                 <div className="candidate-actions">
-                  <span className={`clip-status ${isCut ? "ready" : clip?.status === "error" ? "error" : ""}`}>
-                    {isCut ? "Corte listo" : clip?.status === "error" ? "Error en corte" : clip?.status ?? "Pendiente"}
-                  </span>
+                  <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                    <span className={`clip-status ${isCut ? "ready" : clip?.status === "error" ? "error" : ""}`}>
+                      {isCut ? "Clip Renderizado" : clip?.status === "error" ? "Error en corte" : clip?.status ?? "Pendiente"}
+                    </span>
+                    {clip?.captionPath && (
+                      <span
+                        style={{
+                          fontSize: "0.7rem",
+                          padding: "2px 6px",
+                          borderRadius: "4px",
+                          background: "var(--bg-surface-raised)",
+                          border: "1px solid var(--border-default)",
+                          color: "var(--text-secondary)",
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: "3px",
+                        }}
+                        title="Archivo .SRT exportado en la carpeta de clips"
+                      >
+                        <FileText size={10} />
+                        .SRT
+                      </span>
+                    )}
+                  </div>
+
                   <div style={{ display: "flex", gap: "6px" }}>
                     <button
                       className="icon-button"
                       style={{ padding: "0.25rem 0.6rem", fontSize: "0.78rem", display: "inline-flex", alignItems: "center", gap: "4px" }}
                       onClick={() => openCandidatePreview(candidate)}
-                      title="Previsualizar fragmento en reproductor"
+                      title="Previsualizar y configurar corte / subtítulos"
                     >
                       <Play size={12} />
-                      <span>Ver</span>
+                      <span>{isCut ? "Ver" : "Previsualizar"}</span>
                     </button>
                     <button
                       className="cut-button"
@@ -406,7 +583,41 @@ export const CandidatePanel: React.FC<CandidatePanelProps> = ({
                     </button>
                   </div>
                 </div>
-                {clip?.outputPath && <div className="output-path">{clip.outputPath}</div>}
+
+                {clip?.outputPath && (
+                  <div
+                    className="output-path"
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: "6px",
+                    }}
+                  >
+                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {clip.outputPath}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleCopyPath(candidate.id, clip.outputPath!)}
+                      style={{
+                        background: "none",
+                        border: "none",
+                        color: copiedClipPathId === candidate.id ? "#4ade80" : "var(--text-muted)",
+                        cursor: "pointer",
+                        padding: "0 2px",
+                        fontSize: "0.72rem",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "2px",
+                      }}
+                      title="Copiar ruta del archivo exportado"
+                    >
+                      <Copy size={11} />
+                      <span>{copiedClipPathId === candidate.id ? "Copiado" : "Copiar"}</span>
+                    </button>
+                  </div>
+                )}
                 {clip?.captionAssPath && (
                   <div
                     className="output-path"
@@ -417,7 +628,7 @@ export const CandidatePanel: React.FC<CandidatePanelProps> = ({
                       marginTop: "4px",
                     }}
                   >
-                    Subtítulos: {clip.captionAssPath}
+                    Subtítulos ASS: {clip.captionAssPath}
                   </div>
                 )}
                 {clip?.renderLog && <div className="render-log">{clip.renderLog}</div>}
@@ -425,6 +636,33 @@ export const CandidatePanel: React.FC<CandidatePanelProps> = ({
             </article>
           );
         })}
+
+        {/* Tab-specific Empty States */}
+        {detail.candidates.length > 0 && displayedCandidates.length === 0 && (
+          <div className="empty-state" style={{ padding: "2.5rem 1rem" }}>
+            {filterTab === "exported" ? (
+              <>
+                <CheckCheck size={28} style={{ opacity: 0.4, color: "#4ade80" }} />
+                <p style={{ margin: "6px 0 0", fontSize: "0.85rem", color: "var(--text-primary)", fontWeight: 600 }}>
+                  Aún no has exportado ningún clip
+                </p>
+                <p style={{ margin: "4px 0 0", fontSize: "0.76rem", color: "var(--text-muted)" }}>
+                  Ve a la pestaña "Pendientes" o "Todos" y presiona "Cortar" en los momentos que desees renderizar.
+                </p>
+              </>
+            ) : filterTab === "pending" ? (
+              <>
+                <CheckCheck size={28} style={{ opacity: 0.5, color: "#4ade80" }} />
+                <p style={{ margin: "6px 0 0", fontSize: "0.85rem", color: "var(--text-primary)", fontWeight: 600 }}>
+                  ¡Todos los clips han sido exportados!
+                </p>
+                <p style={{ margin: "4px 0 0", fontSize: "0.76rem", color: "var(--text-muted)" }}>
+                  Puedes verlos en la pestaña "Exportados" o buscar nuevos momentos virales.
+                </p>
+              </>
+            ) : null}
+          </div>
+        )}
 
         {detail.candidates.length === 0 && (
           <div className="empty-state">
