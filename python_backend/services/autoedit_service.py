@@ -4,9 +4,9 @@ import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
+import requests
 
 from python_backend.media import (
-    get_video_duration,
     probe_media,
     render_autoedit_video,
 )
