@@ -1754,22 +1754,27 @@ def generate_social_copy_with_llm(
     has_thinking = enable_thinking and detect_model_thinking_capability(model_name)
 
     system_prompt = """Eres un estratega senior de contenido viral y copywriter profesional para TikTok, Instagram Reels, YouTube Shorts y X.
-Tu objetivo es analizar la transcripción del video y redactar un paquete de copywriting irresistible, diseñado para maximizar visualizaciones, retención y comentarios.
+Tu objetivo es analizar minuciosamente la transcripción del video y redactar un paquete de copywriting irresistible, diseñado para maximizar visualizaciones, retención y comentarios.
+
+REGLAS ESTRICTAS DE CONTENIDO:
+1. BASA TODO el contenido (ganchos, descripción y hashtags) EXCLUSIVAMENTE en lo que realmente ocurre, se dice o se debate en la transcripción suministrada.
+2. PROHIBIDO generar textos genéricos de 'mira este video', 'bienvenidos a mi canal' o agradecimientos vacíos si eso no es el foco del video.
+3. Extrae las anécdotas, momentos de tensión, humor, frases memorables, nombres de juegos o jugadas exactas mencionadas por el hablante.
 
 Responde estrictamente en formato JSON con la siguiente estructura:
 {
   "hooks": [
-    "Gancho 1: Pregunta intrigante o afirmación impactante",
-    "Gancho 2: Curiosidad extrema o sorpresa",
-    "Gancho 3: Frase directa con llamado de atención"
+    "Gancho 1: Pregunta intrigante o afirmación impactante sobre lo que ocurrió en el video",
+    "Gancho 2: Curiosidad extrema o reacción a la jugada/momento específico",
+    "Gancho 3: Frase directa con llamado de atención citando o aludiendo al momento clave"
   ],
-  "caption": "Texto persuasivo de 2 a 4 líneas que resuma lo más interesante sin hacer spoiler del final, listo para pegar en la descripción del post.",
-  "cta": "Llamado a la acción invitando a opinar en comentarios o compartir con un amigo.",
-  "hashtags": ["#gaming", "#clipviral", "#shorts", "#tendencia", "#humor"],
+  "caption": "Texto persuasivo de 2 a 4 líneas que resuma lo más interesante y divertido del momento sin hacer spoiler del final, listo para pegar en la descripción del post.",
+  "cta": "Llamado a la acción invitando a opinar en comentarios o compartir con un amigo sobre la situación ocurrida.",
+  "hashtags": ["#tema_especifico", "#gaming", "#clipviral", "#shorts", "#humor"],
   "full_copy": "Texto completo formateado listo para copiar y pegar en redes (incluyendo el mejor gancho, descripción, CTA y hashtags)."
 }
 
-IMPORTANTE: Escribe en Español natural, convincente y sin rodeos."""
+IMPORTANTE: Escribe en Español natural, convincente, fresco y sin rodeos."""
 
     user_prompt = f"Transcripción del video:\n{transcript_text[:6000]}"
     if extra_context:

@@ -71,6 +71,23 @@ def rebuild_words_from_segments(segments: List[Dict[str, Any]]) -> List[Dict[str
     return words
 
 
+def clean_srt_text(content: str) -> str:
+    content = content.lstrip("\ufeff")
+    lines = content.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    cleaned = []
+    for line in lines:
+        t = line.strip()
+        if not t or t.isdigit():
+            continue
+        if re.match(r'^\d{1,2}:\d{2}:\d{2}[,\.]\d{3}\s*-->\s*\d{1,2}:\d{2}:\d{2}[,\.]\d{3}', t):
+            continue
+        no_tags = re.sub(r'<[^>]+>', '', t)
+        no_tags = re.sub(r'\{[^}]+\}', '', no_tags).strip()
+        if no_tags:
+            cleaned.append(no_tags)
+    return " ".join(cleaned).strip()
+
+
 class Api:
     def __init__(self, data_dir: Optional[str] = None):
         self.data_dir = Path(data_dir) if data_dir else Path("data")
@@ -83,6 +100,24 @@ class Api:
 
     def get_project_dir(self, project: Dict[str, Any]) -> Path:
         return resolve_project_dir(self.db, project)
+
+    def read_subtitle_file(self, args: Any) -> Dict[str, Any]:
+        """Reads and parses an SRT or VTT file, returning clean speech text and stats."""
+        file_path = args.get("filePath") if isinstance(args, dict) else args
+        p = Path(file_path)
+        if not p.is_file():
+            raise FileNotFoundError(f"El archivo no existe: {file_path}")
+        with open(p, "r", encoding="utf-8", errors="replace") as f:
+            content = f.read()
+        clean_text = clean_srt_text(content)
+        words_count = len(clean_text.split()) if clean_text else 0
+        return {
+            "path": str(p),
+            "filename": p.name,
+            "rawText": clean_text,
+            "charCount": len(clean_text),
+            "wordCount": words_count
+        }
 
     def set_window(self, window):
         self._window = window
@@ -590,21 +625,43 @@ class Api:
 
         if not raw_text and media_path:
             if not os.path.exists(media_path):
-                raise FileNotFoundError(f"El archivo multimedia no existe: {media_path}")
-            temp_dir = self.data_dir / "temp_quick_copy"
-            os.makedirs(temp_dir, exist_ok=True)
-            wav_path = extract_audio(media_path, temp_dir)
-            t_res = transcribe_local(str(wav_path), model_name="base")
-            segs = t_res.get("segments", [])
-            raw_text = " ".join(s.get("text", "").strip() for s in segs)
-            try:
-                if wav_path.exists():
-                    os.remove(wav_path)
-            except Exception:
-                pass
+                raise FileNotFoundError(f"El archivo no existe: {media_path}")
+
+            # If it's a subtitle file (.srt, .vtt, .txt, .sub):
+            if media_path.lower().endswith((".srt", ".vtt", ".txt", ".sub")):
+                with open(media_path, "r", encoding="utf-8", errors="replace") as f:
+                    content = f.read()
+                raw_text = clean_srt_text(content)
+            else:
+                temp_dir = self.data_dir / "temp_quick_copy"
+                os.makedirs(temp_dir, exist_ok=True)
+                wav_path = extract_audio(media_path, temp_dir)
+                app_cfg = self.get_app_config()
+                whisper_model = app_cfg.get("whisperModel", "base")
+                t_res = transcribe_local(str(wav_path), model_name=whisper_model)
+                segs = t_res.get("segments", [])
+                raw_text = " ".join(s.get("text", "").strip() for s in segs)
+                try:
+                    if wav_path.exists():
+                        os.remove(wav_path)
+                except Exception:
+                    pass
 
         if not raw_text:
-            raise ValueError("Debes ingresar una transcripción de texto o seleccionar un archivo multimedia.")
+            raise ValueError("Debes ingresar o cargar una transcripción / archivo SRT para generar el copy.")
+
+        # Resolve active model for LM Studio if none specified or default
+        if provider == "lmstudio" and (not model_name or model_name in ["qwen2.5:7b", "local-model"]):
+            try:
+                base_url = os.getenv("LMSTUDIO_BASE_URL", "http://127.0.0.1:1234/v1").rstrip("/")
+                r = requests.get(f"{base_url}/models", timeout=1.5)
+                if r.ok:
+                    data = r.json().get("data", [])
+                    chat_models = [m.get("id") for m in data if "embed" not in m.get("id", "").lower()]
+                    if chat_models:
+                        model_name = chat_models[0]
+            except Exception:
+                pass
 
         copy_data = generate_social_copy_with_llm(
             transcript_text=raw_text,
