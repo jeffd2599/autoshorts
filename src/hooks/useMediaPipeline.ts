@@ -16,6 +16,8 @@ export interface CutClipOptions {
   captionStyle?: string;
   captionPosition?: "bottom" | "center" | "top";
   aspectRatio?: "original" | "9:16";
+  startSec?: number;
+  endSec?: number;
 }
 
 interface UseMediaPipelineOptions {
@@ -506,13 +508,28 @@ export function useMediaPipeline(options: UseMediaPipelineOptions) {
       setBusy("cut");
       setError(null);
       try {
+        const savedBurn = localStorage.getItem("autoshorts_burn_subtitles");
+        const burnSubtitles =
+          options?.burnSubtitles !== undefined
+            ? options.burnSubtitles
+            : savedBurn !== null
+            ? savedBurn === "true"
+            : true;
+        const captionStyle =
+          options?.captionStyle || localStorage.getItem("autoshorts_caption_style") || "tiktok-karaoke";
+        const captionPosition =
+          options?.captionPosition || (localStorage.getItem("autoshorts_caption_position") as "bottom" | "center" | "top") || "bottom";
+        const aspectRatio = options?.aspectRatio || clipAspectRatio;
+
         await invoke<string>("render_flat_clip_for_candidate", {
           candidateId,
           outputDir: customOutputDir || null,
-          aspectRatio: options?.aspectRatio || clipAspectRatio,
-          burnSubtitles: options?.burnSubtitles ?? false,
-          captionStyle: options?.captionStyle || "tiktok-karaoke",
-          captionPosition: options?.captionPosition || "bottom",
+          aspectRatio,
+          burnSubtitles,
+          captionStyle,
+          captionPosition,
+          ...(options?.startSec !== undefined ? { startSec: options.startSec } : {}),
+          ...(options?.endSec !== undefined ? { endSec: options.endSec } : {}),
         });
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
@@ -530,12 +547,20 @@ export function useMediaPipeline(options: UseMediaPipelineOptions) {
     setBusy("cut");
     setError(null);
     try {
+      const savedBurn = localStorage.getItem("autoshorts_burn_subtitles");
+      const burnSubtitles = savedBurn !== null ? savedBurn === "true" : true;
+      const captionStyle = localStorage.getItem("autoshorts_caption_style") || "tiktok-karaoke";
+      const captionPosition = (localStorage.getItem("autoshorts_caption_position") as "bottom" | "center" | "top") || "bottom";
+
       for (const candidate of selectedCandidates) {
         setRenderingCandidateId(candidate.id);
         await invoke<string>("render_flat_clip_for_candidate", {
           candidateId: candidate.id,
           outputDir: customOutputDir || null,
           aspectRatio: clipAspectRatio,
+          burnSubtitles,
+          captionStyle,
+          captionPosition,
         });
       }
     } catch (err) {

@@ -731,6 +731,14 @@ class Api:
         candidate, project = self.db.get_candidate_with_project(candidate_id)
         self.db.update_clip_for_candidate(candidate_id, "cutting")
 
+        start_sec = float(args.get("startSec", candidate["startSec"])) if isinstance(args, dict) and "startSec" in args else candidate["startSec"]
+        end_sec = float(args.get("endSec", candidate["endSec"])) if isinstance(args, dict) and "endSec" in args else candidate["endSec"]
+        if start_sec != candidate["startSec"] or end_sec != candidate["endSec"]:
+            try:
+                self.db.update_candidate_trim(candidate_id, start_sec, end_sec)
+            except Exception:
+                pass
+
         caption_style = (
             args.get("captionStyle")
             if isinstance(args, dict) and args.get("captionStyle")
@@ -749,10 +757,10 @@ class Api:
             out_dir = proj_dir / "clips"
         os.makedirs(out_dir, exist_ok=True)
 
-        # Sanitize hook for filename: strip all emojis and invalid symbols
+        # Sanitize hook for filename: strip all emojis, quotes, and invalid symbols
         raw_hook = candidate.get("hook", "").strip()
         no_emoji = re.sub(r'[\U00010000-\U0010ffff\u2600-\u27bf\ufe00-\ufe0f\u200d\u2300-\u23ff\u2b50-\u2b55]', '', raw_hook)
-        safe_hook = re.sub(r'[\\/*?:"<>|#]', "", no_emoji)
+        safe_hook = re.sub(r'[\\/*?:"<>|#\'`]', "", no_emoji)
         safe_hook = re.sub(r'\s+', ' ', safe_hook).strip()[:50]
         base_name = f"Clip {candidate['rank']:02d} - {safe_hook}" if safe_hook else f"Clip {candidate['rank']:02d}"
         output_path = out_dir / f"{base_name}.mp4"
@@ -767,7 +775,10 @@ class Api:
             try:
                 normalized = json.loads(transcript_record["rawJson"])
                 words = normalized.get("words", [])
-                srt_content = generate_srt(words, candidate["startSec"], candidate["endSec"])
+                if not words and "segments" in normalized:
+                    words = rebuild_words_from_segments(normalized["segments"])
+
+                srt_content = generate_srt(words, start_sec, end_sec)
 
                 # Always export the .srt alongside the .mp4 in the user's export folder!
                 with open(exported_srt_path, "w", encoding="utf-8") as f:
@@ -778,8 +789,8 @@ class Api:
                 if burn_subtitles and caption_style != "none":
                     ass_content = generate_ass_subtitles(
                         words=words,
-                        start_sec=candidate["startSec"],
-                        end_sec=candidate["endSec"],
+                        start_sec=start_sec,
+                        end_sec=end_sec,
                         caption_style=caption_style,
                         position=caption_position,
                         aspect_ratio=aspect_ratio
@@ -788,16 +799,18 @@ class Api:
                         exported_ass_path = out_dir / f"{base_name}.ass"
                         with open(exported_ass_path, "w", encoding="utf-8") as f:
                             f.write(ass_content)
-                        # Escape Windows path for ffmpeg: backslashes -> forward slashes, colons -> escaped \:
-                        escaped_ass = str(exported_ass_path.resolve()).replace("\\", "/").replace(":", "\\:")
-                        subtitle_filter = f"ass='{escaped_ass}'"
+                        # Escape Windows path for ffmpeg ass filter
+                        ass_posix = exported_ass_path.resolve().as_posix()
+                        drive = ass_posix[0]
+                        rest = ass_posix[2:].replace("'", r"'\''")
+                        subtitle_filter = f"ass='{drive}\\:{rest}'"
             except Exception as e:
                 print(f"Warning building captions: {e}")
 
         rendered_path = render_flat_clip(
             source_path=project["sourcePath"],
-            start_sec=candidate["startSec"],
-            end_sec=candidate["endSec"],
+            start_sec=start_sec,
+            end_sec=end_sec,
             output_path=output_path,
             drawtext_filters=drawtext_filters,
             aspect_ratio=aspect_ratio,

@@ -78,6 +78,7 @@ export const CandidatePanel: React.FC<CandidatePanelProps> = ({
 }) => {
   const [filterTab, setFilterTab] = useState<"all" | "pending" | "exported">("all");
   const [copiedClipPathId, setCopiedClipPathId] = useState<string | null>(null);
+  const [copiedHookId, setCopiedHookId] = useState<string | null>(null);
   const listRef = React.useRef<HTMLDivElement>(null);
 
   React.useEffect(() => {
@@ -108,6 +109,14 @@ export const CandidatePanel: React.FC<CandidatePanelProps> = ({
     setCopiedClipPathId(candidateId);
     setTimeout(() => {
       setCopiedClipPathId((curr) => (curr === candidateId ? null : curr));
+    }, 2000);
+  };
+
+  const handleCopyHook = (candidateId: string, hookText: string) => {
+    void navigator.clipboard.writeText(hookText);
+    setCopiedHookId(candidateId);
+    setTimeout(() => {
+      setCopiedHookId((curr) => (curr === candidateId ? null : curr));
     }, 2000);
   };
   return (
@@ -523,7 +532,35 @@ export const CandidatePanel: React.FC<CandidatePanelProps> = ({
                     </span>
                   )}
                 </div>
-                <h4>{candidate.hook}</h4>
+                <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "8px", marginTop: "6px" }}>
+                  <h4 style={{ margin: 0, flex: 1, minWidth: 0, wordBreak: "break-word" }}>{candidate.hook}</h4>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleCopyHook(candidate.id, candidate.hook);
+                    }}
+                    style={{
+                      background: "var(--bg-surface)",
+                      border: "1px solid var(--border-default)",
+                      color: copiedHookId === candidate.id ? "#4ade80" : "var(--text-secondary)",
+                      borderRadius: "4px",
+                      padding: "2px 7px",
+                      fontSize: "0.7rem",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "4px",
+                      cursor: "pointer",
+                      flexShrink: 0,
+                      fontWeight: 500,
+                      transition: "all 0.15s ease",
+                    }}
+                    title="Copiar título del clip"
+                  >
+                    {copiedHookId === candidate.id ? <Check size={11} /> : <Copy size={11} />}
+                    <span>{copiedHookId === candidate.id ? "Copiado" : "Copiar"}</span>
+                  </button>
+                </div>
                 <p className="candidate-rationale">{candidate.rationale}</p>
 
                 {candidate.description && (
@@ -545,11 +582,11 @@ export const CandidatePanel: React.FC<CandidatePanelProps> = ({
                 )}
 
                 <div className="candidate-actions">
-                  <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap", minWidth: 0 }}>
                     <span className={`clip-status ${isCut ? "ready" : clip?.status === "error" ? "error" : ""}`}>
                       {isCut ? "Clip Renderizado" : clip?.status === "error" ? "Error en corte" : clip?.status ?? "Pendiente"}
                     </span>
-                    {clip?.captionPath && (
+                    {(clip?.captionPath || clip?.captionAssPath) && (
                       <span
                         style={{
                           fontSize: "0.7rem",
@@ -561,8 +598,9 @@ export const CandidatePanel: React.FC<CandidatePanelProps> = ({
                           display: "inline-flex",
                           alignItems: "center",
                           gap: "3px",
+                          flexShrink: 0,
                         }}
-                        title="Archivo .SRT exportado en la carpeta de clips"
+                        title="Subtítulos exportados en la carpeta de clips"
                       >
                         <FileText size={10} />
                         .SRT
@@ -570,7 +608,7 @@ export const CandidatePanel: React.FC<CandidatePanelProps> = ({
                     )}
                   </div>
 
-                  <div style={{ display: "flex", gap: "6px" }}>
+                  <div style={{ display: "flex", gap: "6px", flexShrink: 0 }}>
                     <button
                       className="icon-button"
                       style={{ padding: "0.25rem 0.6rem", fontSize: "0.78rem", display: "inline-flex", alignItems: "center", gap: "4px" }}
@@ -604,10 +642,14 @@ export const CandidatePanel: React.FC<CandidatePanelProps> = ({
                       justifyContent: "space-between",
                       gap: "8px",
                       fontSize: "0.72rem",
+                      minWidth: 0,
+                      maxWidth: "100%",
+                      boxSizing: "border-box",
+                      overflow: "hidden",
                     }}
                   >
-                    <div style={{ display: "flex", alignItems: "center", gap: "6px", overflow: "hidden", minWidth: 0 }}>
-                      <span style={{ color: "#4ade80", fontWeight: 700, fontSize: "0.68rem" }}>MP4</span>
+                    <div style={{ display: "flex", alignItems: "center", gap: "6px", overflow: "hidden", minWidth: 0, flex: 1 }}>
+                      <span style={{ color: "#4ade80", fontWeight: 700, fontSize: "0.68rem", flexShrink: 0 }}>MP4</span>
                       <span
                         style={{
                           overflow: "hidden",
@@ -615,6 +657,8 @@ export const CandidatePanel: React.FC<CandidatePanelProps> = ({
                           whiteSpace: "nowrap",
                           fontFamily: "var(--font-mono)",
                           color: "var(--text-secondary)",
+                          minWidth: 0,
+                          flex: 1,
                         }}
                         title={clip.outputPath}
                       >

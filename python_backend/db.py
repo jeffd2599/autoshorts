@@ -370,6 +370,7 @@ class Database:
                     "status": r["status"],
                     "outputPath": r["output_path"],
                     "captionAssPath": r["caption_ass_path"],
+                    "captionPath": r["caption_ass_path"],
                     "renderLog": r["render_log"],
                 }
                 for r in rows

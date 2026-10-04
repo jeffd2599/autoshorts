@@ -655,7 +655,9 @@ export function CandidatePreviewModal({
                   burnSubtitles,
                   captionStyle,
                   captionPosition,
-                  aspectRatio: detail.project.aspectRatio || "9:16",
+                  aspectRatio: (localStorage.getItem("autoshorts_clip_aspect_ratio") as "original" | "9:16") || "original",
+                  startSec: trimStart,
+                  endSec: trimEnd,
                 });
               }}
               disabled={busy !== "idle"}
