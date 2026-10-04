@@ -34,6 +34,14 @@ from .llm import (
     generate_social_copy_with_llm
 )
 from .telemetry import get_hardware_telemetry
+from .services.youtube_service import check_youtube_copyright, download_youtube_video
+from .services.project_service import resolve_project_dir, open_media_file, open_folder, move_project_folder_action
+from .services.autoedit_service import (
+    list_project_autoedits,
+    delete_project_autoedit,
+    generate_autoedit_copy_action,
+    execute_autoedit_assembly
+)
 
 
 def rebuild_words_from_segments(segments: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -69,26 +77,10 @@ class Api:
         self._window = None
         self._cancel_candidates_flag = False
         self._cancel_transcription_flag = False
+        self._cancel_autoedit_flag = False
 
     def get_project_dir(self, project: Dict[str, Any]) -> Path:
-        proj_dir_val = project.get("projectDir")
-        if proj_dir_val and str(proj_dir_val).strip():
-            p = Path(str(proj_dir_val).strip())
-        else:
-            proj_name = project.get("name") or (Path(project["sourcePath"]).stem if project.get("sourcePath") else project["id"])
-            clean_name = re.sub(r'[\U00010000-\U0010ffff\u2600-\u27bf\ufe00-\ufe0f\u200d\u2300-\u23ff\u2b50-\u2b55]', '', proj_name)
-            clean_name = re.sub(r'[\\/*?:"<>|#]', "", clean_name).strip() or project["id"]
-            p = Path.home() / "Documents" / "AutoShorts" / clean_name
-            try:
-                self.db.update_project_dir(project["id"], str(p))
-            except Exception:
-                pass
-
-        os.makedirs(p, exist_ok=True)
-        os.makedirs(p / "audio", exist_ok=True)
-        os.makedirs(p / "clips", exist_ok=True)
-        os.makedirs(p / "summary", exist_ok=True)
-        return p
+        return resolve_project_dir(self.db, project)
 
     def set_window(self, window):
         self._window = window
@@ -989,319 +981,24 @@ class Api:
 
     def render_auto_edit(self, args: Any) -> Dict[str, Any]:
         self._cancel_autoedit_flag = False
-        project_id = args.get("projectId")
-        format_mode = args.get("formatMode", "youtube")  # "youtube" | "shorts"
-        target_minutes = float(args.get("targetDurationMinutes", 12.0 if format_mode == "youtube" else 2.0))
-        include_teaser = bool(args.get("includeTeaser", True))
-        trim_silences = bool(args.get("trimSilences", True))
-        assembly_style = str(args.get("assemblyStyle", "balanced")).strip().lower()
-        custom_dir = args.get("outputDir")
-
-        project = self.db.get_project(project_id)
-        if not project:
-            raise ValueError(f"Proyecto {project_id} no encontrado.")
-
-        all_candidates = self.db.get_candidates(project_id)
-        if not all_candidates:
-            raise ValueError("El proyecto no tiene momentos candidatos detectados para autoeditar.")
-
-        # Determine source video duration to bound window expansion
-        source_dur = project.get("durationSec")
-        if not source_dur and project.get("sourcePath"):
-            try:
-                probe = probe_media(project["sourcePath"])
-                source_dur = float(probe.get("duration", 0)) or None
-            except Exception:
-                source_dur = None
-
-        app_cfg = self.get_app_config()
-        llm_engine = app_cfg.get("llmEngine", "local")
-        model_name = args.get("modelName")
-        if not model_name:
-            if llm_engine == "local":
-                try:
-                    ps_res = requests.get("http://127.0.0.1:11434/api/ps", timeout=1.0)
-                    if ps_res.ok:
-                        ps_models = ps_res.json().get("models", [])
-                        if ps_models:
-                            model_name = ps_models[0].get("name")
-                            print(f"[AutoEdit] Usando modelo activo en Ollama: {model_name}")
-                except Exception:
-                    pass
-                if not model_name:
-                    model_name = app_cfg.get("localLlmModel")
-            elif llm_engine == "lmstudio":
-                try:
-                    lm_res = requests.get("http://127.0.0.1:1234/v1/models", timeout=1.0)
-                    if lm_res.ok:
-                        lm_data = lm_res.json().get("data", [])
-                        valid_models = [m["id"] for m in lm_data if not m.get("id", "").startswith("text-embedding")]
-                        if valid_models:
-                            model_name = valid_models[0]
-                            print(f"[AutoEdit] Usando modelo activo en LM Studio: {model_name}")
-                except Exception:
-                    pass
-                if not model_name:
-                    model_name = app_cfg.get("lmstudioModel")
-            elif llm_engine == "openrouter":
-                model_name = app_cfg.get("openrouterModel")
-        api_key = app_cfg.get("openrouterKey") if llm_engine == "openrouter" else None
-
-        self.emit("autoedit-progress", {
-            "status": "planning",
-            "message": "Estructurando guion narrativo y ubicando momentos con IA...",
-            "percentage": 10
-        })
-
-        # Load project transcript segments to intelligently locate exact active moments/punchlines
-        transcript_segments = []
-        try:
-            record = self.db.latest_transcript(project_id)
-            if record and record.get("rawJson"):
-                t_data = json.loads(record["rawJson"])
-                transcript_segments = t_data.get("segments", [])
-        except Exception as e:
-            print(f"Aviso al cargar transcripción para autoedición: {e}")
-
-        # If alternative assembly style is requested, exclude moments used in prior autoedits of this project
-        excluded_moment_ids = []
-        if assembly_style == "alternative":
-            try:
-                prev_edits = self.db.list_autoedits(project_id)
-                prev_texts = set()
-                for pe in prev_edits:
-                    if pe.get("chaptersText"):
-                        for line in pe["chaptersText"].splitlines():
-                            txt = re.sub(r'^\s*\d+:\d+\s*', '', line).strip().lower()
-                            if len(txt) > 3:
-                                prev_texts.add(txt)
-                for cand in all_candidates:
-                    c_hook = (cand.get("hook") or cand.get("title") or "").strip().lower()
-                    if any(pt in c_hook or c_hook in pt for pt in prev_texts if pt):
-                        excluded_moment_ids.append(cand["id"])
-            except Exception as e:
-                print(f"Aviso al filtrar momentos previos: {e}")
-
-        plan = plan_autoedit_narrative(
-            candidates=all_candidates,
-            target_duration_minutes=target_minutes,
-            format_mode=format_mode,
-            include_teaser=include_teaser,
-            provider=llm_engine,
-            model_name=model_name,
-            api_key=api_key,
-            transcript_segments=transcript_segments,
-            trim_silences=trim_silences,
-            assembly_style=assembly_style,
-            excluded_moment_ids=excluded_moment_ids,
-            max_source_duration=source_dur
+        return execute_autoedit_assembly(
+            db=self.db,
+            args=args,
+            get_project_dir_fn=self.get_project_dir,
+            emit_fn=self.emit,
+            is_cancelled_fn=lambda: getattr(self, "_cancel_autoedit_flag", False),
+            get_app_config_fn=self.get_app_config,
         )
-
-        if getattr(self, "_cancel_autoedit_flag", False):
-            raise RuntimeError("Autoedición cancelada por el usuario.")
-
-        proj_name = project.get("name") or Path(project["sourcePath"]).stem or project["id"]
-        clean_name = re.sub(r'[\U00010000-\U0010ffff\u2600-\u27bf\ufe00-\ufe0f\u200d\u2300-\u23ff\u2b50-\u2b55]', '', proj_name)
-        clean_name = re.sub(r'[\\/*?:"<>|#]', "", clean_name).strip()[:40]
-
-        if custom_dir:
-            out_dir = Path(custom_dir)
-        else:
-            proj_dir = self.get_project_dir(project)
-            out_dir = proj_dir / "autoedit"
-        os.makedirs(out_dir, exist_ok=True)
-
-        mode_label = "YouTube" if format_mode == "youtube" else "Shorts"
-        dur_label = f"{int(round(target_minutes))}m" if target_minutes >= 1.0 else f"{int(round(target_minutes*60))}s"
-        time_tag = datetime.now().strftime("%H%M%S")
-        style_slug = f"_{assembly_style}" if assembly_style != "balanced" else ""
-        output_filename = f"AutoEdit_{mode_label}_{dur_label}{style_slug}_{clean_name}_{time_tag}.mp4"
-        output_path = out_dir / output_filename
-
-        raw_aspect = str(args.get("aspectRatio", "original")).strip().lower()
-        aspect_ratio = raw_aspect if raw_aspect in ["original", "9:16", "16:9"] else "original"
-
-        def on_render_progress(current_idx: int, total_segs: int, msg: str):
-            pct = 15 + int((current_idx / max(1, total_segs)) * 80)
-            self.emit("autoedit-progress", {
-                "status": "rendering",
-                "message": msg,
-                "percentage": min(95, pct)
-            })
-
-        def is_cancelled():
-            return getattr(self, "_cancel_autoedit_flag", False)
-
-        target_max_sec = target_minutes * 60.0
-
-        render_res = render_autoedit_video(
-            source_path=project["sourcePath"],
-            plan=plan,
-            aspect_ratio=aspect_ratio,
-            trim_silences=trim_silences,
-            output_path=output_path,
-            max_duration_sec=target_max_sec,
-            progress_callback=on_render_progress,
-            is_cancelled=is_cancelled
-        )
-
-        # Generate initial social copy for this AutoEdit
-        autoedit_title = f"{'TikTok' if format_mode == 'shorts' else 'YouTube'} - {clean_name}"
-        autoedit_desc = f"Montaje dinámico de los mejores momentos del stream ({mode_label})."
-        autoedit_hashtags = "#gaming #streamer #clips #viral"
-        try:
-            story_context = f"Video de gaming ({mode_label}). Momentos incluidos:\n" + "\n".join(
-                f"- {s.get('hook', '')}" for s in plan.get("story_segments", [])
-            )
-            copy_res = generate_social_copy_with_llm(
-                transcript_text=story_context,
-                model_name=model_name or "qwen2.5:7b",
-                provider=llm_engine,
-                api_key=api_key
-            )
-            if copy_res.get("hooks"):
-                autoedit_title = copy_res["hooks"][0]
-            if copy_res.get("caption"):
-                autoedit_desc = copy_res["caption"]
-            if copy_res.get("hashtags"):
-                autoedit_hashtags = " ".join(copy_res["hashtags"])
-        except Exception as e:
-            print(f"Nota: Copy generado con plantilla base ({e})")
-
-        # Save to database
-        saved_autoedit = self.db.save_autoedit(
-            project_id=project_id,
-            output_path=str(render_res["video_path"]),
-            format_mode=format_mode,
-            target_duration_sec=target_max_sec,
-            actual_duration_sec=render_res["total_duration"],
-            chapters_text=render_res["chapters_text"],
-            title=autoedit_title,
-            description=autoedit_desc,
-            hashtags=autoedit_hashtags
-        )
-
-        self.emit("autoedit-progress", {
-            "status": "done",
-            "message": "Video ensamblado exitosamente.",
-            "percentage": 100
-        })
-
-        return {
-            "autoeditId": saved_autoedit["id"],
-            "videoPath": render_res["video_path"],
-            "chaptersPath": render_res["chapters_path"],
-            "chaptersText": render_res["chapters_text"],
-            "duration": render_res["total_duration"],
-            "filename": output_filename,
-            "formatMode": format_mode,
-            "aspectRatio": aspect_ratio,
-            "outputDir": str(out_dir),
-            "title": autoedit_title,
-            "description": autoedit_desc,
-            "hashtags": autoedit_hashtags
-        }
 
     def get_autoedits(self, args: Any) -> List[Dict[str, Any]]:
         project_id = args.get("projectId") if isinstance(args, dict) else args
-        project = self.db.get_project(project_id)
-        if not project:
-            return []
-
-        # 1. Fetch DB records
-        records = self.db.list_autoedits(project_id)
-        db_paths = {r["outputPath"] for r in records}
-
-        # 2. Also scan project's autoedit/ folder to auto-register existing MP4 files
-        proj_dir = self.get_project_dir(project)
-        autoedit_dir = proj_dir / "autoedit"
-        if autoedit_dir.exists():
-            for mp4_file in autoedit_dir.glob("*.mp4"):
-                str_path = str(mp4_file)
-                if str_path not in db_paths:
-                    fname = mp4_file.name
-                    fmt = "shorts" if "Shorts" in fname or "9-16" in fname else "youtube"
-                    chap_file = mp4_file.with_suffix(".txt")
-                    chap_text = chap_file.read_text(encoding="utf-8", errors="replace") if chap_file.exists() else ""
-                    new_rec = self.db.save_autoedit(
-                        project_id=project_id,
-                        output_path=str_path,
-                        format_mode=fmt,
-                        target_duration_sec=120.0 if fmt == "shorts" else 480.0,
-                        actual_duration_sec=None,
-                        chapters_text=chap_text,
-                        title=mp4_file.stem.replace("_", " "),
-                        description=f"Montaje {fmt.capitalize()} ensamblado con IA.",
-                        hashtags="#gaming #streamer #clips #viral"
-                    )
-                    records.append(new_rec)
-                    db_paths.add(str_path)
-
-        # 3. Add file metadata (exists, fileSizeMb, filename)
-        results = []
-        for r in records:
-            p = Path(r["outputPath"])
-            exists = p.exists()
-            size_mb = round(p.stat().st_size / (1024 * 1024), 1) if exists else 0.0
-            r_copy = dict(r)
-            r_copy["exists"] = exists
-            r_copy["fileSizeMb"] = size_mb
-            r_copy["filename"] = p.name
-            results.append(r_copy)
-
-        return results
+        return list_project_autoedits(self.db, project_id, self.get_project_dir)
 
     def delete_autoedit(self, args: Any) -> Dict[str, Any]:
-        autoedit_id = args.get("autoeditId")
-        delete_file = bool(args.get("deleteFile", True))
-        rec = self.db.get_autoedit(autoedit_id)
-        if rec:
-            if delete_file:
-                try:
-                    p = Path(rec["outputPath"])
-                    if p.exists():
-                        p.unlink()
-                    txt_p = p.with_suffix(".txt")
-                    if txt_p.exists():
-                        txt_p.unlink()
-                except Exception as e:
-                    print(f"Error borrando archivo de autoedit: {e}")
-            self.db.delete_autoedit(autoedit_id)
-        return {"success": True}
+        return delete_project_autoedit(self.db, args if isinstance(args, dict) else {"autoeditId": args})
 
     def generate_autoedit_social_copy(self, args: Any) -> Dict[str, Any]:
-        autoedit_id = args.get("autoeditId")
-        project_id = args.get("projectId")
-        rec = self.db.get_autoedit(autoedit_id)
-        if not rec:
-            raise ValueError("AutoEdit no encontrado.")
-
-        context = f"Video: {rec.get('title', 'Montaje')}\nFormato: {rec.get('formatMode')}\n"
-        if rec.get("chaptersText"):
-            context += f"\nCapítulos y momentos incluidos:\n{rec['chaptersText']}"
-
-        app_cfg = self.get_app_config()
-        llm_engine = app_cfg.get("llmEngine", "local")
-        model_name = (
-            app_cfg.get("localLlmModel") if llm_engine == "local" else (
-                app_cfg.get("lmstudioModel") if llm_engine == "lmstudio" else (
-                    app_cfg.get("openrouterModel") if llm_engine == "openrouter" else None
-                )
-            )
-        )
-        api_key = app_cfg.get("openrouterKey") if llm_engine == "openrouter" else None
-
-        copy_res = generate_social_copy_with_llm(
-            transcript_text=context,
-            model_name=model_name or "qwen2.5:7b",
-            provider=llm_engine,
-            api_key=api_key
-        )
-        title = copy_res.get("hooks", [rec.get("title")])[0]
-        desc = copy_res.get("caption", rec.get("description"))
-        tags = " ".join(copy_res.get("hashtags", ["#gaming", "#viral"]))
-        updated = self.db.update_autoedit_copy(autoedit_id, title, desc, tags)
-        return updated
+        return generate_autoedit_copy_action(self.db, args if isinstance(args, dict) else {"autoeditId": args}, self.get_app_config)
 
     def update_candidate_trim(self, args: Any) -> Dict[str, Any]:
         candidate_id = args.get("candidateId")
@@ -1364,35 +1061,11 @@ class Api:
 
     def check_youtube_copyright(self, args: Any) -> Dict[str, Any]:
         url = args.get("url") if isinstance(args, dict) else args
-        try:
-            import yt_dlp
-            ydl_opts = {"quiet": True, "no_warnings": True}
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=False)
-                license_str = info.get("license", "Standard YouTube License")
-                is_safe = "creative commons" in str(license_str).lower()
-                return {
-                    "isSafe": is_safe,
-                    "license": license_str
-                }
-        except Exception as e:
-            return {"isSafe": True, "license": str(e)}
+        return check_youtube_copyright(url)
 
     def download_youtube_video(self, args: Any) -> str:
         url = args.get("url") if isinstance(args, dict) else args
-        import yt_dlp
-        download_dir = Path.home() / "Downloads" / "AutoShorts"
-        os.makedirs(download_dir, exist_ok=True)
-        out_template = str(download_dir / "%(title)s.%(ext)s")
-        ydl_opts = {
-            "outtmpl": out_template,
-            "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
-            "quiet": False
-        }
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            filename = ydl.prepare_filename(info)
-            return str(filename)
+        return download_youtube_video(url)
 
     def pull_ollama_model(self, args: Any):
         model_name = args.get("modelName") if isinstance(args, dict) else args
@@ -1419,27 +1092,11 @@ class Api:
 
     def open_media_file(self, args: Any) -> bool:
         path = args.get("path") if isinstance(args, dict) else args
-        if path:
-            p = Path(path)
-            if p.exists():
-                try:
-                    os.startfile(str(p))
-                    return True
-                except Exception as e:
-                    print(f"Error opening media file: {e}")
-        return False
+        return open_media_file(path)
 
     def open_folder(self, args: Any):
         path = args.get("path") if isinstance(args, dict) else args
-        if path:
-            p = Path(path)
-            folder = p.parent if p.is_file() else p
-            if folder.exists():
-                try:
-                    os.startfile(str(folder))
-                except Exception as e:
-                    print(f"Error opening folder: {e}")
-        return True
+        return open_folder(path)
 
     def open_project_folder(self, args: Any) -> Dict[str, Any]:
         project_id = args.get("projectId") if isinstance(args, dict) else args
@@ -1456,36 +1113,5 @@ class Api:
     def move_project_folder(self, args: Any) -> Dict[str, Any]:
         project_id = args.get("projectId")
         new_parent_dir = args.get("newParentDir")
-        if not project_id:
-            raise ValueError("Missing projectId")
-        if not new_parent_dir or not os.path.exists(new_parent_dir):
-            raise FileNotFoundError(f"Carpeta de destino no existe: {new_parent_dir}")
-
-        proj = self.db.get_project(project_id)
-        current_dir = self.get_project_dir(proj)
-
-        folder_name = current_dir.name
-        dest_dir = Path(new_parent_dir) / folder_name
-
-        if dest_dir.resolve() == current_dir.resolve():
-            return {"success": True, "projectDir": str(current_dir), "message": "La carpeta ya está en esa ubicación."}
-
-        if dest_dir.exists():
-            counter = 1
-            while dest_dir.exists():
-                dest_dir = Path(new_parent_dir) / f"{folder_name}_{counter}"
-                counter += 1
-
-        try:
-            shutil.move(str(current_dir), str(dest_dir))
-        except Exception:
-            shutil.copytree(str(current_dir), str(dest_dir), dirs_exist_ok=True)
-            shutil.rmtree(str(current_dir), ignore_errors=True)
-
-        updated = self.db.update_project_dir(project_id, str(dest_dir))
-        return {
-            "success": True,
-            "projectDir": str(dest_dir),
-            "project": updated
-        }
+        return move_project_folder_action(self.db, project_id, new_parent_dir, self.get_project_dir)
 
