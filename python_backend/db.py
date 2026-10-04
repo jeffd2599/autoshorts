@@ -323,6 +323,13 @@ class Database:
                 for r in rows
             ]
 
+    def update_candidate_description(self, candidate_id: str, description: str):
+        with self.get_conn() as conn:
+            conn.execute(
+                "UPDATE candidates SET description = ? WHERE id = ?",
+                (description, candidate_id)
+            )
+
     def update_candidate_trim(self, candidate_id: str, start_sec: float, end_sec: float) -> Dict[str, Any]:
         start_sec = max(0.0, float(start_sec))
         end_sec = max(start_sec + 0.5, float(end_sec))

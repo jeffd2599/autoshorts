@@ -613,6 +613,32 @@ export function useMediaPipeline(options: UseMediaPipelineOptions) {
     }, 2500);
   }, []);
 
+  const [regeneratingCopyCandidateId, setRegeneratingCopyCandidateId] = useState<string | null>(null);
+
+  const regenerateCandidateCopy = useCallback(
+    async (candidateId: string) => {
+      if (!detail) return;
+      setRegeneratingCopyCandidateId(candidateId);
+      setError(null);
+      try {
+        const { activeLlmKey, activeLlmModel } = getActiveLlmConfig();
+        await invoke<{ candidateId: string; fullCopy: string; copyData: CopyResult }>("regenerate_candidate_copy", {
+          candidateId,
+          provider: llmEngine,
+          modelName: activeLlmModel,
+          apiKey: activeLlmKey || null,
+          enableThinking,
+        });
+        await refresh(detail.project.id);
+      } catch (err: any) {
+        setError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setRegeneratingCopyCandidateId(null);
+      }
+    },
+    [detail, getActiveLlmConfig, llmEngine, enableThinking, refresh, setError]
+  );
+
   const generateSummary = useCallback(async () => {
     if (!detail) return;
     try {
@@ -680,6 +706,8 @@ export function useMediaPipeline(options: UseMediaPipelineOptions) {
     copyTextToClipboard,
     copiedDescId,
     copyDescription,
+    regenerateCandidateCopy,
+    regeneratingCopyCandidateId,
     // Summary
     showSummaryModal,
     setShowSummaryModal,

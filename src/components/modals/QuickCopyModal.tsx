@@ -75,7 +75,7 @@ export function QuickCopyModal({
 
   const handleSelectSrt = async () => {
     try {
-      const selected = await invoke<string | null>("open_file_dialog");
+      const selected = await invoke<string | null>("open_file_dialog", { fileType: "srt" });
       if (selected) {
         const lower = selected.toLowerCase();
         if (!lower.endsWith(".srt") && !lower.endsWith(".vtt") && !lower.endsWith(".txt")) {

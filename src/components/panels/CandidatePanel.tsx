@@ -48,6 +48,8 @@ interface CandidatePanelProps {
   cutCandidate: (candidateId: string) => void;
   renderingCandidateId: string | null;
   candidateProgress?: { message: string; current: number; total: number } | null;
+  regenerateCandidateCopy?: (candidateId: string) => Promise<void>;
+  regeneratingCopyCandidateId?: string | null;
 }
 
 export const CandidatePanel: React.FC<CandidatePanelProps> = ({
@@ -75,6 +77,8 @@ export const CandidatePanel: React.FC<CandidatePanelProps> = ({
   cutCandidate,
   renderingCandidateId,
   candidateProgress,
+  regenerateCandidateCopy,
+  regeneratingCopyCandidateId,
 }) => {
   const [filterTab, setFilterTab] = useState<"all" | "pending" | "exported">("all");
   const [copiedClipPathId, setCopiedClipPathId] = useState<string | null>(null);
@@ -563,21 +567,54 @@ export const CandidatePanel: React.FC<CandidatePanelProps> = ({
                 </div>
                 <p className="candidate-rationale">{candidate.rationale}</p>
 
-                {candidate.description && (
+                {(candidate.description || isCut) && (
                   <div className="candidate-description-box">
                     <div className="desc-header">
                       <span className="desc-label">Descripción para Redes</span>
-                      <button
-                        type="button"
-                        className="desc-copy-btn"
-                        onClick={() => copyDescription(candidate.id, candidate.description!)}
-                        title="Copiar texto para redes sociales"
-                      >
-                        <Copy size={11} />
-                        <span>{copiedDescId === candidate.id ? "Copiado" : "Copiar"}</span>
-                      </button>
+                      <div style={{ display: "flex", gap: "6px" }}>
+                        {candidate.description && (
+                          <button
+                            type="button"
+                            className="desc-copy-btn"
+                            onClick={() => copyDescription(candidate.id, candidate.description!)}
+                            title="Copiar texto para redes sociales"
+                          >
+                            <Copy size={11} />
+                            <span>{copiedDescId === candidate.id ? "Copiado" : "Copiar"}</span>
+                          </button>
+                        )}
+                        {regenerateCandidateCopy && (
+                          <button
+                            type="button"
+                            className="desc-copy-btn"
+                            onClick={() => void regenerateCandidateCopy(candidate.id)}
+                            disabled={regeneratingCopyCandidateId === candidate.id || busy !== "idle"}
+                            style={{ color: "#38bdf8", borderColor: "rgba(56, 189, 248, 0.3)" }}
+                            title="Generar copy completo para redes sociales usando el .SRT del clip con IA"
+                          >
+                            {regeneratingCopyCandidateId === candidate.id ? (
+                              <Loader2 className="spin" size={11} />
+                            ) : (
+                              <Sparkles size={11} />
+                            )}
+                            <span>
+                              {regeneratingCopyCandidateId === candidate.id
+                                ? "Redactando..."
+                                : candidate.description
+                                ? "Rehacer Copy"
+                                : "Generar Copy con IA"}
+                            </span>
+                          </button>
+                        )}
+                      </div>
                     </div>
-                    <p className="desc-text">{candidate.description}</p>
+                    {candidate.description ? (
+                      <p className="desc-text">{candidate.description}</p>
+                    ) : (
+                      <p className="desc-text" style={{ fontStyle: "italic", opacity: 0.6, fontSize: "0.78rem" }}>
+                        Clip exportado con .SRT listo. Haz clic en "Generar Copy con IA" para redactar su texto viral.
+                      </p>
+                    )}
                   </div>
                 )}
 

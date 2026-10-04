@@ -292,6 +292,8 @@ export function App() {
                     candidateProgress={mediaPipeline.candidateProgress}
                     aspectRatio={mediaPipeline.clipAspectRatio}
                     setAspectRatio={mediaPipeline.setClipAspectRatio}
+                    regenerateCandidateCopy={mediaPipeline.regenerateCandidateCopy}
+                    regeneratingCopyCandidateId={mediaPipeline.regeneratingCopyCandidateId}
                   />
                 </div>
               )}

@@ -694,24 +694,24 @@
 .summary-modal-overlay {
   position: fixed;
   inset: 0;
+  bottom: 32px;
   z-index: 9999;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(0, 0, 0, 0.75);
-  backdrop-filter: blur(8px);
-  animation: fadeIn 0.2s ease-out forwards;
+  background: rgba(9, 9, 11, 0.86);
+  animation: fadeIn 0.15s ease-out forwards;
 }
 
 .summary-modal {
   width: 92%;
   max-width: 620px;
-  max-height: 90vh;
+  max-height: calc(90vh - 32px);
   overflow-y: auto;
-  background: var(--bg-card);
-  border: 1px solid var(--border-color);
-  border-radius: 16px;
-  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.5);
+  background: #141416;
+  border: 1px solid var(--border-default);
+  border-radius: 12px;
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.7);
   padding: 24px;
 }
 

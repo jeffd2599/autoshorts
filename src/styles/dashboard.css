@@ -12,6 +12,8 @@
   color: var(--text-muted);
   font-weight: 500;
   user-select: none;
+  position: relative;
+  z-index: 10001;
 }
 
 .status-bar-left,

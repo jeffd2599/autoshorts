@@ -148,6 +148,15 @@ class Api:
             "Media Files (*.mp4;*.mov;*.mkv;*.mp3;*.wav;*.m4a)",
             "All Files (*.*)"
         )
+        if isinstance(_args, dict) and _args.get("fileType") in ["subtitles", "srt"]:
+            file_types = (
+                "Subtítulos (*.srt;*.vtt;*.txt)",
+                "Archivos SRT (*.srt)",
+                "Todos los archivos (*.*)"
+            )
+        elif isinstance(_args, dict) and _args.get("fileTypes"):
+            file_types = tuple(_args.get("fileTypes"))
+
         dialog_type = getattr(webview, "FileDialog", None)
         open_mode = dialog_type.OPEN if dialog_type else getattr(webview, "OPEN_DIALOG", 10)
         result = self._window.create_file_dialog(
@@ -672,6 +681,76 @@ class Api:
             extra_context=extra_context
         )
         return copy_data
+
+    def regenerate_candidate_copy(self, args: Any) -> Dict[str, Any]:
+        """
+        Regenerates full viral social media copy for an exported candidate from its own .srt
+        or transcript words without modifying the candidate's hook/title.
+        """
+        candidate_id = args.get("candidateId") if isinstance(args, dict) else args
+        provider = args.get("provider", "local") if isinstance(args, dict) else "local"
+        model_name = args.get("modelName") if isinstance(args, dict) else None
+        api_key = args.get("apiKey") if isinstance(args, dict) else None
+        enable_thinking = bool(args.get("enableThinking", False)) if isinstance(args, dict) else False
+
+        candidate, project = self.db.get_candidate_with_project(candidate_id)
+        transcript_record = self.db.latest_transcript(project["id"])
+        if not transcript_record:
+            raise ValueError("No hay transcripción disponible para este proyecto.")
+
+        # Read clip SRT if exists or slice words from transcript
+        raw_text = ""
+        clips = self.db.get_clips(project["id"])
+        clip = next((c for c in clips if c["candidateId"] == candidate_id), None)
+        if clip and clip.get("captionAssPath") and os.path.exists(clip["captionAssPath"]):
+            try:
+                with open(clip["captionAssPath"], "r", encoding="utf-8", errors="replace") as f:
+                    raw_text = clean_srt_text(f.read())
+            except Exception:
+                pass
+
+        if not raw_text:
+            normalized = json.loads(transcript_record["rawJson"])
+            words = normalized.get("words", [])
+            if not words and "segments" in normalized:
+                words = rebuild_words_from_segments(normalized["segments"])
+            clip_words = [w for w in words if w.get("end", 0) > candidate["startSec"] and w.get("start", 0) < candidate["endSec"]]
+            raw_text = " ".join(w.get("text", "") for w in clip_words).strip()
+
+        if not raw_text:
+            raw_text = f"{candidate.get('hook', '')}. {candidate.get('rationale', '')}"
+
+        # Resolve active model for LM Studio if none specified
+        if provider == "lmstudio" and (not model_name or model_name in ["qwen2.5:7b", "local-model"]):
+            try:
+                base_url = os.getenv("LMSTUDIO_BASE_URL", "http://127.0.0.1:1234/v1").rstrip("/")
+                r = requests.get(f"{base_url}/models", timeout=1.5)
+                if r.ok:
+                    data = r.json().get("data", [])
+                    chat_models = [m.get("id") for m in data if "embed" not in m.get("id", "").lower()]
+                    if chat_models:
+                        model_name = chat_models[0]
+            except Exception:
+                pass
+
+        copy_data = generate_social_copy_with_llm(
+            transcript_text=raw_text,
+            model_name=model_name or "qwen2.5:7b",
+            provider=provider,
+            api_key=api_key,
+            enable_thinking=enable_thinking,
+            extra_context=f"Título actual del clip (mantener este mismo concepto sin cambiarlo): {candidate['hook']}"
+        )
+
+        full_copy = copy_data.get("full_copy") or copy_data.get("caption") or ""
+        # Update description in DB without altering hook
+        self.db.update_candidate_description(candidate_id, full_copy)
+
+        return {
+            "candidateId": candidate_id,
+            "fullCopy": full_copy,
+            "copyData": copy_data
+        }
 
     def generate_candidates(self, args: Any) -> List[Dict[str, Any]]:
         if isinstance(args, dict):
