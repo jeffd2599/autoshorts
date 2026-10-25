@@ -37,7 +37,12 @@
 - **Decisión:** Fusionar el prompt base del sistema (`DEFAULT_MOMENTS_PROMPT`) integrando los criterios de alta retención para TikTok, Reels y Shorts (ganchos de primeros 3s, picos emocionales/gameplay, contenido narrativo, auto-conclusión estricta, cortes limpios en pausas naturales y exclusiones de partes lentas o promocionales), manteniendo el contrato técnico JSON (`candidates`/`clips`) de bajo nivel 100% invisible para el usuario. Se actualizó el generador y normalizador de social copy (`generate_social_copy_with_llm`, `_normalize_social_copy_dict`) aplicando los principios de `antislop-copywriting`: descripciones breves de 2-3 líneas para no tapar los videos en smartphone, eliminación de guiones largos (`—`) y límite estricto garantizado de 3 a 5 hashtags específicos.
 - **Motivo:** Maximizar la calidad de los clips detectados y la retención en redes sociales verticales, evitando descripciones excesivamente largas o saturadas de hashtags genéricos que perjudican el engagement.
 
-## D-010: Nueva Identidad Visual, Branding y Favicon para AutoShorts
-- **Decisión:** Reemplazar el icono genérico heredado del repositorio base por un imagotipo profesional diseñado a medida: marco vertical 9:16 con corte dinámico de tijeras y gradiente neón (violeta/cyan/ámbar) sobre fondo oscuro. Se generó `icon.png` (512x512) e `icon.ico` nativo para Windows con 6 capas multi-resolución (16x16 a 256x256), vinculando los favicons en `index.html` e integrando el imagotipo en la barra lateral (`Sidebar.tsx`) y en la cabecera de `README.md`.
-- **Motivo:** Consolidar una identidad gráfica propia, moderna y de nivel premium que represente fielmente la suite de clips verticales AutoShorts en el escritorio de Windows y en la interfaz.
+## D-010: Identidad Visual Inicial
+- **Decisión:** Reemplazar el icono genérico heredado del repositorio base por un primer imagotipo temático para AutoShorts en Windows y web.
+- **Motivo:** Sustituir la gráfica base del template por recursos propios del proyecto.
+
+## D-011: Rediseño Minimalista de Primer Nivel para el Isotipo y Branding
+- **Decisión:** Rediseñar por completo el logo e icono de AutoShorts adoptando una estética geométrica puramente minimalista de nivel profesional: un squircle oscuro mate con un botón de reproducción estilizado dividido por un corte diagonal de alta energía en gradiente cálido neón (ámbar a coral magenta). Se generaron capas multi-resolución en `icon.ico` (16x16 a 256x256) con transparencia perimetral y `icon.png` (512x512) para máxima legibilidad en barra de tareas, barra lateral (22x22) y navegador.
+- **Motivo:** Eliminar la complejidad visual recargada de tipo wallpaper, garantizando nitidez absoluta, alto contraste y presencia de marca sólida en cualquier escala.
+
 
