@@ -328,27 +328,32 @@ autoshorts/
 │   ├── db.py                     # Capa de datos en SQLite3 embebido
 │   ├── llm.py                    # Orquestador de LLMs locales (Ollama y LM Studio)
 │   ├── llm_prompts.py            # Plantillas de prompts especializadas para clips
+│   ├── logger.py                 # Buffer circular de logs y rotacion en autoshorts.log
 │   ├── media.py                  # Integracion con FFmpeg, subtitulos ASS y audio RMS
+│   ├── paths.py                  # Resolucion de rutas portables (RESOURCE_DIR vs USER_DATA_DIR)
 │   ├── stream_server.py          # Servidor HTTP local con soporte Range para videos
 │   ├── telemetry.py              # Telemetria de CPU, GPU, VRAM y temperatura
 │   ├── transcription.py          # Pipeline optimizado con faster-whisper (CTranslate2)
+│   ├── version.py                # Fuente de verdad de versionado semantico (v2.5.0)
 │   └── services/                 # Servicios modulares
-│       └── project_service.py    # Gestion de carpetas y re-vinculacion de proyectos
+│       └── project_service.py    # Proyectos autonomos (autoshorts.project) y auto-migracion
 ├── src/                          # Frontend en React 19 + TypeScript
 │   ├── components/               # Componentes modulares de interfaz
 │   │   ├── common/               # Componentes reutilizables (StatusBar, ModelBadge)
-│   │   ├── modals/               # Modales de trabajo (StyleModal, CandidatePreview, QuickCopy)
-│   │   └── panels/               # Vistas principales (HomeDashboard, CandidatePanel, WorkspaceHeader)
-│   ├── hooks/                    # Hooks de estado y pipelines (useMediaPipeline, useAppSettings)
+│   │   ├── modals/               # Modales de trabajo (StyleModal, CandidatePreview, LogsModal)
+│   │   └── panels/               # Vistas principales (HomeDashboard, CandidatePanel, Sidebar)
+│   ├── hooks/                    # Hooks de estado y pipelines (useMediaPipeline, useProjectActions)
 │   ├── styles/                   # Sistema de diseno dark mode en CSS puro
 │   ├── types.ts                  # Definiciones de tipos TypeScript compartidos
 │   ├── apiBridge.ts              # Adaptador RPC para comunicacion con Python
 │   └── App.tsx                   # Componente raiz de la aplicacion
 ├── AutoShorts.bat                # Lanzador con deteccion de venv y diagnostico
 ├── AutoShorts.vbs                # Lanzador silencioso en segundo plano para Windows
-├── run.py                        # Punto de entrada principal de la aplicacion
+├── AutoShorts.spec               # Especificacion PyInstaller onedir con assets e iconos
+├── build_portable.py             # Script de construccion de paquete portable .zip con SHA-256
+├── run.py                        # Punto de entrada principal con freeze_support
 ├── requirements.txt              # Dependencias de Python (faster-whisper, pywebview)
-├── package.json                  # Scripts y dependencias del frontend (pnpm)
+├── package.json                  # Scripts y dependencias del frontend (pnpm, v2.5.0)
 ├── vite.config.ts                # Configuracion del empaquetador Vite
 ├── DECISIONS.md                  # Registro de decisiones de diseno y arquitectura
 └── README.md                     # Documentacion tecnica del proyecto

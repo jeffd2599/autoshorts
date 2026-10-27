@@ -35,7 +35,18 @@ from .llm import (
     generate_social_copy_with_llm
 )
 from .telemetry import get_hardware_telemetry
-from .services.project_service import resolve_project_dir, open_media_file, open_folder, move_project_folder_action
+from .services.project_service import (
+    resolve_project_dir,
+    open_media_file,
+    open_folder,
+    move_project_folder_action,
+    sync_project_to_disk,
+    restore_project_from_disk,
+    find_project_file,
+    auto_migrate_legacy_projects,
+    PROJECT_FILE_NAME
+)
+from .logger import log_buffer, get_system_logs, clear_system_logs
 
 
 def rebuild_words_from_segments(segments: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -88,6 +99,17 @@ class Api:
         self._window = None
         self._cancel_candidates_flag = False
         self._cancel_transcription_flag = False
+
+        # Hook log buffer to emit real-time logs to WebView2
+        def on_log_entry(entry):
+            self.emit("log-event", entry)
+        log_buffer.add_listener(on_log_entry)
+
+        # Auto-migrate legacy projects to generate autoshorts.project if missing
+        try:
+            auto_migrate_legacy_projects(self.db)
+        except Exception as e:
+            print(f"Warning: could not run auto-migrate on init: {e}")
 
     def get_project_dir(self, project: Dict[str, Any]) -> Path:
         return resolve_project_dir(self.db, project)
@@ -261,6 +283,20 @@ class Api:
         if not os.path.exists(source_path):
             raise FileNotFoundError(f"File not found: {source_path}")
 
+        # Check if an existing autoshorts.project file already exists in source folder or custom dir
+        existing_file = find_project_file(Path(source_path))
+        if not existing_file and custom_project_dir and str(custom_project_dir).strip():
+            existing_file = find_project_file(Path(str(custom_project_dir).strip()))
+
+        if existing_file:
+            print(f"[PROYECTO] Archivo de proyecto existente detectado en: {existing_file}. Restaurando datos...")
+            try:
+                detail = restore_project_from_disk(self.db, existing_file)
+                if detail and "project" in detail:
+                    return detail["project"]
+            except Exception as e:
+                print(f"Error al restaurar proyecto existente: {e}")
+
         if custom_project_dir and str(custom_project_dir).strip():
             target_dir = Path(str(custom_project_dir).strip())
         else:
@@ -295,7 +331,7 @@ class Api:
         except Exception:
             pass
 
-        return self.db.create_project(
+        proj = self.db.create_project(
             source_path=source_path,
             transcription_mode=transcription_mode,
             caption_style=caption_style,
@@ -303,6 +339,8 @@ class Api:
             project_dir=str(target_dir),
             workflow_goal=workflow_goal
         )
+        sync_project_to_disk(self.db, proj["id"], target_dir)
+        return proj
 
     def update_project_workflow_goal(self, args: Any) -> Dict[str, Any]:
         project_id = args.get("projectId")
@@ -434,6 +472,7 @@ class Api:
                 language=transcript.get("language", "es")
             )
             self.db.update_project_status(project_id, "analyzing", transcript.get("duration"))
+            sync_project_to_disk(self.db, project_id, proj_dir)
             return saved
         except InterruptedError:
             print(f"🛑 Transcripción del proyecto {project_id} cancelada inmediatamente.")
@@ -481,6 +520,7 @@ class Api:
             raw_json=raw_json,
             language=transcript_data.get("language", "es")
         )
+        sync_project_to_disk(self.db, project_id, proj_dir)
         return saved
 
     def cancel_transcription(self, _args: Any = None) -> bool:
@@ -908,6 +948,7 @@ class Api:
 
         candidates = self.db.replace_candidates(project_id, drafts)
         self.db.update_project_status(project_id, "ready")
+        sync_project_to_disk(self.db, project_id, proj_dir)
         return candidates
 
     def set_selected_clip_count(self, args: Any) -> List[Dict[str, Any]]:
@@ -1109,7 +1150,9 @@ class Api:
     def rename_project(self, args: Any) -> Dict[str, Any]:
         project_id = args.get("projectId")
         name = args.get("name")
-        return self.db.rename_project(project_id, name)
+        res = self.db.rename_project(project_id, name)
+        sync_project_to_disk(self.db, project_id)
+        return res
 
     def toggle_project_completed(self, args: Any) -> Dict[str, Any]:
         project_id = args.get("projectId") if isinstance(args, dict) else args
@@ -1201,4 +1244,40 @@ class Api:
         project_id = args.get("projectId")
         new_parent_dir = args.get("newParentDir")
         return move_project_folder_action(self.db, project_id, new_parent_dir, self.get_project_dir)
+
+    def get_system_logs(self, args: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+        limit = args.get("limit", 500) if isinstance(args, dict) else 500
+        return get_system_logs(limit)
+
+    def clear_system_logs(self, _args: Optional[Dict[str, Any]] = None) -> bool:
+        clear_system_logs()
+        return True
+
+    def open_project_file_dialog(self, _args: Optional[Dict[str, Any]] = None) -> Optional[str]:
+        if not self._window:
+            return None
+        file_types = (
+            "AutoShorts Project (*.project;*.json)",
+            "Todos los archivos (*.*)"
+        )
+        dialog_type = getattr(webview, "FileDialog", None)
+        open_mode = dialog_type.OPEN if dialog_type else getattr(webview, "OPEN_DIALOG", 10)
+        result = self._window.create_file_dialog(
+            open_mode,
+            allow_multiple=False,
+            file_types=file_types
+        )
+        if result and len(result) > 0:
+            return result[0]
+        return None
+
+    def import_existing_project(self, args: Any) -> Dict[str, Any]:
+        path = args.get("path") if isinstance(args, dict) else args
+        if not path:
+            path = self.open_project_file_dialog()
+            if not path:
+                return {}
+        p = Path(path)
+        return restore_project_from_disk(self.db, p)
+
 

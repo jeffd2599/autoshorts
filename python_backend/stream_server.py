@@ -9,6 +9,8 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 import threading
 
+from .paths import get_resource_dir, get_user_data_dir, get_ffmpeg_path
+
 CHUNK_SIZE = 256 * 1024  # 256 KB buffer for high-throughput local media streaming
 
 
@@ -106,12 +108,12 @@ class VideoStreamHandler(BaseHTTPRequestHandler):
                 mtime = 0
             raw_key = f"{file_path}_{mtime}_{round(time_sec, 1)}"
             cache_hash = hashlib.md5(raw_key.encode("utf-8")).hexdigest()
-            cache_dir = Path("data") / "thumb_cache"
+            cache_dir = get_user_data_dir() / "thumb_cache"
             cache_dir.mkdir(parents=True, exist_ok=True)
             cache_file = cache_dir / f"{cache_hash}.jpg"
 
             if not cache_file.exists():
-                ffmpeg = shutil.which("ffmpeg") or "ffmpeg"
+                ffmpeg = get_ffmpeg_path()
                 cmd = [
                     ffmpeg,
                     "-y",
@@ -166,8 +168,7 @@ class VideoStreamHandler(BaseHTTPRequestHandler):
                 return
 
         # Serve static assets from dist/
-        base_dir = Path(__file__).resolve().parent.parent
-        dist_dir = base_dir / "dist"
+        dist_dir = get_resource_dir() / "dist"
         rel_path = parsed.path.lstrip("/")
         if not rel_path or rel_path == "":
             rel_path = "index.html"

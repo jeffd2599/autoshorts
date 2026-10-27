@@ -7,6 +7,7 @@ import {
   FileVideo,
   Loader2,
   SlidersHorizontal,
+  Terminal,
 } from "lucide-react";
 import { BusyState, Project } from "../../types";
 import { fileName } from "../../utils/format";
@@ -19,6 +20,8 @@ interface SidebarProps {
   busy: BusyState;
   showSettings: boolean;
   onToggleSettings: () => void;
+  showLogs?: boolean;
+  onToggleLogs?: () => void;
 }
 
 export function Sidebar({
@@ -29,6 +32,8 @@ export function Sidebar({
   busy,
   showSettings,
   onToggleSettings,
+  showLogs,
+  onToggleLogs,
 }: SidebarProps) {
   return (
     <aside className="sidebar">
@@ -99,7 +104,24 @@ export function Sidebar({
         })}
       </section>
 
-      <div style={{ marginTop: "auto", paddingTop: "0.75rem", borderTop: "1px solid var(--border)" }}>
+      <div style={{ marginTop: "auto", paddingTop: "0.75rem", borderTop: "1px solid var(--border)", display: "flex", flexDirection: "column", gap: "4px" }}>
+        {onToggleLogs && (
+          <button
+            type="button"
+            className={`project-row ${showLogs ? "active" : ""}`}
+            onClick={onToggleLogs}
+            title="Consola de eventos y logs del sistema"
+            style={{
+              width: "100%",
+              textAlign: "left",
+              cursor: "pointer",
+              background: showLogs ? "rgba(56, 189, 248, 0.15)" : "transparent"
+            }}
+          >
+            <Terminal size={16} />
+            <span>Terminal / Logs</span>
+          </button>
+        )}
         <button
           type="button"
           className={`project-row ${showSettings ? "active" : ""}`}

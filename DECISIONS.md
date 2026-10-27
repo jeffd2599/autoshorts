@@ -49,5 +49,14 @@
 - **Decisión:** Implementar liberación explícita y completa de memoria en transcripción (`gc.collect()`, `torch.cuda.empty_cache()` y desreferenciación inmediata de generadores de CTranslate2 y modelos) tanto en interrupción como en `cancel_transcription`, integrando chequeo de cancelación en el análisis acústico RMS. Para la inferencia LLM (LM Studio y Ollama), se implementó detección dinámica de contexto, dimensionamiento inteligente de bloques y sub-partición adaptativa por bisección ante desbordamiento de contexto (`exceed_context_size_error`), permitiendo operar fluidamente con ventanas de 4k u 8k sin saturar la VRAM de la GPU. Ante errores fatales o modelos descargados, un Circuit Breaker corta de inmediato la ejecución para evitar saturación inútil. Se amplió el logo en la barra lateral a 36x36 px para óptima presencia visual.
 - **Motivo:** Evitar que procesos cancelados continúen ocupando la GPU y que grabaciones extensas fallen en bloque por exceder el context window cuando el usuario trabaja con VRAM ajustada.
 
+## D-013: Release v2.5, Archivos de Proyecto Autónomos (autoshorts.project), Visor de Logs y Empaquetado Portable onedir
+- **Decisión:** 
+  1. Crear la rama `release-v2.5` siguiendo la secuencia de releases (`release-v1.0`, `release-v1.5`, `release-v2.0`) y fijar el versionado del software en `v2.5.0` (`python_backend/version.py`, `package.json`).
+  2. Implementar arquitectura de proyectos autónomos (`autoshorts.project` en la raíz de cada carpeta de grabación, estilo Premiere/CapCut) con auto-migración de proyectos existentes, auto-detección al importar para omitir Whisper si ya existe transcripción, y re-vinculación inteligente de video cuando cambia la unidad de disco.
+  3. Incorporar visor de terminal y logs en vivo (`LogsModal.tsx`, `logger.py`) accesible desde el Sidebar y la StatusBar, con buffer circular de 1,000 líneas, rotación en `autoshorts.log`, copia rápida al portapapeles y auto-scroll.
+  4. Diseñar la arquitectura portable en modo `--onedir` (`AutoShorts.spec`, `paths.py`, `multiprocessing.freeze_support()` en `run.py`) e implementar `build_portable.py` para compilar el frontend y empaquetar `AutoShorts-v2.5.0-windows-x64-portable.zip` con checksum SHA-256.
+- **Motivo:** Garantizar máxima portabilidad de datos entre máquinas y pendrives sin depender de SQLite central, evitar pérdida de visibilidad de eventos en Windows sin consola, y permitir la distribución oficial en GitHub Releases sin dependencias de instalación.
+
+
 
 

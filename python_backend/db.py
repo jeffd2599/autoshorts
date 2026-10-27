@@ -154,6 +154,42 @@ class Database:
             )
         return self.get_project(proj_id)
 
+    def upsert_project_record(
+        self,
+        project_id: str,
+        name: str,
+        source_path: str,
+        source_duration: Optional[float] = None,
+        status: str = "ready",
+        transcription_mode: str = "local",
+        caption_style: str = "modern-box",
+        project_dir: Optional[str] = None,
+        workflow_goal: str = "clips",
+        created_at: Optional[str] = None,
+        updated_at: Optional[str] = None
+    ) -> Dict[str, Any]:
+        now = utc_now_iso()
+        c_at = created_at or now
+        u_at = updated_at or now
+        with self.get_conn() as conn:
+            conn.execute(
+                """INSERT INTO projects (id, name, source_path, source_duration, status, transcription_mode, caption_style, project_dir, workflow_goal, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(id) DO UPDATE SET
+                     name=excluded.name,
+                     source_path=excluded.source_path,
+                     source_duration=coalesce(excluded.source_duration, projects.source_duration),
+                     status=excluded.status,
+                     transcription_mode=excluded.transcription_mode,
+                     caption_style=excluded.caption_style,
+                     project_dir=coalesce(excluded.project_dir, projects.project_dir),
+                     workflow_goal=excluded.workflow_goal,
+                     updated_at=excluded.updated_at
+                """,
+                (project_id, name, source_path, source_duration, status, transcription_mode, caption_style, project_dir, workflow_goal, c_at, u_at)
+            )
+        return self.get_project(project_id)
+
     def list_projects(self) -> List[Dict[str, Any]]:
         with self.get_conn() as conn:
             rows = conn.execute(

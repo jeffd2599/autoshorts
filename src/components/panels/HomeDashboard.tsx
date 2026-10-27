@@ -22,6 +22,7 @@ interface HomeDashboardProps {
   showSettings: boolean;
   setShowSettings: (val: boolean) => void;
   importMedia: () => void;
+  openExistingProject?: () => void;
   selectProject: (id: string) => void;
   renameProject: (id: string) => void;
   deleteProject: (id: string) => void;
@@ -39,6 +40,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
   showSettings,
   setShowSettings,
   importMedia,
+  openExistingProject,
   selectProject,
   renameProject,
   deleteProject,
@@ -82,6 +84,17 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
             >
               <Sparkles size={16} />
               <span>Generar Copy Rápido</span>
+            </button>
+          )}
+          {openExistingProject && (
+            <button
+              className="secondary-action compact"
+              onClick={openExistingProject}
+              disabled={busy !== "idle"}
+              title="Abrir un proyecto existente (autoshorts.project) o carpeta de grabación"
+            >
+              <FolderOpen size={16} />
+              <span>Abrir Proyecto</span>
             </button>
           )}
           <button className="primary-action compact" onClick={importMedia} disabled={busy !== "idle"}>

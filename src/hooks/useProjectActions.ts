@@ -249,6 +249,7 @@ export function useProjectActions(options: UseProjectActionsOptions) {
       setShowStyleModal(false);
 
       let newProjectId: string | null = null;
+      let alreadyHasTranscript = false;
       await run("import", async () => {
         const project = await invoke<Project>("create_project_from_path", {
           path: selected,
@@ -259,10 +260,14 @@ export function useProjectActions(options: UseProjectActionsOptions) {
           workflowGoal: "clips",
         });
         newProjectId = project.id;
+        const projectDetail = await invoke<ProjectDetail>("get_project_detail", { projectId: project.id });
+        if (projectDetail && projectDetail.transcript) {
+          alreadyHasTranscript = true;
+        }
         await refresh(project.id);
       });
 
-      if (newProjectId && autoTranscribeOnImport && onAutoPipeline) {
+      if (newProjectId && autoTranscribeOnImport && onAutoPipeline && !alreadyHasTranscript) {
         await onAutoPipeline(newProjectId, contentType, dur);
       }
     },
@@ -279,6 +284,32 @@ export function useProjectActions(options: UseProjectActionsOptions) {
       onAutoPipeline,
     ]
   );
+
+  const openExistingProject = useCallback(async () => {
+    try {
+      const selected = await open({
+        multiple: false,
+        filters: [
+          {
+            name: "AutoShorts Project",
+            extensions: ["project", "json"],
+          },
+        ],
+      });
+      if (!selected) return;
+      const targetPath = Array.isArray(selected) ? selected[0] : (selected as string);
+      if (!targetPath) return;
+
+      await run("import", async () => {
+        const detail = await invoke<ProjectDetail>("import_existing_project", { path: targetPath });
+        if (detail && detail.project) {
+          await refresh(detail.project.id);
+        }
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }, [run, refresh]);
 
   return {
     projects,
@@ -322,6 +353,7 @@ export function useProjectActions(options: UseProjectActionsOptions) {
     importModalTab,
     setImportModalTab,
     importMedia,
+    openExistingProject,
     handleSelectImportDir,
     confirmImport,
   };

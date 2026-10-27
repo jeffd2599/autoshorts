@@ -18,9 +18,11 @@ import { StatusBar } from "./components/common/StatusBar";
 // Modals
 import { SettingsPanel } from "./components/modals/SettingsPanel";
 import { ModalContainer } from "./components/modals/ModalContainer";
+import { LogsModal } from "./components/modals/LogsModal";
 
 export function App() {
   const [showSettings, setShowSettings] = useState(false);
+  const [showLogs, setShowLogs] = useState(false);
   const [activeView, setActiveView] = useState<"transcript" | "moments">("moments");
 
   // Reference for cross-hook callback to guarantee safe pipeline access
@@ -118,6 +120,8 @@ export function App() {
           busy={projectActions.busy}
           showSettings={showSettings}
           onToggleSettings={() => setShowSettings(!showSettings)}
+          showLogs={showLogs}
+          onToggleLogs={() => setShowLogs(!showLogs)}
           onSelectProject={(id) => {
             if (id) void projectActions.selectProject(id);
             else void projectActions.selectProject(null);
@@ -211,6 +215,7 @@ export function App() {
               showSettings={showSettings}
               setShowSettings={setShowSettings}
               importMedia={projectActions.importMedia}
+              openExistingProject={projectActions.openExistingProject}
               selectProject={projectActions.selectProject}
               renameProject={projectActions.renameProject}
               deleteProject={projectActions.deleteProject}
@@ -230,6 +235,7 @@ export function App() {
         llmMemoryStatus={settings.llmMemoryStatus}
         onUnloadLlm={settings.unloadActiveModel}
         onOpenSettings={() => setShowSettings(true)}
+        onOpenLogs={() => setShowLogs(true)}
       />
 
       <ModalContainer
@@ -323,6 +329,8 @@ export function App() {
         clipByCandidate={mediaPipeline.clipByCandidate}
         busy={projectActions.busy}
       />
+
+      <LogsModal isOpen={showLogs} onClose={() => setShowLogs(false)} />
     </div>
   );
 }

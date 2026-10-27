@@ -11,8 +11,16 @@ import wave
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from .paths import get_ffmpeg_path, get_ffprobe_path
+
 
 def command_exists(name: str) -> bool:
+    if name == "ffmpeg":
+        exe = get_ffmpeg_path()
+        return shutil.which(exe) is not None or os.path.isfile(exe)
+    if name == "ffprobe":
+        exe = get_ffprobe_path()
+        return shutil.which(exe) is not None or os.path.isfile(exe)
     return shutil.which(name) is not None
 
 
@@ -21,7 +29,7 @@ def probe_media(path: str) -> Dict[str, Any]:
         raise RuntimeError("ffprobe is not installed or not available on PATH")
 
     cmd = [
-        "ffprobe",
+        get_ffprobe_path(),
         "-v", "error",
         "-print_format", "json",
         "-show_format",
@@ -78,7 +86,7 @@ def extract_audio(
             pass
 
     cmd = [
-        "ffmpeg",
+        get_ffmpeg_path(),
         "-y",
         "-i", str(source_path),
         "-vn",
@@ -395,7 +403,7 @@ def extract_video_thumbnail(source_path: str, timestamp: float, output_path: Any
     out_p = Path(output_path)
     os.makedirs(out_p.parent, exist_ok=True)
     cmd = [
-        "ffmpeg", "-y",
+        get_ffmpeg_path(), "-y",
         "-ss", f"{max(0.0, timestamp):.3f}",
         "-i", str(source_path),
         "-vframes", "1",
@@ -1000,7 +1008,7 @@ def render_flat_clip(
     is_vertical = (aspect_ratio == "9:16") or (vid_h > vid_w > 0)
 
     cmd = [
-        "ffmpeg",
+        get_ffmpeg_path(),
         "-y",
         "-threads", "0",
         "-ss", start_str,

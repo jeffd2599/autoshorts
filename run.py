@@ -1,5 +1,6 @@
 import os
 import sys
+import multiprocessing
 
 if sys.platform == "win32":
     try:
@@ -16,6 +17,9 @@ import webview
 
 from python_backend.api import Api
 from python_backend.stream_server import start_stream_server
+from python_backend.paths import get_resource_dir, get_user_data_dir, is_frozen
+from python_backend.logger import init_logging
+from python_backend.version import __version__, APP_NAME
 
 
 def wait_for_server(url: str, timeout: int = 25) -> bool:
@@ -31,32 +35,33 @@ def wait_for_server(url: str, timeout: int = 25) -> bool:
     return False
 
 
-def get_base_dir() -> Path:
-    if getattr(sys, "frozen", False):
-        if hasattr(sys, "_MEIPASS"):
-            return Path(sys._MEIPASS)
-        return Path(sys.executable).parent
-    return Path(__file__).resolve().parent
-
-
 def main():
-    base_dir = get_base_dir()
-    is_frozen = getattr(sys, "frozen", False)
+    # Crucial for Windows PyInstaller binaries to prevent infinite child processes
+    multiprocessing.freeze_support()
+
+    base_dir = get_resource_dir()
+    data_dir = get_user_data_dir()
+    frozen = is_frozen()
+
+    # Initialize logging buffer and rotating file
+    init_logging(data_dir)
+
+    print(f"Iniciando {APP_NAME} v{__version__} (Modo: {'Portable / Frozen' if frozen else 'Desarrollo'})...")
+    print(f"Directorio de recursos: {base_dir}")
+    print(f"Directorio de datos de usuario: {data_dir}")
 
     # Start local media preview server
     start_stream_server(1422)
 
     dev_url = "http://127.0.0.1:1420"
+    app_server_url = "http://127.0.0.1:1422"
     vite_proc = None
 
     dist_index = base_dir / "dist" / "index.html"
 
-    app_server_url = "http://127.0.0.1:1422"
-
-    if is_frozen:
+    if frozen:
         target_url = app_server_url
     else:
-        # Check if dev server is already running
         is_running = False
         try:
             r = requests.get(dev_url, timeout=1)
@@ -67,13 +72,13 @@ def main():
 
         if not is_running:
             if not dist_index.exists():
-                print("Starting Vite dev server for AutoShorts...")
+                print("Iniciando Vite dev server para AutoShorts...")
                 vite_proc = subprocess.Popen(
                     "cmd /c pnpm run dev",
                     shell=True,
                     cwd=str(base_dir)
                 )
-                print("Connecting to interface...")
+                print("Conectando con la interfaz...")
                 wait_for_server(dev_url)
                 target_url = dev_url
             else:
@@ -81,16 +86,14 @@ def main():
         else:
             target_url = dev_url
 
-    data_dir = Path.home() / ".autoshorts"
-    data_dir.mkdir(parents=True, exist_ok=True)
     storage_dir = data_dir / "webview_profile"
     storage_dir.mkdir(parents=True, exist_ok=True)
 
     api = Api(str(data_dir))
 
-    print("Launching AutoShorts desktop window (WebView2)...")
+    print(f"Lanzando ventana de escritorio {APP_NAME} (WebView2)...")
     window = webview.create_window(
-        title="AutoShorts",
+        title=f"{APP_NAME} v{__version__}",
         url=target_url,
         js_api=api,
         width=1280,

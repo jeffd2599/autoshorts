@@ -1,5 +1,5 @@
 import React from "react";
-import { Cpu, Activity, Database, Thermometer } from "lucide-react";
+import { Cpu, Activity, Database, Thermometer, Terminal } from "lucide-react";
 import type { EnvironmentStatus, HardwareTelemetry, LlmMemoryStatus } from "../../types";
 
 interface StatusBarProps {
@@ -8,6 +8,7 @@ interface StatusBarProps {
   llmMemoryStatus?: LlmMemoryStatus | null;
   onUnloadLlm?: () => void;
   onOpenSettings?: () => void;
+  onOpenLogs?: () => void;
 }
 
 export const StatusBar: React.FC<StatusBarProps> = ({
@@ -16,6 +17,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({
   llmMemoryStatus,
   onUnloadLlm,
   onOpenSettings,
+  onOpenLogs,
 }) => {
   const ollamaCount = environment?.installedOllamaModels?.length ?? 0;
   const lmStudioCount = environment?.installedLmStudioModels?.length ?? 0;
@@ -137,6 +139,24 @@ export const StatusBar: React.FC<StatusBarProps> = ({
           >
             {environment?.hasLmStudio && lmStudioCount > 0 ? `LM Studio (${lmStudioCount})` : "LM Studio"}
           </span>
+          {onOpenLogs && (
+            <span
+              className="indicator active"
+              onClick={onOpenLogs}
+              style={{
+                cursor: "pointer",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "4px",
+                borderColor: "rgba(56, 189, 248, 0.4)",
+                color: "#38bdf8",
+              }}
+              title="Abrir consola de logs y diagnóstico del sistema"
+            >
+              <Terminal size={11} />
+              <span>Logs</span>
+            </span>
+          )}
         </div>
       </div>
     </footer>
