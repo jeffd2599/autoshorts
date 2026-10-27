@@ -23,7 +23,6 @@ if (ffmpeg_bin / "ffprobe.exe").is_file():
 hiddenimports = [
     'faster_whisper',
     'ctranslate2',
-    'torch',
     'webview',
     'webview.platforms.winforms',
     'webview.platforms.edgechromium',
@@ -55,7 +54,19 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=['tkinter', 'matplotlib', 'scipy', 'pandas', 'IPython', 'notebook', 'pytest'],
+    excludes=[
+        'torch',
+        'torchvision',
+        'torchaudio',
+        'torchtext',
+        'tkinter',
+        'matplotlib',
+        'scipy',
+        'pandas',
+        'IPython',
+        'notebook',
+        'pytest'
+    ],
     noarchive=False,
     optimize=0,
 )

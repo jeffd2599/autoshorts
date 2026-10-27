@@ -63,8 +63,6 @@ def transcribe_local(
     progress_callback: Optional[Any] = None,
     is_cancelled: Optional[Callable[[], bool]] = None
 ) -> Dict[str, Any]:
-    import torch
-
     if is_cancelled and is_cancelled():
         raise InterruptedError("Transcripción cancelada antes de cargar el modelo.")
 
@@ -73,7 +71,18 @@ def transcribe_local(
 
     from faster_whisper import WhisperModel
 
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    has_cuda = False
+    try:
+        import ctranslate2
+        has_cuda = ctranslate2.get_cuda_device_count() > 0
+    except Exception:
+        try:
+            import torch
+            has_cuda = torch.cuda.is_available()
+        except Exception:
+            has_cuda = False
+
+    device = "cuda" if has_cuda else "cpu"
     compute_type = "float16" if device == "cuda" else "int8"
     gamer_initial_prompt = (
         "clutch, headshot, rushear, lootear, drop, respawn, hitbox, nerfeo, buff, "
@@ -102,11 +111,12 @@ def transcribe_local(
             except Exception:
                 pass
         gc.collect()
-        if torch.cuda.is_available():
-            try:
+        try:
+            import torch
+            if torch.cuda.is_available():
                 torch.cuda.empty_cache()
-            except Exception:
-                pass
+        except Exception:
+            pass
 
     model = None
     segments_gen = None
