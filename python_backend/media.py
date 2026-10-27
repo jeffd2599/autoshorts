@@ -216,7 +216,8 @@ def inject_acoustic_cues_into_transcript(
     transcript_segments: List[Dict[str, Any]],
     transcript_words: Optional[List[Dict[str, Any]]],
     audio_path: str,
-    window_sec: float = 1.0
+    window_sec: float = 1.0,
+    is_cancelled: Optional[Callable[[], bool]] = None
 ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     """
     Scans the extracted audio track and injects acoustic cues directly into the transcript:
@@ -224,6 +225,9 @@ def inject_acoustic_cues_into_transcript(
     2. Detects high-decibel volume spikes during speech (screams, ecstatic reactions) -> (GRITOS / EUFORIA).
     Strictly preserves audio synchronization and timestamp ordering. Idempotent.
     """
+    if is_cancelled and is_cancelled():
+        raise InterruptedError("Análisis acústico cancelado por el usuario.")
+
     words = list(transcript_words or [])
     if not os.path.exists(audio_path):
         return transcript_segments, words
@@ -246,6 +250,9 @@ def inject_acoustic_cues_into_transcript(
 
             energies = []
             for i in range(total_chunks):
+                if is_cancelled and i % 50 == 0 and is_cancelled():
+                    raise InterruptedError("Análisis acústico cancelado por el usuario.")
+
                 frames = wf.readframes(chunk_size)
                 if not frames:
                     break
@@ -253,6 +260,7 @@ def inject_acoustic_cues_into_transcript(
                 sub_samples = samples[::4]
                 if not sub_samples:
                     continue
+
                 rms = math.sqrt(sum(s * s for s in sub_samples) / len(sub_samples))
                 energies.append({
                     "start": round(i * window_sec, 2),

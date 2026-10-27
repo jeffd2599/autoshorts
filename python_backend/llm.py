@@ -16,7 +16,52 @@ from python_backend.llm_prompts import (
 )
 
 
+class ContextExceededError(RuntimeError):
+    def __init__(self, message: str, prompt_tokens: Optional[int] = None, max_ctx: Optional[int] = None):
+        super().__init__(message)
+        self.prompt_tokens = prompt_tokens
+        self.max_ctx = max_ctx
+
+
+class ModelFatalError(RuntimeError):
+    pass
+
+
+def estimate_prompt_tokens(text: str) -> int:
+    """
+    Fast and robust prompt token estimation for multilingual/Spanish text and JSON.
+    """
+    words = len(text.split())
+    chars = len(text)
+    return int(max(words * 1.35, chars / 3.6))
+
+
+def get_available_context_size(provider: str = "local", lmstudio_base_url: Optional[str] = None) -> int:
+    """
+    Detects the active context window limit from LM Studio or Ollama.
+    Returns 8192 by default if not discoverable.
+    """
+    if provider == "lmstudio":
+        try:
+            raw_url = (lmstudio_base_url or os.getenv("LMSTUDIO_BASE_URL", "http://127.0.0.1:1234/v1")).rstrip("/")
+            root_url = raw_url[:-3] if raw_url.endswith("/v1") else raw_url
+            r = requests.get(f"{root_url}/api/v1/models", timeout=1.5)
+            if r.ok:
+                data = r.json()
+                for m in data.get("models", []):
+                    instances = m.get("loaded_instances", [])
+                    if instances:
+                        inst = instances[0]
+                        ctx = inst.get("context_length") or inst.get("n_ctx")
+                        if ctx and isinstance(ctx, int) and ctx > 0:
+                            return ctx
+        except Exception:
+            pass
+    return 8192
+
+
 def unload_all_ollama_models(specific_model: Optional[str] = None):
+
     """
     Unloads Ollama models from VRAM immediately so RAM/VRAM is freed for other tasks or models.
     Fails silently if Ollama server is not running.
@@ -538,11 +583,24 @@ def call_lmstudio(
 
     try:
         resp = requests.post(url, json=payload, timeout=240)
+    except requests.exceptions.ConnectionError as e:
+        raise ModelFatalError(f"No se pudo conectar a LM Studio en {url}. ¿Está iniciado el servidor local en LM Studio?")
     except Exception as e:
-        raise RuntimeError(f"No se pudo conectar a LM Studio en {url}. ¿Está iniciado el servidor local en LM Studio? Detalle: {e}")
+        raise RuntimeError(f"Error al enviar petición a LM Studio: {e}")
 
     if not resp.ok:
-        raise RuntimeError(f"LM Studio call failed ({resp.status_code}): {resp.text}")
+        err_text = resp.text
+        if "exceed_context_size_error" in err_text or "exceeds the available context size" in err_text or "n_ctx" in err_text:
+            m_ctx = re.search(r'"n_ctx":\s*(\d+)', err_text)
+            m_tokens = re.search(r'"n_prompt_tokens":\s*(\d+)', err_text)
+            max_ctx = int(m_ctx.group(1)) if m_ctx else 8192
+            prompt_tokens = int(m_tokens.group(1)) if m_tokens else None
+            raise ContextExceededError(err_text, prompt_tokens=prompt_tokens, max_ctx=max_ctx)
+
+        if "Model unloaded" in err_text or "unloaded by user" in err_text:
+            raise ModelFatalError("El modelo fue descargado en LM Studio o la petición fue anulada por el servidor.")
+
+        raise RuntimeError(f"LM Studio call failed ({resp.status_code}): {err_text}")
 
     data = resp.json()
     choices = data.get("choices", [])
@@ -561,6 +619,7 @@ def call_lmstudio(
         content = re.sub(r"<think>.*$", "", content, flags=re.DOTALL).strip()
 
     return content
+
 
 
 def deduplicate_candidates(candidates: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -629,6 +688,110 @@ def generate_fallback_candidates(
     return fallback
 
 
+def _analyze_chunk_adaptively(
+    chunk: List[Dict[str, Any]],
+    provider: str,
+    model_name: Optional[str],
+    content_type: str,
+    target_duration: str,
+    custom_prompt: Optional[str],
+    enable_thinking: bool,
+    action_peaks: List[Dict[str, Any]],
+    context_limit: int,
+    depth: int = 0
+) -> List[Dict[str, Any]]:
+    if not chunk:
+        return []
+
+    chunk_start = chunk[0]["start"]
+    chunk_end = chunk[-1]["end"]
+    chunk_start_fmt = f"{int(chunk_start // 60):02d}:{int(chunk_start % 60):02d}"
+    chunk_end_fmt = f"{int(chunk_end // 60):02d}:{int(chunk_end % 60):02d}"
+
+    chunk_peaks = [p for p in action_peaks if p["end"] > chunk_start and p["start"] < chunk_end]
+    word_count = sum(len(s.get("text", "").split()) for s in chunk)
+    if word_count < 12 and not chunk_peaks:
+        return []
+
+    peak_cues = ""
+    if chunk_peaks:
+        cue_lines = [
+            f"- [{int(p['start']//60):02d}:{int(p['start']%60):02d} a {int(p['end']//60):02d}:{int(p['end']%60):02d}] 💥 ACCIÓN INTENSA / DISPAROS DEL JUEGO"
+            for p in chunk_peaks[:5]
+        ]
+        peak_cues = "\n\nZonas de alta acción/disparos detectadas acústicamente:\n" + "\n".join(cue_lines)
+
+    dur_info = DURATION_SPECS.get(target_duration, DURATION_SPECS["60s"])
+    instruction_text = (
+        f"\n\nINSTRUCCIÓN:\n"
+        f"Analiza la transcripción anterior y extrae entre 1 y 5 momentos virales ({dur_info['instruction']}).\n"
+        f"Responde estrictamente en formato JSON así:\n"
+        f'{{"candidates": [{{"start": 0.0, "end": 0.0, "score": 0.95, "hook": "Título Gancho", "rationale": "Por qué es viral", "description": "Texto llamativo para redes con hashtags"}}]}}'
+    )
+    prompt_text = f"Transcripción del segmento [{chunk_start_fmt} a {chunk_end_fmt}]:\n{compact_segments(chunk)}{peak_cues}{instruction_text}"
+
+    est_tokens = estimate_prompt_tokens(prompt_text)
+    safe_token_ceiling = max(1800, int(context_limit * 0.65))
+
+    if est_tokens > safe_token_ceiling and len(chunk) > 3 and depth < 3:
+        print(f"[ADAPTIVE] Bloque [{chunk_start_fmt} - {chunk_end_fmt}] tiene ~{est_tokens} tokens (limite seguro {safe_token_ceiling}). Subdividiendo preventivamente...")
+        mid = len(chunk) // 2
+        left_chunk = chunk[:mid + 1]
+        right_chunk = chunk[max(0, mid - 1):]
+        res_left = _analyze_chunk_adaptively(left_chunk, provider, model_name, content_type, target_duration, custom_prompt, enable_thinking, action_peaks, context_limit, depth + 1)
+        res_right = _analyze_chunk_adaptively(right_chunk, provider, model_name, content_type, target_duration, custom_prompt, enable_thinking, action_peaks, context_limit, depth + 1)
+        return res_left + res_right
+
+    try:
+        if provider == "lmstudio":
+            resp_text = call_lmstudio(
+                prompt_text,
+                model_name=model_name,
+                content_type=content_type,
+                target_duration=target_duration,
+                custom_prompt=custom_prompt,
+                enable_thinking=enable_thinking
+            )
+        else:
+            model = model_name or "qwen2.5:7b"
+            resp_text = call_ollama(
+                prompt_text,
+                model_name=model,
+                content_type=content_type,
+                target_duration=target_duration,
+                enable_thinking=enable_thinking,
+                custom_prompt=custom_prompt
+            )
+
+        return parse_candidate_json(
+            resp_text,
+            min_duration=5.0,
+            segments=chunk,
+            target_duration=target_duration
+        )
+
+    except ContextExceededError as e:
+        new_ctx = e.max_ctx or context_limit
+        if len(chunk) > 3 and depth < 3:
+            print(f"[ALERTA] Contexto excedido en bloque [{chunk_start_fmt} - {chunk_end_fmt}] ({e.prompt_tokens or est_tokens} > {new_ctx} tokens). Subdividiendo dinamicamente a la mitad...")
+            mid = len(chunk) // 2
+            left_chunk = chunk[:mid + 1]
+            right_chunk = chunk[max(0, mid - 1):]
+            res_left = _analyze_chunk_adaptively(left_chunk, provider, model_name, content_type, target_duration, custom_prompt, enable_thinking, action_peaks, new_ctx, depth + 1)
+            res_right = _analyze_chunk_adaptively(right_chunk, provider, model_name, content_type, target_duration, custom_prompt, enable_thinking, action_peaks, new_ctx, depth + 1)
+            return res_left + res_right
+        else:
+            print(f"[ALERTA] Bloque [{chunk_start_fmt} - {chunk_end_fmt}] excede el contexto ({new_ctx} tokens) y no puede dividirse mas. Omitiendo.")
+            return []
+
+    except ModelFatalError:
+        raise
+
+    except Exception as e:
+        print(f"Error analizando bloque [{chunk_start_fmt} - {chunk_end_fmt}]: {e}")
+        return []
+
+
 def detect_candidates_pipeline(
     transcript: Dict[str, Any],
     provider: str = "local",
@@ -643,7 +806,7 @@ def detect_candidates_pipeline(
     custom_prompt: Optional[str] = None
 ) -> List[Dict[str, Any]]:
     """
-    Main detection pipeline using Chunking ("Divide y Vencerás").
+    Main detection pipeline using Adaptive Dynamic Chunking ("Divide y Vencerás").
     Runs 100% locally with Ollama or LM Studio.
     """
     segments = transcript.get("segments", [])
@@ -660,18 +823,28 @@ def detect_candidates_pipeline(
         except Exception as e:
             print(f"Nota en detección de picos de audio: {e}")
 
-    chunk_dur = 900.0 if target_duration in ["3m", "5m"] else 600.0
-    overlap = 120.0 if target_duration in ["3m", "5m"] else 45.0
+    # Detect active context size from LM Studio / Ollama
+    available_ctx = get_available_context_size(provider=provider)
+    if available_ctx <= 4096:
+        chunk_dur = 180.0
+        overlap = 30.0
+    elif available_ctx <= 8192:
+        chunk_dur = 300.0  # 5 minutes: ideal for 8k context without overflowing
+        overlap = 45.0
+    else:
+        chunk_dur = 900.0 if target_duration in ["3m", "5m"] else 600.0
+        overlap = 120.0 if target_duration in ["3m", "5m"] else 45.0
+
     chunks = partition_segments(segments, chunk_duration_sec=chunk_dur, overlap_sec=overlap)
     total_chunks = len(chunks)
     all_drafts = []
 
-    print(f"Dividing stream into {total_chunks} chunk(s) of {int(chunk_dur//60)} min for {content_type} detection...")
+    print(f"Dividing stream into {total_chunks} chunk(s) of {int(chunk_dur//60)} min for {content_type} detection (Context: {available_ctx} tokens)...")
 
     try:
         for idx, chunk in enumerate(chunks, start=1):
             if is_cancelled and is_cancelled():
-                print("🛑 Proceso de detección cancelado por el usuario.")
+                print("[CANCELADO] Proceso de detección cancelado por el usuario.")
                 break
 
             chunk_start_fmt = f"{int(chunk[0]['start'] // 60):02d}:{int(chunk[0]['start'] % 60):02d}"
@@ -681,65 +854,29 @@ def detect_candidates_pipeline(
             if on_progress:
                 on_progress(status_msg, idx, total_chunks)
 
-            chunk_start = chunk[0]["start"]
-            chunk_end = chunk[-1]["end"]
-            chunk_peaks = [p for p in action_peaks if p["end"] > chunk_start and p["start"] < chunk_end]
-
-            word_count = sum(len(s.get("text", "").split()) for s in chunk)
-            if word_count < 12 and not chunk_peaks:
-                print(f"⏩ Omitiendo bloque {idx}/{total_chunks}: sin actividad vocal ni acústica.")
-                continue
-
-            peak_cues = ""
-            if chunk_peaks:
-                cue_lines = [
-                    f"- [{int(p['start']//60):02d}:{int(p['start']%60):02d} a {int(p['end']//60):02d}:{int(p['end']%60):02d}] 💥 ACCIÓN INTENSA / DISPAROS DEL JUEGO"
-                    for p in chunk_peaks[:5]
-                ]
-                peak_cues = "\n\nZonas de alta acción/disparos detectadas acústicamente:\n" + "\n".join(cue_lines)
-
-            dur_info = DURATION_SPECS.get(target_duration, DURATION_SPECS["60s"])
-            instruction_text = (
-                f"\n\nINSTRUCCIÓN:\n"
-                f"Analiza la transcripción anterior y extrae entre 1 y 5 momentos virales ({dur_info['instruction']}).\n"
-                f"Responde estrictamente en formato JSON así:\n"
-                f'{{"candidates": [{{"start": 0.0, "end": 0.0, "score": 0.95, "hook": "Título Gancho", "rationale": "Por qué es viral", "description": "Texto llamativo para redes con hashtags"}}]}}'
-            )
-            prompt_text = f"Transcripción del segmento [{chunk_start_fmt} a {chunk_end_fmt}]:\n{compact_segments(chunk)}{peak_cues}{instruction_text}"
-
             try:
-                if provider == "lmstudio":
-                    resp_text = call_lmstudio(
-                        prompt_text,
-                        model_name=model_name,
-                        content_type=content_type,
-                        target_duration=target_duration,
-                        custom_prompt=custom_prompt,
-                        enable_thinking=enable_thinking
-                    )
-                else:
-                    model = model_name or "qwen2.5:7b"
-                    resp_text = call_ollama(
-                        prompt_text,
-                        model_name=model,
-                        content_type=content_type,
-                        target_duration=target_duration,
-                        enable_thinking=enable_thinking,
-                        custom_prompt=custom_prompt
-                    )
-
-                chunk_candidates = parse_candidate_json(
-                    resp_text,
-                    min_duration=5.0,
-                    segments=chunk,
-                    target_duration=target_duration
+                chunk_candidates = _analyze_chunk_adaptively(
+                    chunk=chunk,
+                    provider=provider,
+                    model_name=model_name,
+                    content_type=content_type,
+                    target_duration=target_duration,
+                    custom_prompt=custom_prompt,
+                    enable_thinking=enable_thinking,
+                    action_peaks=action_peaks,
+                    context_limit=available_ctx
                 )
                 all_drafts.extend(chunk_candidates)
-            except Exception as e:
-                print(f"Error analizando bloque {idx}: {e}")
+            except ModelFatalError as e:
+                print(f"[CIRCUIT BREAKER] Error crítico en motor LLM: {e}. Deteniendo búsqueda de momentos para evitar saturación.")
+                if on_progress:
+                    on_progress(f"Proceso detenido: {e}", idx, total_chunks)
+                break
 
             if is_cancelled and is_cancelled():
                 break
+
+
 
         if target_duration in ["30s", "60s"]:
             for p in action_peaks:

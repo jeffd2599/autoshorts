@@ -37,7 +37,7 @@ export function Sidebar({
           src="/icon.png"
           alt="AutoShorts Logo"
           className="brand-logo"
-          style={{ width: 22, height: 22, borderRadius: 5, objectFit: "contain" }}
+          style={{ width: 36, height: 36, borderRadius: 8, objectFit: "contain" }}
         />
         <div>
           <h1>AutoShorts</h1>

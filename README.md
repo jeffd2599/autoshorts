@@ -121,8 +121,9 @@ El motor de escaneo combina analisis de volumen acustico con comprension semanti
   - *Cortes limpios:* Jamas corta una palabra o frase a la mitad, usando silencios y pausas naturales como puntos de transicion.
   - *Exclusiones:* Descarta introducciones lentas, transiciones vacias y segmentos promocionales.
 - **Capa Tecnica Invisible:** La interfaz de configuracion muestra unicamente las directrices editoriales limpias. El contrato JSON estricto (`candidates`/`clips`), los timestamps y los requisitos de duracion se gestionan internamente en el backend.
-- **Segmentacion adaptativa con solapamiento:** Divide grabaciones masivas en bloques de 10 minutos con 30 segundos de solapamiento mutuo para no cortar anecdotas o jugadas situadas en el limite de un bloque.
-- **Analisis acustico RMS en milisegundos:** Algoritmo en Python puro (`wave`, `struct`, `math`) que procesa 1 hora de audio en menos de 1.6 segundos. Si el creador esta concentrado en una jugada tensa sin hablar, el detector identifica picos sonoros e inyecta la etiqueta `[CLUTCH / ACCION ACUSTICA]` en la transcripcion para que el LLM no descarte el fragmento por falta de dialogo.
+- **Segmentacion Dinamica Adaptativa (Divide y Venceras):** AutoShorts detecta la ventana de contexto de tu motor local (4k, 8k o 16k tokens) y dimensiona dinamicamente los bloques temporales. Si un segmento tiene demasiada densidad de dialogo y sobrepasa el contexto (`exceed_context_size_error`), el algoritmo aplica biseccion recursiva subdividiendo el bloque a la mitad de forma automatica. Esto permite mantener tu LLM en 8k de contexto para ahorrar VRAM sin perder ningun momento viral ni provocar errores HTTP 400.
+- **Circuit Breaker Preventivo:** Si el modelo es descargado en LM Studio o la conexion con el servidor local se interrumpe, el pipeline se detiene de inmediato notificando al usuario en vez de iterar fallidamente sobre los bloques restantes.
+- **Analisis acustico RMS en milisegundos:** Algoritmo en Python puro (`wave`, `struct`, `math`) con soporte de cancelacion inmediata. Si el creador esta concentrado en una jugada tensa sin hablar, el detector identifica picos sonoros e inyecta la etiqueta `[CLUTCH / ACCION ACUSTICA]` en la transcripcion para que el LLM no descarte el fragmento por falta de dialogo.
 - **Duraciones objetivo configurables:** Generacion de clips con rangos de tiempo ajustables de 30s, 1m, 2m, 3m o 5m.
 
 ---
@@ -153,9 +154,11 @@ AutoShorts funciona integramente con modelos instalados en tu propio equipo, sin
 
 - **Inicio Directo sin Bloqueos:** El software inicia directamente en el Dashboard de proyectos. Detecta automaticamente si LM Studio u Ollama estan activos sin imponer descargas forzosas ni modales de bienvenida bloqueantes.
 - **Deteccion Dinamica de VRAM y GPU:** Evalua la memoria grafica real disponible en tu sistema (4GB, 6GB, 8GB, 12GB, 16GB o CPU) para clasificar dinamicamente los modelos en tres niveles (`Optimo`, `Moderado` y `Pesado`), adaptandose con precision al hardware de cualquier usuario.
+- **Cancelacion Inmediata con Liberacion Total:** Al cancelar la transcripcion o la busqueda de momentos, AutoShorts elimina de inmediato generadores y modelos de memoria, ejecutando recoleccion de basura (`gc.collect()`) y vaciado de cache CUDA (`torch.cuda.empty_cache()`), garantizando que la GPU quede completamente libre al instante.
 - **faster-whisper (CTranslate2):** Transcripcion ultra-rapida con soporte de precision mixta (CUDA FP16 / float32 / int8). Los modelos se agrupan inteligentemente priorizando los ya descargados en disco.
 - **Ollama y LM Studio:** Compatibilidad completa con ambos motores locales (`qwen2.5`, `llama3.2`, `mistral`, `gemma2`, `gemma4`, etc.).
 - **Descarga inmediata de VRAM (`keep_alive: 0`):** Al finalizar la deteccion o generacion de copys, AutoShorts ordena al servidor local liberar de inmediato la memoria de la tarjeta grafica, permitiendo jugar o editar sin caidas de rendimiento.
+
 
 ---
 

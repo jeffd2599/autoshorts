@@ -89,13 +89,33 @@ def transcribe_local(
         except Exception:
             pass
 
+    def _free_resources(m=None, gen=None):
+        import gc
+        if gen is not None:
+            try:
+                del gen
+            except Exception:
+                pass
+        if m is not None:
+            try:
+                del m
+            except Exception:
+                pass
+        gc.collect()
+        if torch.cuda.is_available():
+            try:
+                torch.cuda.empty_cache()
+            except Exception:
+                pass
+
+    model = None
+    segments_gen = None
+
     try:
         model = WhisperModel(model_name, device=device, compute_type=compute_type)
 
         if is_cancelled and is_cancelled():
-            del model
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
+            _free_resources(model, segments_gen)
             raise InterruptedError("Transcripción cancelada por el usuario.")
 
         segments_gen, info = model.transcribe(
@@ -113,9 +133,7 @@ def transcribe_local(
 
         for seg in segments_gen:
             if is_cancelled and is_cancelled():
-                del model
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
+                _free_resources(model, segments_gen)
                 raise InterruptedError("Transcripción cancelada por el usuario.")
 
             if progress_callback:
@@ -147,21 +165,21 @@ def transcribe_local(
             except Exception:
                 pass
 
-        del model
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-
-        return {
+        result = {
             "language": getattr(info, "language", "es") or "es",
             "duration": total_duration,
             "speakers": ["S1"],
             "words": words,
             "segments": segments
         }
+        return result
 
     except InterruptedError:
-        print("🛑 Transcripción con faster-whisper cancelada.")
+        print("🛑 Transcripción con faster-whisper cancelada y VRAM liberada inmediatamente.")
         raise
     except Exception as e:
         print(f"❌ Error en faster-whisper: {e}")
         raise
+    finally:
+        _free_resources(model, segments_gen)
+

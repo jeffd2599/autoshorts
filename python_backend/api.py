@@ -414,10 +414,13 @@ class Api:
                 segs, words = inject_acoustic_cues_into_transcript(
                     transcript.get("segments", []),
                     transcript.get("words", []),
-                    str(audio_path)
+                    str(audio_path),
+                    is_cancelled=lambda: self._cancel_transcription_flag
                 )
                 transcript["segments"] = segs
                 transcript["words"] = words
+            except InterruptedError:
+                raise
             except Exception as e:
                 print(f"Nota en detección acústica de disparos y gritos: {e}")
 
@@ -435,6 +438,15 @@ class Api:
         except InterruptedError:
             print(f"🛑 Transcripción del proyecto {project_id} cancelada inmediatamente.")
             self.db.update_project_status(project_id, "created")
+            self.emit("transcription-progress", {"percentage": 0, "message": "Transcripción cancelada"})
+            try:
+                import gc
+                gc.collect()
+                import torch
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+            except Exception:
+                pass
             return {}
 
     def inject_acoustic_cues(self, args: Any) -> Dict[str, Any]:
@@ -474,11 +486,25 @@ class Api:
     def cancel_transcription(self, _args: Any = None) -> bool:
         self._cancel_transcription_flag = True
         self._cancel_candidates_flag = True
+        self.emit("transcription-progress", {"percentage": 0, "message": "Cancelando y liberando memoria..."})
         try:
             unload_all_ollama_models()
         except Exception:
             pass
+        try:
+            unload_all_lmstudio_models()
+        except Exception:
+            pass
+        try:
+            import gc
+            gc.collect()
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except Exception:
+            pass
         return True
+
 
     def refine_project_transcript(self, args: Any) -> Dict[str, Any]:
         project_id = args.get("projectId") if isinstance(args, dict) else args
