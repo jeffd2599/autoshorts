@@ -28,7 +28,7 @@ hiddenimports = [
     'webview.platforms.edgechromium',
     'clr',
     'requests',
-    'psutil',
+    'PIL',
     'sqlite3',
     'python_backend',
     'python_backend.api',

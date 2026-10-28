@@ -60,3 +60,10 @@
 ## D-014: Optimización de Tamaño del Bundle Portable (< 400 MB) Mediante Exclusión de PyTorch
 - **Decisión:** Excluir explícitamente PyTorch (`torch`, `torchvision`, `torchaudio`, `torchtext`) de la compilación portable en `AutoShorts.spec` y adaptar `python_backend/transcription.py` para utilizar directamente `ctranslate2.get_cuda_device_count()` para la aceleración GPU de `faster-whisper`.
 - **Motivo:** PyTorch y sus librerías CUDA (`torch_cuda.dll`, `cudnn_engines`, `cublasLt`, etc.) sumaban más de 2.2 GB innecesarios, haciendo que el ZIP resultante pesara 2.41 GB y fuera rechazado por el límite estricto de 2.0 GB de GitHub Releases. `faster-whisper` no utiliza PyTorch sino CTranslate2 (56 MB), el cual detecta y ejecuta modelos en GPUs NVIDIA CUDA de forma nativa e independiente, reduciendo el ZIP final a menos de 400 MB.
+
+## D-015: Auditoría Integral y Purga de Dependencias Huérfanas de Tauri y Estandarización de Requisitos
+- **Decisión:** 
+  1. Eliminar por completo `@tauri-apps/api`, `@tauri-apps/plugin-dialog` y `@tauri-apps/cli` de `package.json`, junto con los scripts `tauri:*`. Refactorizar `src/apiBridge.ts` con tipado estricto eliminando las ramas condicionales de Tauri hacia una interfaz nativa directa con `window.pywebview.api`. Eliminar `package-lock.json` residual para respetar D-006 (`pnpm`).
+  2. Actualizar `requirements.txt`: incorporar formalmente `pillow>=10.0.0` (utilizado por el generador de stickers y títulos en `media.py`), retirar la dependencia engañosa de `torch>=2.0.0` y documentar que la aceleración GPU es gestionada autónomamente por CTranslate2.
+  3. Retirar `'psutil'` de `hiddenimports` en `AutoShorts.spec` (la telemetría es 100% nativa vía `ctypes` y `nvidia-smi`). Eliminar `AutoShorts.vbs` y preservar protegida la carpeta `analizarrepos/`.
+- **Motivo:** Eliminar 14 paquetes muertos de `node_modules`, desvincular código obsoleto de la migración de Tauri, prevenir confusiones al instalar dependencias en Python y mantener el repositorio en un estado rigurosamente limpio y profesional.

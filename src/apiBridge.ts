@@ -1,12 +1,27 @@
 /**
- * Bridge between React frontend and Python (PyWebView) or Tauri backend.
+ * Bridge between React frontend and Python desktop backend (PyWebView).
  */
 
-async function getPyWebViewApi(): Promise<any> {
+interface PyWebViewApi {
+  invoke?: (command: string, args?: Record<string, any>) => Promise<any>;
+  select_output_directory?: () => Promise<string | null>;
+  open_file_dialog?: () => Promise<string | null>;
+  [command: string]: any;
+}
+
+declare global {
+  interface Window {
+    pywebview?: {
+      api?: PyWebViewApi;
+    };
+  }
+}
+
+async function getPyWebViewApi(): Promise<PyWebViewApi | null> {
   if (typeof window === "undefined") return null;
 
-  if ((window as any).pywebview?.api) {
-    return (window as any).pywebview.api;
+  if (window.pywebview?.api) {
+    return window.pywebview.api;
   }
 
   return new Promise((resolve) => {
@@ -15,18 +30,18 @@ async function getPyWebViewApi(): Promise<any> {
     const onReady = () => {
       if (!resolved) {
         resolved = true;
-        resolve((window as any).pywebview?.api || null);
+        resolve(window.pywebview?.api || null);
       }
     };
 
     window.addEventListener("pywebviewready", onReady, { once: true });
 
     const interval = setInterval(() => {
-      if ((window as any).pywebview?.api) {
+      if (window.pywebview?.api) {
         clearInterval(interval);
         if (!resolved) {
           resolved = true;
-          resolve((window as any).pywebview.api);
+          resolve(window.pywebview.api);
         }
       }
     }, 50);
@@ -35,7 +50,7 @@ async function getPyWebViewApi(): Promise<any> {
       clearInterval(interval);
       if (!resolved) {
         resolved = true;
-        resolve((window as any).pywebview?.api || null);
+        resolve(window.pywebview?.api || null);
       }
     }, 2500);
   });
@@ -52,16 +67,18 @@ export async function invoke<T = any>(command: string, args?: Record<string, any
     }
   }
 
-  // Fallback to Tauri if running inside Tauri webview
-  if (typeof window !== "undefined" && (window as any).__TAURI_INTERNALS__) {
-    const tauri = await import("@tauri-apps/api/core");
-    return await tauri.invoke<T>(command, args);
-  }
-
-  throw new Error(`Comando '${command}' no pudo ejecutarse: no se detectó el backend de PyWebView ni de Tauri.`);
+  throw new Error(`Comando '${command}' no pudo ejecutarse: no se detectó el backend de PyWebView.`);
 }
 
-export async function open(options?: any): Promise<string | null> {
+export interface OpenDialogOptions {
+  title?: string;
+  defaultPath?: string;
+  directory?: boolean;
+  multiple?: boolean;
+  filters?: { name: string; extensions: string[] }[];
+}
+
+export async function open(options?: OpenDialogOptions): Promise<string | null> {
   const pyApi = await getPyWebViewApi();
   if (pyApi) {
     if (options?.directory) {
@@ -80,11 +97,6 @@ export async function open(options?: any): Promise<string | null> {
     }
   }
 
-  if (typeof window !== "undefined" && (window as any).__TAURI_INTERNALS__) {
-    const dialog = await import("@tauri-apps/plugin-dialog");
-    return (await dialog.open(options)) as string | null;
-  }
-
   return null;
 }
 
@@ -92,27 +104,14 @@ export async function listen<T = any>(
   eventName: string,
   handler: (event: { payload: T }) => void
 ): Promise<() => void> {
-  // Listen for window CustomEvent (emitted by Python pywebview)
   const customListener = (e: Event) => {
-    const custom = e as CustomEvent;
-    handler({ payload: custom.detail as T });
+    const custom = e as CustomEvent<T>;
+    handler({ payload: custom.detail });
   };
-  window.addEventListener(eventName, customListener);
 
-  let tauriUnlisten: (() => void) | null = null;
-  if (typeof window !== "undefined" && (window as any).__TAURI_INTERNALS__) {
-    try {
-      const { listen: tauriListen } = await import("@tauri-apps/api/event");
-      tauriUnlisten = await tauriListen<T>(eventName, handler);
-    } catch {
-      // ignore
-    }
-  }
+  window.addEventListener(eventName, customListener);
 
   return () => {
     window.removeEventListener(eventName, customListener);
-    if (tauriUnlisten) {
-      tauriUnlisten();
-    }
   };
 }

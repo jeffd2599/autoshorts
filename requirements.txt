@@ -4,10 +4,10 @@ pythonnet>=3.0.0; sys_platform == 'win32'
 requests>=2.31.0
 tqdm>=4.66.0
 
-# IA & Transcripción Local (CTranslate2 / CUDA)
-faster-whisper>=1.0.0
+# Procesamiento de Medios & Stickers
+pillow>=10.0.0
 
-# NOTA PARA USUARIOS CON GPU NVIDIA:
-# Para aprovechar aceleración por hardware con CUDA en faster-whisper local, instala PyTorch con CUDA:
-# pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
-torch>=2.0.0
+# IA & Transcripción Local (CTranslate2 / CUDA)
+# faster-whisper ejecuta inferencia sobre CTranslate2 de forma nativa e independiente,
+# aprovechando aceleración NVIDIA CUDA FP16 directamente sin requerir PyTorch.
+faster-whisper>=1.0.0
