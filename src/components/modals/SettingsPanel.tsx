@@ -1,6 +1,7 @@
 import React, { useMemo } from "react";
 import { Bot, Download, Mic, RefreshCw, SlidersHorizontal, Sparkles, X } from "lucide-react";
 import {
+  DEFAULT_WHISPER_MODELS,
   EnvironmentStatus,
   HardwareTelemetry,
   LlmEngine,
@@ -79,9 +80,15 @@ export function SettingsPanel({
   syncConfig,
   onResetConfig,
 }: SettingsPanelProps) {
+  const effectiveWhisperModels = useMemo(() => {
+    return whisperModelsList && whisperModelsList.length > 0
+      ? whisperModelsList
+      : DEFAULT_WHISPER_MODELS;
+  }, [whisperModelsList]);
+
   const sortedWhisper = useMemo(() => {
-    return sortWhisperModels(whisperModelsList, telemetry?.vramTotalMb, telemetry?.hasGpu);
-  }, [whisperModelsList, telemetry?.vramTotalMb, telemetry?.hasGpu]);
+    return sortWhisperModels(effectiveWhisperModels, telemetry?.vramTotalMb, telemetry?.hasGpu);
+  }, [effectiveWhisperModels, telemetry?.vramTotalMb, telemetry?.hasGpu]);
 
   const ollamaCount = environment?.installedOllamaModels?.length ?? 0;
   const lmStudioCount = environment?.installedLmStudioModels?.length ?? 0;
@@ -245,7 +252,7 @@ export function SettingsPanel({
                     return <ModelBadge level={traf.level} label={traf.label} note={traf.note} />;
                   })()}
                   <span style={{ fontSize: "0.72rem", color: "#60a5fa", fontFamily: "var(--font-mono, monospace)", fontWeight: 600 }}>
-                    {whisperModelsList.find((m) => m.id === whisperModel)?.vram || ""} VRAM
+                    {effectiveWhisperModels.find((m) => m.id === whisperModel)?.vram || ""} VRAM
                   </span>
                 </div>
               </div>
@@ -283,11 +290,23 @@ export function SettingsPanel({
                     })}
                   </optgroup>
                 )}
+                {sortedWhisper.downloaded.length === 0 && sortedWhisper.available.length === 0 && (
+                  <optgroup label="Modelos Faster-Whisper disponibles">
+                    {effectiveWhisperModels.map((m) => {
+                      const traf = getWhisperTrafficLevel(m.id, telemetry?.vramTotalMb, telemetry?.hasGpu);
+                      return (
+                        <option key={m.id} value={m.id}>
+                          {m.name} ({m.vram}) - {traf.label}
+                        </option>
+                      );
+                    })}
+                  </optgroup>
+                )}
               </select>
 
               <div style={{ marginTop: "0.5rem", fontSize: "0.74rem", color: "var(--text-secondary)", lineHeight: 1.45 }}>
                 {(() => {
-                  const m = whisperModelsList.find((x) => x.id === whisperModel);
+                  const m = effectiveWhisperModels.find((x) => x.id === whisperModel);
                   const traf = getWhisperTrafficLevel(whisperModel, telemetry?.vramTotalMb, telemetry?.hasGpu);
                   return (
                     <span>

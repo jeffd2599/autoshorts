@@ -1,12 +1,13 @@
 import { useState, useEffect, useCallback } from "react";
 import { invoke, listen } from "../apiBridge";
-import type {
-  EnvironmentStatus,
-  HardwareTelemetry,
-  LlmEngine,
-  LlmMemoryStatus,
-  TranscriptionEngine,
-  WhisperModel,
+import {
+  DEFAULT_WHISPER_MODELS,
+  type EnvironmentStatus,
+  type HardwareTelemetry,
+  type LlmEngine,
+  type LlmMemoryStatus,
+  type TranscriptionEngine,
+  type WhisperModel,
 } from "../types";
 
 export const DEFAULT_MOMENTS_PROMPT = `Eres un Editor de Video de Alto Rendimiento y Experto en Retención para TikTok, YouTube Shorts y Reels. Tu misión es analizar la transcripción con marcas de tiempo y extraer exclusivamente los momentos con mayor potencial de viralidad.
@@ -44,7 +45,14 @@ export function useAppSettings() {
   const [whisperModel, setWhisperModel] = useState<string>(() => {
     return localStorage.getItem("autoshorts_whisper_model") || "large-v3-turbo";
   });
-  const [whisperModelsList, setWhisperModelsList] = useState<WhisperModel[]>([]);
+  const [whisperModelsList, setWhisperModelsList] = useState<WhisperModel[]>(DEFAULT_WHISPER_MODELS);
+
+  // Sincronizar modelos reactivamente cuando el backend actualiza el estado de entorno
+  useEffect(() => {
+    if (environment?.whisperModels && environment.whisperModels.length > 0) {
+      setWhisperModelsList(environment.whisperModels);
+    }
+  }, [environment]);
   const [customMomentsPrompt, setCustomMomentsPrompt] = useState<string>(() => {
     return localStorage.getItem("autoshorts_custom_moments_prompt") || "";
   });
@@ -192,8 +200,17 @@ export function useAppSettings() {
     fetchTelemetry();
     const intervalTelemetry = setInterval(fetchTelemetry, 2500);
 
+    const retryTimer1 = setTimeout(() => {
+      void refreshEnv();
+    }, 1200);
+    const retryTimer2 = setTimeout(() => {
+      void refreshEnv();
+    }, 3500);
+
     return () => {
       clearInterval(intervalTelemetry);
+      clearTimeout(retryTimer1);
+      clearTimeout(retryTimer2);
     };
   }, [refreshEnv]);
 

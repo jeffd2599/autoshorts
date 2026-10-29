@@ -67,3 +67,14 @@
   2. Actualizar `requirements.txt`: incorporar formalmente `pillow>=10.0.0` (utilizado por el generador de stickers y títulos en `media.py`), retirar la dependencia engañosa de `torch>=2.0.0` y documentar que la aceleración GPU es gestionada autónomamente por CTranslate2.
   3. Retirar `'psutil'` de `hiddenimports` en `AutoShorts.spec` (la telemetría es 100% nativa vía `ctypes` y `nvidia-smi`). Eliminar `AutoShorts.vbs` y preservar protegida la carpeta `analizarrepos/`.
 - **Motivo:** Eliminar 14 paquetes muertos de `node_modules`, desvincular código obsoleto de la migración de Tauri, prevenir confusiones al instalar dependencias en Python y mantener el repositorio en un estado rigurosamente limpio y profesional.
+
+
+## D-016: Blindaje Reactivo y Fallback Estático para Modelos Faster-Whisper en Ejecutable Portable
+- **Decisión:**
+  1. Definir DEFAULT_WHISPER_MODELS: WhisperModel[] en src/types.ts con las especificaciones oficiales de los 6 modelos Faster-Whisper (large-v3-turbo, large-v3, medium, small, ase, 	iny).
+  2. Inicializar whisperModelsList con estos modelos por defecto en useAppSettings.ts e integrar sincronización reactiva automática mediante useEffect al actualizarse environment?.whisperModels.
+  3. Extender el timeout del bridge en src/apiBridge.ts de 2.5s a 12s para mitigar arranques en frío (cold start) en WebView2 en Windows, incorporando reintentos con backoff al montar la aplicación.
+  4. Implementar fallback defensivo en StyleModal.tsx y SettingsPanel.tsx para garantizar que los selectores desplegables contengan siempre las opciones de modelos en cualquier estado.
+  5. Configurar en AutoShorts.spec la recolección exhaustiva de datos de aster_whisper (silero_vad_v6.onnx), librerías dinámicas de ctranslate2 (cudnn64_9.dll, libiomp5md.dll) y sus submódulos recursivos.
+  6. Blindar python_backend/api.py registrando excepciones de llamadas RPC en utoshorts.log y garantizando lista de respaldo en environment_status.
+- **Motivo:** Evitar que condiciones de carrera temporales en el puente PyWebView o inicializaciones lentas en Windows dejen los selectores de modelos vacíos en la interfaz portable (AutoShorts.exe), y asegurar la presencia de todos los binarios y pesos ONNX necesarios para la inferencia de voz y VAD.

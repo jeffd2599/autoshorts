@@ -2,6 +2,7 @@
 import os
 import sys
 from pathlib import Path
+from PyInstaller.utils.hooks import collect_data_files, collect_submodules, collect_dynamic_libs
 
 block_cipher = None
 
@@ -12,6 +13,10 @@ datas = [
     ('public', 'public'),
 ]
 
+# Recolectar datos y modelos auxiliares para Faster-Whisper y CTranslate2 (Silero VAD ONNX, etc.)
+datas += collect_data_files('faster_whisper')
+datas += collect_data_files('ctranslate2')
+
 binaries = []
 # Bundle local ffmpeg / ffprobe if available
 ffmpeg_bin = Path(r"C:\ffmpeg\bin")
@@ -19,6 +24,9 @@ if (ffmpeg_bin / "ffmpeg.exe").is_file():
     binaries.append((str(ffmpeg_bin / "ffmpeg.exe"), "bin"))
 if (ffmpeg_bin / "ffprobe.exe").is_file():
     binaries.append((str(ffmpeg_bin / "ffprobe.exe"), "bin"))
+
+# Recolectar librerias dinamicas de ctranslate2 (cudnn64, libiomp5md, etc.)
+binaries += collect_dynamic_libs('ctranslate2')
 
 hiddenimports = [
     'faster_whisper',
@@ -44,6 +52,9 @@ hiddenimports = [
     'python_backend.logger',
     'python_backend.services.project_service',
 ]
+# Recolectar recursivamente todos los submodulos internos de faster_whisper y ctranslate2
+hiddenimports += collect_submodules('faster_whisper')
+hiddenimports += collect_submodules('ctranslate2')
 
 a = Analysis(
     ['run.py'],

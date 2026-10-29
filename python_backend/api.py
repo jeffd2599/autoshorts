@@ -149,9 +149,15 @@ class Api:
     def invoke(self, command: str, args: Optional[Dict[str, Any]] = None) -> Any:
         args = args or {}
         if not hasattr(self, command):
-            raise AttributeError(f"Unknown command: {command}")
-        method = getattr(self, command)
-        return method(args)
+            err_msg = f"Unknown command: {command}"
+            log_buffer.append(f"[Api.invoke] Error: {err_msg}")
+            raise AttributeError(err_msg)
+        try:
+            method = getattr(self, command)
+            return method(args)
+        except Exception as e:
+            log_buffer.append(f"[Api.invoke] Exception executing '{command}': {e}")
+            raise
 
     def open_file_dialog(self, _args: Optional[Dict[str, Any]] = None) -> Optional[str]:
         """Opens native Windows file dialog and returns selected path."""
@@ -230,13 +236,27 @@ class Api:
         except Exception:
             pass
 
+        whisper_models = []
+        try:
+            whisper_models = get_installed_whisper_models()
+        except Exception as e:
+            log_buffer.append(f"[environment_status] Error loading whisper models: {e}")
+            whisper_models = [
+                {"id": "large-v3-turbo", "name": "large-v3-turbo", "vram": "~3.2 GB", "desc": "Alta precisión y velocidad máxima optimizada (Faster Turbo)", "recommended": True, "downloaded": False},
+                {"id": "large-v3", "name": "large-v3", "vram": "~4.5 GB", "desc": "Máxima precisión absoluta en acentos y jerga gamer", "recommended": False, "downloaded": False},
+                {"id": "medium", "name": "medium", "vram": "~2.5 GB", "desc": "Gran precisión en diálogos y fondos ruidosos", "recommended": False, "downloaded": False},
+                {"id": "small", "name": "small", "vram": "~1.2 GB", "desc": "Equilibrado para transcripción ágil en hardware estándar", "recommended": False, "downloaded": False},
+                {"id": "base", "name": "base", "vram": "~0.7 GB", "desc": "Rápido y ligero para pruebas o equipos modestos", "recommended": False, "downloaded": False},
+                {"id": "tiny", "name": "tiny", "vram": "~0.5 GB", "desc": "Ultrarrápido y mínimo consumo de memoria", "recommended": False, "downloaded": False},
+            ]
+
         return {
             "dataDir": str(self.data_dir),
             "hasFfmpeg": command_exists("ffmpeg"),
             "hasFfprobe": command_exists("ffprobe"),
             "llmProvider": os.getenv("LLM_PROVIDER", "local"),
             "hasLocalWhisperModel": whisper_available(),
-            "whisperModels": get_installed_whisper_models(),
+            "whisperModels": whisper_models,
             "hasOllama": has_ollama,
             "hasLmStudio": has_lmstudio,
             "installedOllamaModels": installed_models,

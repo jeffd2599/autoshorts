@@ -7,6 +7,57 @@ export type WhisperModel = {
   desc: string;
 };
 
+export const DEFAULT_WHISPER_MODELS: WhisperModel[] = [
+  {
+    id: "large-v3-turbo",
+    name: "large-v3-turbo",
+    vram: "~3.2 GB",
+    downloaded: false,
+    recommended: true,
+    desc: "Alta precisión y velocidad máxima optimizada (Faster Turbo)",
+  },
+  {
+    id: "large-v3",
+    name: "large-v3",
+    vram: "~4.5 GB",
+    downloaded: false,
+    recommended: false,
+    desc: "Máxima precisión absoluta en acentos y jerga gamer",
+  },
+  {
+    id: "medium",
+    name: "medium",
+    vram: "~2.5 GB",
+    downloaded: false,
+    recommended: false,
+    desc: "Gran precisión en diálogos y fondos ruidosos",
+  },
+  {
+    id: "small",
+    name: "small",
+    vram: "~1.2 GB",
+    downloaded: false,
+    recommended: false,
+    desc: "Equilibrado para transcripción ágil en hardware estándar",
+  },
+  {
+    id: "base",
+    name: "base",
+    vram: "~0.7 GB",
+    downloaded: false,
+    recommended: false,
+    desc: "Rápido y ligero para pruebas o equipos modestos",
+  },
+  {
+    id: "tiny",
+    name: "tiny",
+    vram: "~0.5 GB",
+    downloaded: false,
+    recommended: false,
+    desc: "Ultrarrápido y mínimo consumo de memoria",
+  },
+];
+
 export type CopyResult = {
   hooks: string[];
   caption: string;

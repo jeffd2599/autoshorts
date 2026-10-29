@@ -1,6 +1,7 @@
 import React from "react";
 import { Captions, Sparkles, X, Folder, FolderOpen } from "lucide-react";
 import {
+  DEFAULT_WHISPER_MODELS,
   ContentType,
   EnvironmentStatus,
   HardwareTelemetry,
@@ -95,9 +96,15 @@ export function StyleModal({
   onOpenSettings,
   onConfirm,
 }: StyleModalProps) {
+  const effectiveWhisperModels = React.useMemo(() => {
+    return whisperModelsList && whisperModelsList.length > 0
+      ? whisperModelsList
+      : DEFAULT_WHISPER_MODELS;
+  }, [whisperModelsList]);
+
   const sortedWhisper = React.useMemo(() => {
-    return sortWhisperModels(whisperModelsList, telemetry?.vramTotalMb, telemetry?.hasGpu);
-  }, [whisperModelsList, telemetry?.vramTotalMb, telemetry?.hasGpu]);
+    return sortWhisperModels(effectiveWhisperModels, telemetry?.vramTotalMb, telemetry?.hasGpu);
+  }, [effectiveWhisperModels, telemetry?.vramTotalMb, telemetry?.hasGpu]);
   if (!isOpen) return null;
 
   return (
@@ -419,7 +426,7 @@ export function StyleModal({
                         })()}
                       </div>
                       <span style={{ fontSize: "0.72rem", color: "var(--accent-primary)", fontWeight: 600 }}>
-                        {whisperModelsList.find((m) => m.id === whisperModel)?.vram || ""} VRAM
+                        {effectiveWhisperModels.find((m) => m.id === whisperModel)?.vram || ""} VRAM
                       </span>
                     </div>
                     <select
@@ -455,9 +462,21 @@ export function StyleModal({
                           })}
                         </optgroup>
                       )}
+                      {sortedWhisper.downloaded.length === 0 && sortedWhisper.available.length === 0 && (
+                        <optgroup label="Modelos Faster-Whisper disponibles">
+                          {effectiveWhisperModels.map((m) => {
+                            const traf = getWhisperTrafficLevel(m.id, telemetry?.vramTotalMb, telemetry?.hasGpu);
+                            return (
+                              <option key={m.id} value={m.id}>
+                                {m.name} ({m.vram}) - {traf.label}
+                              </option>
+                            );
+                          })}
+                        </optgroup>
+                      )}
                     </select>
                     <span style={{ fontSize: "0.72rem", opacity: 0.75 }}>
-                      {whisperModelsList.find((m) => m.id === whisperModel)?.desc || "Modelo de Whisper para transcripción en GPU."}
+                      {effectiveWhisperModels.find((m) => m.id === whisperModel)?.desc || "Modelo de Whisper para transcripción en GPU."}
                     </span>
                   </div>
                 )}

@@ -52,7 +52,7 @@ async function getPyWebViewApi(): Promise<PyWebViewApi | null> {
         resolved = true;
         resolve(window.pywebview?.api || null);
       }
-    }, 2500);
+    }, 12000);
   });
 }
 
