@@ -11,7 +11,8 @@ import wave
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from .paths import get_ffmpeg_path, get_ffprobe_path
+from .paths import get_ffmpeg_path, get_ffprobe_path, get_no_window_kwargs
+from .logger import log_buffer
 
 
 def command_exists(name: str) -> bool:
@@ -36,7 +37,7 @@ def probe_media(path: str) -> Dict[str, Any]:
         "-show_streams",
         path
     ]
-    res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
+    res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", **get_no_window_kwargs())
     if res.returncode != 0:
         raise RuntimeError(f"ffprobe failed: {res.stderr.strip()}")
 
@@ -101,7 +102,8 @@ def extract_audio(
         text=True,
         encoding="utf-8",
         errors="replace",
-        bufsize=1
+        bufsize=1,
+        **get_no_window_kwargs()
     )
 
     stderr_lines: List[str] = []
@@ -110,9 +112,13 @@ def extract_audio(
         try:
             if proc.stderr:
                 for line in proc.stderr:
-                    stderr_lines.append(line)
-                    if len(stderr_lines) > 50:
-                        stderr_lines.pop(0)
+                    clean = line.strip()
+                    if clean:
+                        stderr_lines.append(clean)
+                        if len(stderr_lines) > 50:
+                            stderr_lines.pop(0)
+                        if "size=" in clean or "time=" in clean or "speed=" in clean or "bitrate=" in clean:
+                            log_buffer.push(f"[FFmpeg Audio] {clean}")
         except Exception:
             pass
 
@@ -410,7 +416,7 @@ def extract_video_thumbnail(source_path: str, timestamp: float, output_path: Any
         "-q:v", "2",
         str(out_p)
     ]
-    res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
+    res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", **get_no_window_kwargs())
     if res.returncode != 0:
         raise RuntimeError(f"FFmpeg thumbnail extraction failed: {res.stderr.strip()[-300:]}")
 
@@ -1166,7 +1172,7 @@ def render_flat_clip(
         str(output_path)
     ])
 
-    res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
+    res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", **get_no_window_kwargs())
     if res.returncode != 0:
         # Fallback without subtitle/drawtext if filters caused error
         if subtitle_filter or drawtext_filters or has_cta:

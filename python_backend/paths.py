@@ -1,3 +1,5 @@
+import subprocess
+from typing import Any, Dict
 import os
 import sys
 import shutil
@@ -93,3 +95,19 @@ def get_ffprobe_path() -> str:
         return which_path
 
     return "ffprobe"
+
+def get_no_window_kwargs() -> Dict[str, Any]:
+    """
+    Returns subprocess kwargs to completely suppress any console/CMD window
+    from popping up on Windows for background CLI tools (ffmpeg, ffprobe, nvidia-smi).
+    """
+    if sys.platform == "win32":
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        startupinfo.wShowWindow = 0  # SW_HIDE
+        return {
+            "creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000),
+            "startupinfo": startupinfo,
+        }
+    return {}
+

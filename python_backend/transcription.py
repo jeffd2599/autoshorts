@@ -1,7 +1,11 @@
+import sys
 import json
 import os
 from typing import Any, Callable, Dict, List, Optional
+from pathlib import Path
 import warnings
+from .logger import log_buffer
+from .paths import get_resource_dir
 
 warnings.filterwarnings("ignore", message=".*Triton.*")
 
@@ -90,7 +94,7 @@ def transcribe_local(
         "discord, twitch, youtube, shorts, partida, gameplay, sniper, kill"
     )
 
-    print(f"🚀 Using faster-whisper CTranslate2 '{model_name}' on {device} ({compute_type})...")
+    print(f"[WHISPER] Using faster-whisper CTranslate2 '{model_name}' on {device} ({compute_type})...")
 
     if progress_callback:
         try:
@@ -118,11 +122,35 @@ def transcribe_local(
         except Exception:
             pass
 
+    # Ensure portable DLL paths (ctranslate2, cublas) are registered in Windows
+    if sys.platform == "win32":
+        try:
+            base_dir = get_resource_dir()
+            for cand in [base_dir, base_dir / "ctranslate2", Path(sys.executable).parent, Path(sys.executable).parent / "ctranslate2"]:
+                if cand.is_dir():
+                    try:
+                        os.add_dll_directory(str(cand))
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
     model = None
     segments_gen = None
 
     try:
-        model = WhisperModel(model_name, device=device, compute_type=compute_type)
+        try:
+            model = WhisperModel(model_name, device=device, compute_type=compute_type)
+        except Exception as cuda_err:
+            if device == "cuda":
+                err_msg = f"[ALERTA] No se pudo inicializar Whisper en GPU CUDA ({cuda_err}). Cambiando automáticamente a modo CPU (int8)..."
+                print(err_msg)
+                log_buffer.push(err_msg)
+                device = "cpu"
+                compute_type = "int8"
+                model = WhisperModel(model_name, device=device, compute_type=compute_type)
+            else:
+                raise cuda_err
 
         if is_cancelled and is_cancelled():
             _free_resources(model, segments_gen)
@@ -185,10 +213,10 @@ def transcribe_local(
         return result
 
     except InterruptedError:
-        print("🛑 Transcripción con faster-whisper cancelada y VRAM liberada inmediatamente.")
+        print("[CANCELADO] Transcripcion con faster-whisper cancelada y VRAM liberada inmediatamente.")
         raise
     except Exception as e:
-        print(f"❌ Error en faster-whisper: {e}")
+        print(f"[ERROR] Error en faster-whisper: {e}")
         raise
     finally:
         _free_resources(model, segments_gen)

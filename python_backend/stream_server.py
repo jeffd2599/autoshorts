@@ -9,7 +9,7 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 import threading
 
-from .paths import get_resource_dir, get_user_data_dir, get_ffmpeg_path
+from .paths import get_resource_dir, get_user_data_dir, get_ffmpeg_path, get_no_window_kwargs
 
 CHUNK_SIZE = 256 * 1024  # 256 KB buffer for high-throughput local media streaming
 
@@ -131,7 +131,8 @@ class VideoStreamHandler(BaseHTTPRequestHandler):
                         stdout=subprocess.DEVNULL,
                         stderr=subprocess.DEVNULL,
                         timeout=6,
-                        check=True
+                        check=True,
+                        **get_no_window_kwargs()
                     )
                 except Exception:
                     try:
@@ -148,7 +149,8 @@ class VideoStreamHandler(BaseHTTPRequestHandler):
                             cmd_fb,
                             stdout=subprocess.DEVNULL,
                             stderr=subprocess.DEVNULL,
-                            timeout=6
+                            timeout=6,
+                            **get_no_window_kwargs()
                         )
                     except Exception:
                         pass

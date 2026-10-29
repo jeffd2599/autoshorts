@@ -78,3 +78,13 @@
   5. Configurar en AutoShorts.spec la recolección exhaustiva de datos de aster_whisper (silero_vad_v6.onnx), librerías dinámicas de ctranslate2 (cudnn64_9.dll, libiomp5md.dll) y sus submódulos recursivos.
   6. Blindar python_backend/api.py registrando excepciones de llamadas RPC en utoshorts.log y garantizando lista de respaldo en environment_status.
 - **Motivo:** Evitar que condiciones de carrera temporales en el puente PyWebView o inicializaciones lentas en Windows dejen los selectores de modelos vacíos en la interfaz portable (AutoShorts.exe), y asegurar la presencia de todos los binarios y pesos ONNX necesarios para la inferencia de voz y VAD.
+
+## D-017: Supresión Total de Ventanas CMD en Subprocesos, Empaquetado de cuBLAS CUDA y Fallback Resiliente a CPU en Whisper
+- **Decisión:**
+  1. Implementar `get_no_window_kwargs()` en `python_backend/paths.py` inyectando `creationflags=subprocess.CREATE_NO_WINDOW` (`0x08000000`) y `STARTF_USESHOWWINDOW` con `wShowWindow=SW_HIDE` en Windows. Aplicar esta configuración a todas las llamadas de `subprocess.Popen` y `subprocess.run` en `media.py` (`extract_audio`, `probe_media`, `extract_video_thumbnail`, `render_flat_clip`), `stream_server.py` y `telemetry.py`.
+  2. Redirigir la lectura de `stderr` de FFmpeg en `extract_audio` hacia `log_buffer.push(...)` para alimentar en tiempo real el visor interno de Terminal/Logs (`LogsModal.tsx`) sin requerir consolas externas.
+  3. Empaquetar `cublas64_12.dll` y `cublasLt64_12.dll` en `ctranslate2` dentro de `AutoShorts.spec` y registrar `os.add_dll_directory` en `run.py` y `transcription.py` para aceleración nativa CUDA 12 sin requerir PyTorch ni instalación manual del CUDA Toolkit.
+  4. Blindar `transcribe_local` en `python_backend/transcription.py` con degradación elegante (*graceful degradation*): ante cualquier fallo de inicialización en GPU CUDA (falta de DLLs, drivers incompatibles o hardware no NVIDIA), el software captura el error, emite alerta en el terminal interno y conmuta automáticamente a CPU (`int8`) completando la transcripción con cero cuelgues.
+  5. Sustituir caracteres emoji en sentencias `print()` para prevenir errores `UnicodeEncodeError` en terminales con codificación estándar Windows `cp1252`.
+- **Motivo:** Garantizar una experiencia de escritorio completamente limpia y profesional sin ventanas CMD flotantes, proporcionar aceleración CUDA autónoma en el bundle portable y asegurar tolerancia absoluta a fallos de hardware en cualquier ordenador con Windows.
+

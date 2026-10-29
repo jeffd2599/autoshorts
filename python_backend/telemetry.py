@@ -3,6 +3,7 @@ import os
 import subprocess
 import time
 from typing import Dict, Any, Optional
+from .paths import get_no_window_kwargs
 
 # Windows kernel32 FILETIME structure for non-blocking CPU calculation
 class FILETIME(ctypes.Structure):
@@ -81,11 +82,6 @@ def get_gpu_telemetry() -> Dict[str, Any]:
     }
 
     try:
-        startupinfo = None
-        if os.name == "nt":
-            startupinfo = subprocess.STARTUPINFO()
-            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-
         res = subprocess.run(
             [
                 "nvidia-smi",
@@ -95,7 +91,7 @@ def get_gpu_telemetry() -> Dict[str, Any]:
             capture_output=True,
             text=True,
             timeout=2.0,
-            startupinfo=startupinfo,
+            **get_no_window_kwargs(),
         )
 
         if res.returncode == 0 and res.stdout.strip():

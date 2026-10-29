@@ -28,6 +28,19 @@ if (ffmpeg_bin / "ffprobe.exe").is_file():
 # Recolectar librerias dinamicas de ctranslate2 (cudnn64, libiomp5md, etc.)
 binaries += collect_dynamic_libs('ctranslate2')
 
+# Recolectar librerias cuBLAS CUDA de NVIDIA (cublas64_12.dll y cublasLt64_12.dll) para aceleracion GPU
+for torch_lib_candidate in [
+    Path(r"C:\Users\JEFF\AppData\Local\Programs\Python\Python311\Lib\site-packages\torch\lib"),
+    Path(sys.prefix) / "Lib" / "site-packages" / "torch" / "lib",
+]:
+    if torch_lib_candidate.is_dir():
+        for dll_name in ["cublas64_12.dll", "cublasLt64_12.dll"]:
+            dll_p = torch_lib_candidate / dll_name
+            if dll_p.is_file():
+                binaries.append((str(dll_p), "ctranslate2"))
+                binaries.append((str(dll_p), "."))
+        break
+
 hiddenimports = [
     'faster_whisper',
     'ctranslate2',

@@ -43,6 +43,15 @@ def main():
     data_dir = get_user_data_dir()
     frozen = is_frozen()
 
+    # Register DLL directories on Windows so CTranslate2 and cuBLAS are immediately resolved
+    if sys.platform == "win32":
+        for dll_d in [base_dir, base_dir / "ctranslate2", Path(sys.executable).parent, Path(sys.executable).parent / "ctranslate2"]:
+            if dll_d.is_dir():
+                try:
+                    os.add_dll_directory(str(dll_d))
+                except Exception:
+                    pass
+
     # Initialize logging buffer and rotating file
     init_logging(data_dir)
 

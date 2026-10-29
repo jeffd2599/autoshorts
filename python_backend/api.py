@@ -495,7 +495,7 @@ class Api:
             sync_project_to_disk(self.db, project_id, proj_dir)
             return saved
         except InterruptedError:
-            print(f"🛑 Transcripción del proyecto {project_id} cancelada inmediatamente.")
+            print(f"[CANCELADO] Transcripcion del proyecto {project_id} cancelada inmediatamente.")
             self.db.update_project_status(project_id, "created")
             self.emit("transcription-progress", {"percentage": 0, "message": "Transcripción cancelada"})
             try:
