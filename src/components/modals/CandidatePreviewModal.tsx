@@ -13,9 +13,20 @@ import {
   Palette,
   Heart,
   Sparkles,
+  Trash2,
+  RotateCcw,
+  Split,
+  Film,
 } from "lucide-react";
 import { Candidate, Clip, ProjectDetail } from "../../types";
 import { formatTime } from "../../utils/format";
+
+export interface InternalSegment {
+  id: string;
+  start: number;
+  end: number;
+  deleted: boolean;
+}
 
 // Strips any emojis that the LLM may output
 function cleanHook(text: string): string {
@@ -140,6 +151,64 @@ export function CandidatePreviewModal({
     localStorage.setItem("autoshorts_cta_animation", ctaAnimation);
   }, [ctaAnimation]);
 
+  const [segments, setSegments] = useState<InternalSegment[]>(() => [
+    { id: "seg-1", start: trimStart, end: trimEnd, deleted: false },
+  ]);
+  const [selectedSegmentId, setSelectedSegmentId] = useState<string>("seg-1");
+  const [hasTransition, setHasTransition] = useState<boolean>(false);
+  const [selectedFps, setSelectedFps] = useState<string>("auto");
+
+  useEffect(() => {
+    setSegments((prev) => {
+      if (prev.length <= 1) {
+        return [{ id: "seg-1", start: trimStart, end: trimEnd, deleted: false }];
+      }
+      return prev;
+    });
+  }, [trimStart, trimEnd]);
+
+  const handleSplitAtPlayhead = () => {
+    const playhead = isExported ? currentPlayTime : trimStart + currentPlayTime;
+    setSegments((prev) => {
+      const idx = prev.findIndex((s) => playhead > s.start + 0.3 && playhead < s.end - 0.3);
+      if (idx === -1) return prev;
+      const target = prev[idx];
+      const s1: InternalSegment = {
+        id: `seg-${Date.now()}-1`,
+        start: target.start,
+        end: Number(playhead.toFixed(2)),
+        deleted: target.deleted,
+      };
+      const s2: InternalSegment = {
+        id: `seg-${Date.now()}-2`,
+        start: Number(playhead.toFixed(2)),
+        end: target.end,
+        deleted: target.deleted,
+      };
+      const updated = [...prev.slice(0, idx), s1, s2, ...prev.slice(idx + 1)];
+      setSelectedSegmentId(s2.id);
+      return updated;
+    });
+  };
+
+  const toggleDeleteSegment = (id: string) => {
+    setSegments((prev) =>
+      prev.map((s) => (s.id === id ? { ...s, deleted: !s.deleted } : s))
+    );
+  };
+
+  const handleResetSegments = () => {
+    setSegments([{ id: "seg-1", start: trimStart, end: trimEnd, deleted: false }]);
+    setSelectedSegmentId("seg-1");
+  };
+
+  const totalKeptDuration = segments
+    .filter((s) => !s.deleted)
+    .reduce((acc, s) => acc + (s.end - s.start), 0);
+  const totalRemovedDuration = segments
+    .filter((s) => s.deleted)
+    .reduce((acc, s) => acc + (s.end - s.start), 0);
+
   const exportedClip = clipByCandidate.get(candidate.id);
   const exportedPath = exportedClip?.status === "done" && exportedClip.outputPath ? exportedClip.outputPath : null;
   const isExported = Boolean(exportedPath);
@@ -159,10 +228,25 @@ export function CandidatePreviewModal({
     if (isExported) {
       setCurrentPlayTime(time);
     } else {
+      // Live Jump Cut preview: if playhead enters a deleted segment, jump to next active segment!
+      const activeSegs = segments.filter((s) => !s.deleted);
+      const inDeleted = segments.find((s) => s.deleted && time >= s.start && time < s.end);
+      if (inDeleted) {
+        const nextActive = activeSegs.find((s) => s.start >= inDeleted.end);
+        if (nextActive) {
+          videoRef.current.currentTime = nextActive.start;
+          return;
+        } else if (activeSegs.length > 0) {
+          videoRef.current.currentTime = activeSegs[0].start;
+          return;
+        }
+      }
+
       const rel = Math.max(0, Math.min(clipDuration, time - trimStart));
       setCurrentPlayTime(rel);
       if (time >= trimEnd) {
-        videoRef.current.currentTime = trimStart;
+        const firstActive = activeSegs[0];
+        videoRef.current.currentTime = firstActive ? firstActive.start : trimStart;
         videoRef.current.play().catch(() => {});
       }
     }
@@ -826,6 +910,231 @@ export function CandidatePreviewModal({
                     </button>
                   </div>
                 </div>
+
+                {/* SECCIÓN CORTES INTERNOS / CAPCUT TIMELINE */}
+                <div
+                  style={{
+                    marginTop: "1.25rem",
+                    padding: "0.85rem",
+                    background: "var(--bg-surface)",
+                    borderRadius: "8px",
+                    border: "1px solid var(--border-default)",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "0.75rem",
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div>
+                      <h4 style={{ margin: 0, fontSize: "0.86rem", fontWeight: 700, color: "var(--text-primary)", display: "flex", alignItems: "center", gap: "6px" }}>
+                        <Scissors size={15} style={{ color: "var(--accent-primary, #6366f1)" }} />
+                        Cortes Internos y Jump Cuts (Estilo CapCut)
+                      </h4>
+                      <p style={{ margin: "2px 0 0", fontSize: "0.72rem", color: "var(--text-muted)" }}>
+                        Haz clic en Dividir para partir el clip en el cabezal actual y elimina fragmentos no deseados.
+                      </p>
+                    </div>
+                    <span
+                      style={{
+                        fontSize: "0.72rem",
+                        fontFamily: "var(--font-mono)",
+                        color: totalRemovedDuration > 0 ? "#f43f5e" : "var(--text-muted)",
+                        background: "var(--bg-base)",
+                        padding: "2px 6px",
+                        borderRadius: "4px",
+                        border: "1px solid var(--border-default)",
+                      }}
+                    >
+                      {totalRemovedDuration > 0
+                        ? `Recortado: -${totalRemovedDuration.toFixed(1)}s (Quedan ${totalKeptDuration.toFixed(1)}s)`
+                        : `Sin cortes internos (${clipDuration.toFixed(1)}s)`}
+                    </span>
+                  </div>
+
+                  {/* Barra interactiva visual de segmentos */}
+                  <div
+                    style={{
+                      height: "36px",
+                      background: "rgba(0, 0, 0, 0.4)",
+                      borderRadius: "6px",
+                      border: "1px solid var(--border-default)",
+                      display: "flex",
+                      overflow: "hidden",
+                      position: "relative",
+                    }}
+                  >
+                    {segments.map((seg, idx) => {
+                      const totalSpan = Math.max(0.1, trimEnd - trimStart);
+                      const widthPct = Math.max(2, ((seg.end - seg.start) / totalSpan) * 100);
+                      const isSelected = selectedSegmentId === seg.id;
+                      return (
+                        <div
+                          key={seg.id}
+                          onClick={() => {
+                            setSelectedSegmentId(seg.id);
+                            if (videoRef.current) {
+                              videoRef.current.currentTime = seg.start;
+                            }
+                          }}
+                          title={`Segmento ${idx + 1}: ${formatTime(seg.start)} - ${formatTime(seg.end)} (${(seg.end - seg.start).toFixed(1)}s)${seg.deleted ? " [ELIMINADO]" : ""}`}
+                          style={{
+                            width: `${widthPct}%`,
+                            height: "100%",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            fontSize: "0.68rem",
+                            fontFamily: "var(--font-mono)",
+                            cursor: "pointer",
+                            transition: "all 0.15s ease",
+                            borderRight: idx < segments.length - 1 ? "2px solid #09090b" : "none",
+                            outline: isSelected ? "2px solid #fafafa" : "none",
+                            outlineOffset: "-2px",
+                            background: seg.deleted
+                              ? "repeating-linear-gradient(45deg, rgba(239, 68, 68, 0.25), rgba(239, 68, 68, 0.25) 6px, rgba(239, 68, 68, 0.4) 6px, rgba(239, 68, 68, 0.4) 12px)"
+                              : isSelected
+                              ? "rgba(99, 102, 241, 0.65)"
+                              : "rgba(99, 102, 241, 0.35)",
+                            color: seg.deleted ? "#fca5a5" : "#ffffff",
+                            textDecoration: seg.deleted ? "line-through" : "none",
+                            userSelect: "none",
+                          }}
+                        >
+                          {seg.deleted ? "✕" : `${(seg.end - seg.start).toFixed(1)}s`}
+                        </div>
+                      );
+                    })}
+
+                    {/* Cabezal de reproducción en la barra */}
+                    {trimEnd > trimStart && (
+                      <div
+                        style={{
+                          position: "absolute",
+                          top: 0,
+                          bottom: 0,
+                          width: "2px",
+                          background: "#ffffff",
+                          boxShadow: "0 0 6px rgba(255, 255, 255, 0.8)",
+                          pointerEvents: "none",
+                          left: `${Math.max(0, Math.min(100, ((absoluteCurrentTime - trimStart) / (trimEnd - trimStart)) * 100))}%`,
+                          zIndex: 10,
+                        }}
+                      />
+                    )}
+                  </div>
+
+                  {/* Acciones de división y eliminación */}
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem", alignItems: "center" }}>
+                    <button
+                      type="button"
+                      className="btn-confirm"
+                      onClick={handleSplitAtPlayhead}
+                      style={{
+                        minHeight: "30px",
+                        padding: "0 12px",
+                        fontSize: "0.76rem",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "5px",
+                        background: "var(--accent-primary, #6366f1)",
+                        color: "#ffffff",
+                        border: "none",
+                        borderRadius: "6px",
+                        cursor: "pointer",
+                      }}
+                      title="Divide el segmento actual en el segundo exacto donde está pausado el video"
+                    >
+                      <Split size={14} />
+                      Dividir en cabezal ({absoluteCurrentTime.toFixed(1)}s)
+                    </button>
+
+                    {selectedSegmentId && (
+                      <button
+                        type="button"
+                        className="btn-cancel"
+                        onClick={() => toggleDeleteSegment(selectedSegmentId)}
+                        style={{
+                          minHeight: "30px",
+                          padding: "0 12px",
+                          fontSize: "0.76rem",
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: "5px",
+                          color: segments.find((s) => s.id === selectedSegmentId)?.deleted ? "#10b981" : "#ef4444",
+                          borderColor: segments.find((s) => s.id === selectedSegmentId)?.deleted ? "rgba(16, 185, 129, 0.4)" : "rgba(239, 68, 68, 0.4)",
+                        }}
+                      >
+                        {segments.find((s) => s.id === selectedSegmentId)?.deleted ? (
+                          <>
+                            <RotateCcw size={13} />
+                            Restaurar fragmento
+                          </>
+                        ) : (
+                          <>
+                            <Trash2 size={13} />
+                            Eliminar fragmento
+                          </>
+                        )}
+                      </button>
+                    )}
+
+                    {segments.length > 1 && (
+                      <button
+                        type="button"
+                        className="btn-cancel"
+                        onClick={handleResetSegments}
+                        style={{ minHeight: "30px", padding: "0 10px", fontSize: "0.74rem" }}
+                        title="Elimina todos los cortes y vuelve al clip continuo"
+                      >
+                        Restablecer todos los cortes
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Opciones de exportación: Transición suave y FPS */}
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      paddingTop: "0.4rem",
+                      borderTop: "1px solid var(--border-default)",
+                      fontSize: "0.76rem",
+                    }}
+                  >
+                    <label style={{ display: "flex", alignItems: "center", gap: "6px", cursor: "pointer", color: "var(--text-secondary)" }}>
+                      <input
+                        type="checkbox"
+                        checked={hasTransition}
+                        onChange={(e) => setHasTransition(e.target.checked)}
+                        style={{ cursor: "pointer" }}
+                      />
+                      <span>Transición suave entre cortes</span>
+                    </label>
+
+                    <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                      <Film size={13} style={{ color: "var(--text-muted)" }} />
+                      <span style={{ color: "var(--text-muted)" }}>FPS:</span>
+                      <select
+                        value={selectedFps}
+                        onChange={(e) => setSelectedFps(e.target.value)}
+                        style={{
+                          background: "var(--bg-base)",
+                          color: "var(--text-primary)",
+                          border: "1px solid var(--border-default)",
+                          borderRadius: "4px",
+                          padding: "2px 6px",
+                          fontSize: "0.74rem",
+                          cursor: "pointer",
+                        }}
+                      >
+                        <option value="auto">Auto / Nativo</option>
+                        <option value="60">60 FPS</option>
+                        <option value="30">30 FPS</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
 
@@ -1431,6 +1740,9 @@ export function CandidatePreviewModal({
               onClick={() => {
                 const id = candidate.id;
                 onClose();
+                const activeSubRanges = segments
+                  .filter((s) => !s.deleted)
+                  .map((s) => ({ start: s.start, end: s.end }));
                 void onCutCandidate(id, {
                   burnSubtitles,
                   captionStyle,
@@ -1443,8 +1755,11 @@ export function CandidatePreviewModal({
                   ctaPosition,
                   ctaAnimation,
                   aspectRatio: (localStorage.getItem("autoshorts_clip_aspect_ratio") as "original" | "9:16") || "original",
-                  startSec: trimStart,
-                  endSec: trimEnd,
+                  startSec: activeSubRanges[0]?.start ?? trimStart,
+                  endSec: activeSubRanges[activeSubRanges.length - 1]?.end ?? trimEnd,
+                  subRanges: activeSubRanges.length > 1 ? activeSubRanges : undefined,
+                  transition: hasTransition ? "crossfade" : undefined,
+                  fps: selectedFps !== "auto" ? Number(selectedFps) : undefined,
                 });
               }}
               disabled={busy !== "idle"}

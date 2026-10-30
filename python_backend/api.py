@@ -996,6 +996,9 @@ class Api:
         custom_dir = args.get("outputDir") if isinstance(args, dict) else None
         aspect_ratio = args.get("aspectRatio", "original") if isinstance(args, dict) else "original"
         burn_subtitles = bool(args.get("burnSubtitles", False)) if isinstance(args, dict) else False
+        sub_ranges = args.get("subRanges") if isinstance(args, dict) else None
+        transition = args.get("transition") if isinstance(args, dict) else None
+        target_fps = int(args["fps"]) if isinstance(args, dict) and args.get("fps") and int(args["fps"]) in (30, 60) else None
 
         candidate, project = self.db.get_candidate_with_project(candidate_id)
         self.db.update_clip_for_candidate(candidate_id, "cutting")
@@ -1102,7 +1105,7 @@ class Api:
                 if not words and "segments" in normalized:
                     words = rebuild_words_from_segments(normalized["segments"])
 
-                srt_content = generate_srt(words, start_sec, end_sec)
+                srt_content = generate_srt(words, start_sec, end_sec, sub_ranges=sub_ranges)
 
                 # Always export the .srt alongside the .mp4 in the user's export folder!
                 with open(exported_srt_path, "w", encoding="utf-8") as f:
@@ -1120,7 +1123,8 @@ class Api:
                         aspect_ratio=ass_aspect_ratio,
                         primary_color_hex=caption_color,
                         highlight_color_hex=caption_highlight,
-                        single_line=single_line
+                        single_line=single_line,
+                        sub_ranges=sub_ranges
                     )
                     if ass_content:
                         exported_ass_path = out_dir / f"{base_name}.ass"
@@ -1145,7 +1149,10 @@ class Api:
             cta_badge_path=cta_badge_path,
             cta_position=cta_position,
             caption_position=caption_position,
-            cta_animation=cta_animation
+            cta_animation=cta_animation,
+            sub_ranges=sub_ranges,
+            transition=transition,
+            target_fps=target_fps
         )
 
         self.db.update_clip_for_candidate(

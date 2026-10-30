@@ -24,6 +24,9 @@ export interface CutClipOptions {
   aspectRatio?: "original" | "9:16";
   startSec?: number;
   endSec?: number;
+  subRanges?: Array<{ start: number; end: number }>;
+  transition?: string;
+  fps?: number;
 }
 
 interface UseMediaPipelineOptions {
@@ -539,6 +542,9 @@ export function useMediaPipeline(options: UseMediaPipelineOptions) {
           ctaAnimation,
           ...(options?.startSec !== undefined ? { startSec: options.startSec } : {}),
           ...(options?.endSec !== undefined ? { endSec: options.endSec } : {}),
+          ...(options?.subRanges ? { subRanges: options.subRanges } : {}),
+          ...(options?.transition ? { transition: options.transition } : {}),
+          ...(options?.fps ? { fps: options.fps } : {}),
         });
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));

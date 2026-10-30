@@ -54,6 +54,20 @@ def probe_media(path: str) -> Dict[str, Any]:
         except (ValueError, TypeError):
             pass
 
+    fps = None
+    if video:
+        rate_str = video.get("r_frame_rate") or video.get("avg_frame_rate")
+        if rate_str and "/" in rate_str:
+            try:
+                num, den = rate_str.split("/")
+                den_f = float(den)
+                if den_f > 0:
+                    val = float(num) / den_f
+                    if 1.0 <= val <= 240.0:
+                        fps = round(val, 2)
+            except Exception:
+                pass
+
     return {
         "durationSec": duration_sec,
         "hasVideo": video is not None,
@@ -61,6 +75,7 @@ def probe_media(path: str) -> Dict[str, Any]:
         "height": int(video["height"]) if video and "height" in video else None,
         "videoCodec": video.get("codec_name") if video else None,
         "audioCodec": audio.get("codec_name") if audio else None,
+        "fps": fps,
     }
 
 
@@ -431,8 +446,57 @@ def format_srt_time(secs: float) -> str:
     return f"{hours:02d}:{mins:02d}:{secs_only:02d},{ms:03d}"
 
 
-def generate_srt(words: List[Dict[str, Any]], start_sec: float, end_sec: float) -> str:
-    candidate_words = [w for w in words if w["end"] > start_sec and w["start"] < end_sec]
+def remap_words_for_sub_ranges(
+    words: List[Dict[str, Any]],
+    sub_ranges: Optional[List[Dict[str, float]]],
+    default_start_sec: float,
+    default_end_sec: float
+) -> Tuple[List[Dict[str, Any]], float, float]:
+    """
+    Filters words inside valid sub_ranges and recalibrates their start and end
+    times to align with the concatenated video output timeline.
+    Returns (remapped_words, 0.0, total_duration).
+    """
+    if not sub_ranges or len(sub_ranges) <= 1:
+        clip_words = [w for w in words if w.get("end", 0) > default_start_sec and w.get("start", 0) < default_end_sec]
+        return clip_words, default_start_sec, default_end_sec
+
+    sorted_ranges = sorted(sub_ranges, key=lambda r: float(r["start"]))
+    remapped_words = []
+    accumulated_offset = 0.0
+
+    for r in sorted_ranges:
+        r_start = float(r["start"])
+        r_end = float(r["end"])
+        r_dur = max(0.0, r_end - r_start)
+        if r_dur <= 0:
+            continue
+
+        for w in words:
+            w_start = float(w.get("start", 0))
+            w_end = float(w.get("end", 0))
+            w_mid = (w_start + w_end) / 2.0
+            if r_start <= w_mid <= r_end:
+                new_w_start = accumulated_offset + max(0.0, w_start - r_start)
+                new_w_end = accumulated_offset + min(r_dur, max(0.05, w_end - r_start))
+                w_copy = dict(w)
+                w_copy["start"] = new_w_start
+                w_copy["end"] = new_w_end
+                remapped_words.append(w_copy)
+
+        accumulated_offset += r_dur
+
+    total_duration = max(0.1, accumulated_offset)
+    return remapped_words, 0.0, total_duration
+
+
+def generate_srt(
+    words: List[Dict[str, Any]],
+    start_sec: float,
+    end_sec: float,
+    sub_ranges: Optional[List[Dict[str, float]]] = None
+) -> str:
+    candidate_words, eff_start, eff_end = remap_words_for_sub_ranges(words, sub_ranges, start_sec, end_sec)
     lines = []
     index = 1
 
@@ -443,8 +507,8 @@ def generate_srt(words: List[Dict[str, Any]], start_sec: float, end_sec: float) 
             continue
         first = chunk[0]
         last = chunk[-1]
-        start_rel = max(0.0, first["start"] - start_sec)
-        end_rel = max(0.0, min(end_sec - start_sec, last["end"] - start_sec))
+        start_rel = max(0.0, first["start"] - eff_start)
+        end_rel = max(0.0, min(eff_end - eff_start, last["end"] - eff_start))
         text = " ".join(w["text"] for w in chunk)
 
         lines.append(f"{index}")
@@ -769,9 +833,10 @@ def generate_ass_subtitles(
     aspect_ratio: str = "9:16",
     primary_color_hex: Optional[str] = None,
     highlight_color_hex: Optional[str] = None,
-    single_line: bool = True
+    single_line: bool = True,
+    sub_ranges: Optional[List[Dict[str, float]]] = None
 ) -> str:
-    clip_words = [w for w in words if w.get("end", 0) > start_sec and w.get("start", 0) < end_sec]
+    clip_words, start_sec, end_sec = remap_words_for_sub_ranges(words, sub_ranges, start_sec, end_sec)
     if not clip_words:
         return ""
 
@@ -996,20 +1061,33 @@ def render_flat_clip(
     cta_badge_path: Optional[str] = None,
     cta_position: str = "top",
     caption_position: str = "bottom",
-    cta_animation: str = "bounce-land"
+    cta_animation: str = "bounce-land",
+    sub_ranges: Optional[List[Dict[str, float]]] = None,
+    transition: Optional[str] = None,
+    target_fps: Optional[int] = None
 ) -> Path:
     if not command_exists("ffmpeg"):
         raise RuntimeError("ffmpeg is not installed or not available on PATH")
 
     os.makedirs(output_path.parent, exist_ok=True)
-    start_str = f"{start_sec:.3f}"
-    dur_sec = max(0.1, end_sec - start_sec)
+    has_multi_segment = bool(sub_ranges and len(sub_ranges) > 1)
+
+    if has_multi_segment:
+        sorted_ranges = sorted(sub_ranges, key=lambda r: float(r["start"]))
+        first_start = float(sorted_ranges[0]["start"])
+        dur_sec = max(0.1, sum(max(0.0, float(r["end"]) - float(r["start"])) for r in sorted_ranges))
+    else:
+        first_start = start_sec
+        dur_sec = max(0.1, end_sec - start_sec)
+
     dur_str = f"{dur_sec:.3f}"
+    start_str = f"{first_start:.3f}"
 
     probe = probe_media(source_path)
     has_video = probe.get("hasVideo", False)
-    vid_w = probe.get("width", 0)
-    vid_h = probe.get("height", 0)
+    has_audio = probe.get("audioCodec") is not None
+    vid_w = probe.get("width", 0) or 0
+    vid_h = probe.get("height", 0) or 0
     # Automatically treat video as vertical if explicitly selected OR if source file is portrait/vertical
     is_vertical = (aspect_ratio == "9:16") or (vid_h > vid_w > 0)
 
@@ -1023,79 +1101,137 @@ def render_flat_clip(
 
     has_cta = bool(cta_badge_path and os.path.exists(str(cta_badge_path)))
 
+    # Calibrated video encoding flags for TikTok and vertical video platforms:
+    # Constrained CRF 19 with VBV 10M cap, yuv420p, high profile, level 4.2
+    enc_flags = [
+        "-threads", "0",
+        "-c:v", "libx264",
+        "-preset", "medium",
+        "-crf", "19",
+        "-maxrate", "10M",
+        "-bufsize", "16M",
+        "-profile:v", "high",
+        "-level:v", "4.2",
+        "-pix_fmt", "yuv420p"
+    ]
+    if target_fps in (30, 60):
+        enc_flags.extend(["-r", str(target_fps)])
+
+    # Helper to generate CTA badge animation filter chain
+    def build_cta_anim_chain(t_st: float, t_en: float, b_y: str):
+        fade = f"fade=in:st={t_st:.2f}:d=0.20:alpha=1,fade=out:st={t_en-0.3:.2f}:d=0.3:alpha=1"
+        if cta_animation == "bounce-land":
+            w_e = f"2*trunc((iw*if(between(t,{t_st:.2f},{t_st+0.35:.2f}),1.0+0.35*pow(1-(t-{t_st:.2f})/0.35,2),1.0))/2)"
+            h_e = f"2*trunc((ih*if(between(t,{t_st:.2f},{t_st+0.35:.2f}),1.0+0.35*pow(1-(t-{t_st:.2f})/0.35,2),1.0))/2)"
+            scale_part = f"scale=eval=frame:w='{w_e}':h='{h_e}'"
+            y_part = b_y
+        elif cta_animation == "pulse-glow":
+            w_e = f"2*trunc((iw*(1.0+0.08*abs(sin(2*PI*(t-{t_st:.2f})/1.2))))/2)"
+            h_e = f"2*trunc((ih*(1.0+0.08*abs(sin(2*PI*(t-{t_st:.2f})/1.2))))/2)"
+            scale_part = f"scale=eval=frame:w='{w_e}':h='{h_e}'"
+            y_part = b_y
+        elif cta_animation == "slide-up":
+            scale_part = "null"
+            slide_delta = 60 if is_vertical else 40
+            y_part = f"if(between(t,{t_st:.2f},{t_st+0.4:.2f}), {b_y} + {slide_delta}*pow(1-(t-{t_st:.2f})/0.4, 2), {b_y})"
+        else:  # fade-smooth
+            scale_part = "null"
+            y_part = b_y
+
+        filter_chain = f"{scale_part},{fade}"
+        return filter_chain, y_part
+
     if has_video:
-        if has_cta:
-            # Add PNG pill badge as second looped input
-            cmd.extend(["-loop", "1", "-i", str(cta_badge_path)])
+        needs_crop = (aspect_ratio == "9:16") and (vid_w >= vid_h > 0)
+        has_sub_collision = bool(subtitle_filter and (cta_position == caption_position))
+        if cta_position == "top":
+            base_y = "280" if (has_sub_collision and is_vertical) else ("160" if has_sub_collision else ("130" if is_vertical else "65"))
+        elif cta_position == "center":
+            base_y = "(H-h)/2+90" if has_sub_collision else "(H-h)/2"
+        else:  # bottom
+            margin_b = 300 if is_vertical else 160
+            normal_b = 140 if is_vertical else 70
+            base_y = f"H-h-{margin_b}" if has_sub_collision else f"H-h-{normal_b}"
 
-            # Only crop if user requested 9:16 and video is NOT already vertical
-            needs_crop = (aspect_ratio == "9:16") and (vid_w >= vid_h > 0)
-            crop_prep = "[0:v]crop=w='2*trunc(min(iw,ih*9/16)/2)':h='2*trunc(min(ih,iw*16/9)/2)',scale=1080:1920,setsar=1[vbase]; " if needs_crop else "[0:v]null[vbase]; "
+        if dur_sec >= 20.0:
+            t1_start, t1_end = 3.0, 5.0
+            t2_start = max(t1_end + 3.0, dur_sec - 3.0)
+            t2_end = dur_sec - 0.8
+        elif dur_sec >= 6.5:
+            t1_start, t1_end = 3.0, 5.0
+            t2_start = t2_end = None
+        elif dur_sec >= 4.0:
+            t1_start, t1_end = 1.2, 3.2
+            t2_start = t2_end = None
+        else:
+            t1_start, t1_end = 0.5, max(1.2, dur_sec - 0.2)
+            t2_start = t2_end = None
 
-            # Calibrated retention timing:
-            if dur_sec >= 20.0:
-                t1_start = 3.0
-                t1_end = 5.0
-                t2_start = max(t1_end + 3.0, dur_sec - 3.0)
-                t2_end = dur_sec - 0.8
-            elif dur_sec >= 6.5:
-                t1_start = 3.0
-                t1_end = 5.0
-                t2_start = None
-                t2_end = None
-            elif dur_sec >= 4.0:
-                t1_start = 1.2
-                t1_end = 3.2
-                t2_start = None
-                t2_end = None
+        if has_multi_segment:
+            if has_cta:
+                cmd.extend(["-loop", "1", "-i", str(cta_badge_path)])
+
+            filter_parts = []
+            N = len(sorted_ranges)
+            for i, r in enumerate(sorted_ranges):
+                rs = max(0.0, float(r["start"]) - first_start)
+                re_ = max(rs + 0.05, float(r["end"]) - first_start)
+                filter_parts.append(f"[0:v]trim=start={rs:.3f}:end={re_:.3f},setpts=PTS-STARTPTS[vseg{i}]")
+                if has_audio:
+                    filter_parts.append(f"[0:a]atrim=start={rs:.3f}:end={re_:.3f},asetpts=PTS-STARTPTS[aseg{i}]")
+
+            v_inputs = "".join(f"[vseg{i}]" for i in range(N))
+            if has_audio:
+                a_inputs = "".join(f"[aseg{i}]" for i in range(N))
+                filter_parts.append(f"{v_inputs}{a_inputs}concat=n={N}:v=1:a=1[vjoined][ajoined]")
             else:
-                t1_start = 0.5
-                t1_end = max(1.2, dur_sec - 0.2)
-                t2_start = None
-                t2_end = None
+                filter_parts.append(f"{v_inputs}concat=n={N}:v=1:a=0[vjoined]")
 
-            # Calculate Y offset avoiding collision with subtitles if they share the same position
-            has_sub_collision = bool(subtitle_filter and (cta_position == caption_position))
-            if cta_position == "top":
-                base_y = "280" if (has_sub_collision and is_vertical) else ("160" if has_sub_collision else ("130" if is_vertical else "65"))
-            elif cta_position == "center":
-                base_y = "(H-h)/2+90" if has_sub_collision else "(H-h)/2"
-            else:  # bottom
-                margin_b = 300 if is_vertical else 160
-                normal_b = 140 if is_vertical else 70
-                base_y = f"H-h-{margin_b}" if has_sub_collision else f"H-h-{normal_b}"
+            if needs_crop:
+                filter_parts.append("[vjoined]crop=w='2*trunc(min(iw,ih*9/16)/2)':h='2*trunc(min(ih,iw*16/9)/2)',scale=1080:1920:flags=lanczos,setsar=1[vbase]")
+            elif aspect_ratio == "9:16" and vid_w > 0 and vid_h > 0 and (vid_w != 1080 or vid_h != 1920):
+                filter_parts.append("[vjoined]scale=1080:1920:flags=lanczos,setsar=1[vbase]")
+            else:
+                filter_parts.append("[vjoined]null[vbase]")
 
-            # Helper to generate animation filter with mathematical boundary clamps
-            def build_cta_anim_chain(t_st: float, t_en: float):
-                fade = f"fade=in:st={t_st:.2f}:d=0.20:alpha=1,fade=out:st={t_en-0.3:.2f}:d=0.3:alpha=1"
-                if cta_animation == "bounce-land":
-                    # Motionmaxxing: 1.35x -> 1.0x soft landing
-                    w_e = f"2*trunc((iw*if(between(t,{t_st:.2f},{t_st+0.35:.2f}),1.0+0.35*pow(1-(t-{t_st:.2f})/0.35,2),1.0))/2)"
-                    h_e = f"2*trunc((ih*if(between(t,{t_st:.2f},{t_st+0.35:.2f}),1.0+0.35*pow(1-(t-{t_st:.2f})/0.35,2),1.0))/2)"
-                    scale_part = f"scale=eval=frame:w='{w_e}':h='{h_e}'"
-                    y_part = base_y
-                elif cta_animation == "pulse-glow":
-                    # Breathing pulse: 1.0x -> 1.08x heartbeat
-                    w_e = f"2*trunc((iw*(1.0+0.08*abs(sin(2*PI*(t-{t_st:.2f})/1.2))))/2)"
-                    h_e = f"2*trunc((ih*(1.0+0.08*abs(sin(2*PI*(t-{t_st:.2f})/1.2))))/2)"
-                    scale_part = f"scale=eval=frame:w='{w_e}':h='{h_e}'"
-                    y_part = base_y
-                elif cta_animation == "slide-up":
-                    # Smooth vertical slide entry
-                    scale_part = "null"
-                    slide_delta = 60 if is_vertical else 40
-                    y_part = f"if(between(t,{t_st:.2f},{t_st+0.4:.2f}), {base_y} + {slide_delta}*pow(1-(t-{t_st:.2f})/0.4, 2), {base_y})"
-                else:  # fade-smooth
-                    scale_part = "null"
-                    y_part = base_y
+            if has_cta:
+                chain1, y1 = build_cta_anim_chain(t1_start, t1_end, base_y)
+                if t2_start is not None and t2_end is not None:
+                    chain2, y2 = build_cta_anim_chain(t2_start, t2_end, base_y)
+                    filter_parts.append("[1:v]format=rgba,split=2[b1raw][b2raw]")
+                    filter_parts.append(f"[b1raw]{chain1}[b1f]")
+                    filter_parts.append(f"[b2raw]{chain2}[b2f]")
+                    filter_parts.append(f"[vbase][b1f]overlay=x='(W-w)/2':y='{y1}':shortest=1:enable='between(t,{t1_start:.2f},{t1_end:.2f})'[vmid]")
+                    filter_parts.append(f"[vmid][b2f]overlay=x='(W-w)/2':y='{y2}':shortest=1:enable='between(t,{t2_start:.2f},{t2_end:.2f})'[vpost_cta]")
+                else:
+                    filter_parts.append(f"[1:v]format=rgba,{chain1}[b1f]")
+                    filter_parts.append(f"[vbase][b1f]overlay=x='(W-w)/2':y='{y1}':shortest=1:enable='between(t,{t1_start:.2f},{t1_end:.2f})'[vpost_cta]")
+            else:
+                filter_parts.append("[vbase]null[vpost_cta]")
 
-                filter_chain = f"{scale_part},{fade}"
-                return filter_chain, y_part
+            if subtitle_filter and subtitle_filter.strip():
+                filter_parts.append(f"[vpost_cta]{subtitle_filter.strip()}[vout]")
+            elif drawtext_filters and drawtext_filters.strip():
+                filter_parts.append(f"[vpost_cta]{drawtext_filters.strip()}[vout]")
+            else:
+                filter_parts.append("[vpost_cta]null[vout]")
 
-            chain1, y1 = build_cta_anim_chain(t1_start, t1_end)
+            fc = "; ".join(filter_parts)
+            cmd.extend([
+                "-filter_complex", fc,
+                "-map", "[vout]"
+            ])
+            if has_audio:
+                cmd.extend(["-map", "[ajoined]"])
+            cmd.extend(enc_flags)
 
+        elif has_cta:
+            cmd.extend(["-loop", "1", "-i", str(cta_badge_path)])
+            crop_prep = "[0:v]crop=w='2*trunc(min(iw,ih*9/16)/2)':h='2*trunc(min(ih,iw*16/9)/2)',scale=1080:1920:flags=lanczos,setsar=1[vbase]; " if needs_crop else ("[0:v]scale=1080:1920:flags=lanczos,setsar=1[vbase]; " if (aspect_ratio == "9:16" and vid_w > 0 and (vid_w != 1080 or vid_h != 1920)) else "[0:v]null[vbase]; ")
+
+            chain1, y1 = build_cta_anim_chain(t1_start, t1_end, base_y)
             if t2_start is not None and t2_end is not None:
-                chain2, y2 = build_cta_anim_chain(t2_start, t2_end)
+                chain2, y2 = build_cta_anim_chain(t2_start, t2_end, base_y)
                 fc = (
                     f"[1:v]format=rgba,split=2[b1raw][b2raw]; "
                     f"[b1raw]{chain1}[b1f]; "
@@ -1121,23 +1257,17 @@ def render_flat_clip(
             cmd.extend([
                 "-filter_complex", fc,
                 "-map", "[vout]",
-                "-map", "0:a?",
-                "-threads", "0",
-                "-c:v", "libx264",
-                "-preset", "medium",
-                "-crf", "15",
-                "-b:v", "16M",
-                "-maxrate", "24M",
-                "-bufsize", "30M",
-                "-profile:v", "high",
-                "-level:v", "4.2",
-                "-pix_fmt", "yuv420p"
+                "-map", "0:a?"
             ])
+            cmd.extend(enc_flags)
+
         else:
             # Standard single-input pipeline
             filters = []
-            if aspect_ratio == "9:16":
-                filters.append("crop=w='2*trunc(min(iw,ih*9/16)/2)':h='2*trunc(min(ih,iw*16/9)/2)',scale=1080:1920,setsar=1")
+            if needs_crop:
+                filters.append("crop=w='2*trunc(min(iw,ih*9/16)/2)':h='2*trunc(min(ih,iw*16/9)/2)',scale=1080:1920:flags=lanczos,setsar=1")
+            elif aspect_ratio == "9:16" and vid_w > 0 and vid_h > 0 and (vid_w != 1080 or vid_h != 1920):
+                filters.append("scale=1080:1920:flags=lanczos,setsar=1")
 
             if subtitle_filter and subtitle_filter.strip():
                 filters.append(subtitle_filter.strip())
@@ -1148,25 +1278,14 @@ def render_flat_clip(
             if vf:
                 cmd.extend(["-vf", vf])
 
-            cmd.extend([
-                "-threads", "0",
-                "-c:v", "libx264",
-                "-preset", "medium",
-                "-crf", "15",
-                "-b:v", "16M",
-                "-maxrate", "24M",
-                "-bufsize", "30M",
-                "-profile:v", "high",
-                "-level:v", "4.2",
-                "-pix_fmt", "yuv420p"
-            ])
+            cmd.extend(enc_flags)
     else:
         cmd.append("-vn")
 
     cmd.extend([
         "-threads", "0",
         "-c:a", "aac",
-        "-b:a", "320k",
+        "-b:a", "192k",
         "-movflags", "+faststart",
         "-t", dur_str,
         str(output_path)
@@ -1176,7 +1295,19 @@ def render_flat_clip(
     if res.returncode != 0:
         # Fallback without subtitle/drawtext if filters caused error
         if subtitle_filter or drawtext_filters or has_cta:
-            return render_flat_clip(source_path, start_sec, end_sec, output_path, None, aspect_ratio, None, None)
+            return render_flat_clip(
+                source_path=source_path,
+                start_sec=start_sec,
+                end_sec=end_sec,
+                output_path=output_path,
+                drawtext_filters=None,
+                aspect_ratio=aspect_ratio,
+                subtitle_filter=None,
+                cta_badge_path=None,
+                sub_ranges=sub_ranges,
+                transition=transition,
+                target_fps=target_fps
+            )
         raise RuntimeError(f"ffmpeg clip render failed: {res.stderr.strip()}")
 
     return output_path

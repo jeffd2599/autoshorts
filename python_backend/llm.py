@@ -36,7 +36,11 @@ def estimate_prompt_tokens(text: str) -> int:
     return int(max(words * 1.35, chars / 3.6))
 
 
-def get_available_context_size(provider: str = "local", lmstudio_base_url: Optional[str] = None) -> int:
+def get_available_context_size(
+    provider: str = "local",
+    lmstudio_base_url: Optional[str] = None,
+    model_name: Optional[str] = None
+) -> int:
     """
     Detects the active context window limit from LM Studio or Ollama.
     Returns 8192 by default if not discoverable.
@@ -45,14 +49,32 @@ def get_available_context_size(provider: str = "local", lmstudio_base_url: Optio
         try:
             raw_url = (lmstudio_base_url or os.getenv("LMSTUDIO_BASE_URL", "http://127.0.0.1:1234/v1")).rstrip("/")
             root_url = raw_url[:-3] if raw_url.endswith("/v1") else raw_url
-            r = requests.get(f"{root_url}/api/v1/models", timeout=1.5)
-            if r.ok:
-                data = r.json()
-                for m in data.get("models", []):
+
+            # 1. Primary check: LM Studio native API v0 (GET /api/v0/models)
+            r0 = requests.get(f"{root_url}/api/v0/models", timeout=1.5)
+            if r0.ok:
+                data0 = r0.json().get("data", [])
+                loaded_models = [m for m in data0 if m.get("state") == "loaded"]
+                if loaded_models:
+                    if model_name:
+                        matched = next((m for m in loaded_models if model_name.lower() in m.get("id", "").lower()), None)
+                        if matched and matched.get("loaded_context_length"):
+                            return int(matched["loaded_context_length"])
+                    first_loaded = loaded_models[0]
+                    if first_loaded.get("loaded_context_length"):
+                        return int(first_loaded["loaded_context_length"])
+
+            # 2. Secondary check: LM Studio API v1 (GET /api/v1/models)
+            r1 = requests.get(f"{root_url}/api/v1/models", timeout=1.5)
+            if r1.ok:
+                data1 = r1.json()
+                models_list = data1.get("models", [])
+                for m in models_list:
                     instances = m.get("loaded_instances", [])
                     if instances:
                         inst = instances[0]
-                        ctx = inst.get("context_length") or inst.get("n_ctx")
+                        cfg = inst.get("config", {}) if isinstance(inst.get("config"), dict) else {}
+                        ctx = cfg.get("context_length") or inst.get("context_length") or inst.get("n_ctx")
                         if ctx and isinstance(ctx, int) and ctx > 0:
                             return ctx
         except Exception:
@@ -149,6 +171,18 @@ def get_loaded_models_status(provider: Optional[str] = None, lmstudio_base_url: 
         try:
             raw_url = (lmstudio_base_url or os.getenv("LMSTUDIO_BASE_URL", "http://127.0.0.1:1234/v1")).rstrip("/")
             root_url = raw_url[:-3] if raw_url.endswith("/v1") else raw_url
+
+            ctx_len = None
+            try:
+                r0 = requests.get(f"{root_url}/api/v0/models", timeout=1.2)
+                if r0.ok:
+                    data0 = r0.json().get("data", [])
+                    loaded0 = next((m for m in data0 if m.get("state") == "loaded"), None)
+                    if loaded0:
+                        ctx_len = loaded0.get("loaded_context_length")
+            except Exception:
+                pass
+
             resp = requests.get(f"{root_url}/api/v1/models", timeout=1.5)
             if resp.ok:
                 data = resp.json()
@@ -158,9 +192,10 @@ def get_loaded_models_status(provider: Optional[str] = None, lmstudio_base_url: 
                         result["isLoaded"] = True
                         result["loadedModel"] = m.get("display_name") or m.get("key") or m.get("id")
                         result["provider"] = "lmstudio"
+                        result["contextLength"] = ctx_len
                         size_b = m.get("size_bytes", 0)
                         result["sizeMb"] = round(size_b / (1024 * 1024)) if size_b else None
-                        result["details"] = [{"name": m.get("key") or m.get("id"), "sizeMb": result["sizeMb"]}]
+                        result["details"] = [{"name": m.get("key") or m.get("id"), "sizeMb": result["sizeMb"], "contextLength": ctx_len}]
                         return result
         except Exception:
             pass
@@ -824,7 +859,7 @@ def detect_candidates_pipeline(
             print(f"Nota en detección de picos de audio: {e}")
 
     # Detect active context size from LM Studio / Ollama
-    available_ctx = get_available_context_size(provider=provider)
+    available_ctx = get_available_context_size(provider=provider, model_name=model_name)
     if available_ctx <= 4096:
         chunk_dur = 180.0
         overlap = 30.0

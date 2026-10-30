@@ -72,8 +72,8 @@ def serialize_project(db: Any, project_id: str) -> Dict[str, Any]:
         })
 
     return {
-        "formatVersion": "2.5",
-        "appVersion": "2.5.0",
+        "formatVersion": "2.6",
+        "appVersion": "2.6.0",
         "id": proj["id"],
         "name": proj.get("name"),
         "sourcePath": proj.get("sourcePath"),
@@ -260,8 +260,99 @@ def restore_project_from_disk(db: Any, file_or_dir: Path) -> Dict[str, Any]:
     return db.get_project_detail(project_id)
 
 
+def _format_time_stamp(sec: float) -> str:
+    m = int(sec // 60)
+    s = int(sec % 60)
+    return f"{m:02d}:{s:02d}"
+
+
+def _format_srt_timestamp(secs: float) -> str:
+    h = int(secs // 3600)
+    m = int((secs % 3600) // 60)
+    s = int(secs % 60)
+    ms = int(round((secs - int(secs)) * 1000))
+    if ms >= 1000:
+        s += 1
+        ms = 0
+    return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+
+
+def export_project_summary_files(project_dir: Path, data: Dict[str, Any]):
+    """
+    Exports clean transcription, complete SRT, structured JSON,
+    and viral moments list into the project's summary/ folder.
+    """
+    summary_dir = project_dir / "summary"
+    os.makedirs(summary_dir, exist_ok=True)
+
+    transcript = data.get("transcript")
+    if transcript and isinstance(transcript, dict):
+        segments = transcript.get("segments", [])
+        if segments:
+            # 1. transcripcion_completa.txt
+            lines = []
+            for s in segments:
+                st = _format_time_stamp(float(s.get("start", 0.0)))
+                en = _format_time_stamp(float(s.get("end", 0.0)))
+                speaker = s.get("speaker")
+                txt = s.get("text", "").strip()
+                prefix = f"[{st} - {en}] {speaker}: " if speaker else f"[{st} - {en}] "
+                lines.append(f"{prefix}{txt}")
+
+            full_txt_path = summary_dir / "transcripcion_completa.txt"
+            with open(full_txt_path, "w", encoding="utf-8") as f:
+                f.write("\n".join(lines) + "\n")
+
+            # 2. subtitulos_completos.srt
+            srt_lines = []
+            for idx, s in enumerate(segments, 1):
+                st_srt = _format_srt_timestamp(float(s.get("start", 0.0)))
+                en_srt = _format_srt_timestamp(float(s.get("end", 0.0)))
+                txt = s.get("text", "").strip()
+                srt_lines.append(f"{idx}\n{st_srt} --> {en_srt}\n{txt}\n")
+
+            full_srt_path = summary_dir / "subtitulos_completos.srt"
+            with open(full_srt_path, "w", encoding="utf-8") as f:
+                f.write("\n".join(srt_lines) + "\n")
+
+            # 3. transcripcion_detallada.json
+            full_json_path = summary_dir / "transcripcion_detallada.json"
+            with open(full_json_path, "w", encoding="utf-8") as f:
+                json.dump(transcript, f, indent=2, ensure_ascii=False)
+
+    # 4. momentos_virales.txt
+    candidates = data.get("candidates", [])
+    if candidates:
+        moments_lines = [
+            "=" * 70,
+            f"AutoShorts - Momentos Virales Detectados ({len(candidates)} clips)",
+            "=" * 70,
+            ""
+        ]
+        sorted_candidates = sorted(candidates, key=lambda c: int(c.get("rank") or 999))
+        for c in sorted_candidates:
+            st = _format_time_stamp(float(c.get("start", 0.0)))
+            en = _format_time_stamp(float(c.get("end", 0.0)))
+            score = int(round(float(c.get("score", 0.8)) * 100))
+            rank = c.get("rank", 1)
+            hook = c.get("hook", "Clip")
+            rationale = c.get("rationale", "")
+            description = c.get("description", "")
+
+            moments_lines.append(f"#{rank} [{st} - {en}] Score: {score}% | Hook: {hook}")
+            if rationale:
+                moments_lines.append(f"Por qué es viral: {rationale}")
+            if description:
+                moments_lines.append(f"Social Copy / Hashtags:\n{description}")
+            moments_lines.append("-" * 70)
+
+        moments_path = summary_dir / "momentos_virales.txt"
+        with open(moments_path, "w", encoding="utf-8") as f:
+            f.write("\n".join(moments_lines) + "\n")
+
+
 def sync_project_to_disk(db: Any, project_id: str, project_dir: Optional[Path] = None) -> Optional[Path]:
-    """Serializes project data and writes autoshorts.project to the project folder."""
+    """Serializes project data, writes autoshorts.project, and populates summary/ files."""
     try:
         proj = db.get_project(project_id)
     except Exception:
@@ -269,7 +360,12 @@ def sync_project_to_disk(db: Any, project_id: str, project_dir: Optional[Path] =
 
     pdir = project_dir or resolve_project_dir(db, proj)
     data = serialize_project(db, project_id)
-    return save_project_file(pdir, data)
+    res = save_project_file(pdir, data)
+    try:
+        export_project_summary_files(pdir, data)
+    except Exception as e:
+        print(f"Warning: could not export summary files for {project_id}: {e}")
+    return res
 
 
 def auto_migrate_legacy_projects(db: Any) -> int:
