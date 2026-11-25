@@ -166,7 +166,6 @@ export type BusyState =
   | "idle"
   | "import"
   | "transcribe"
-  | "demoTranscript"
   | "moments"
   | "clipCount"
   | "cut";
@@ -183,6 +182,19 @@ export type GamingSubgenre =
   | "general_gaming";
 
 export type AspectRatioOption = "original" | "16:9" | "9:16";
+
+export type VideoLayoutOption = "crop" | "blur" | "gaming_split";
+
+export type CropRect = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  outWidth?: number;
+  outHeight?: number;
+  outX?: number;
+  outY?: number;
+};
 
 export type ContentType = "gaming" | "tutorial" | "podcast" | "general";
 

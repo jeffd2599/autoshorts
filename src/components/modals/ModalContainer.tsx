@@ -1,4 +1,3 @@
-import React from "react";
 import type {
   BusyState,
   Candidate,
@@ -20,13 +19,12 @@ import { QuickCopyModal } from "./QuickCopyModal";
 import { CandidatePreviewModal } from "./CandidatePreviewModal";
 import { ModelDownloadModal } from "./ModelDownloadModal";
 
-export interface ModalContainerProps {
+interface ModalContainerProps {
   // Settings
   showSettings: boolean;
   setShowSettings: (show: boolean) => void;
   telemetry: HardwareTelemetry | null;
   transcriptionEngine: TranscriptionEngine;
-  setTranscriptionEngine: (engine: TranscriptionEngine) => void;
   whisperModel: string;
   setWhisperModel: (model: string) => void;
   whisperModelsList: WhisperModel[];
@@ -67,8 +65,6 @@ export interface ModalContainerProps {
   showStyleModal: boolean;
   setShowStyleModal: (show: boolean) => void;
   setMediaPathToImport: (path: string | null) => void;
-  selectedStyle: string;
-  setSelectedStyle: (style: string) => void;
   selectedContentType: ContentType;
   setSelectedContentType: (type: ContentType) => void;
   targetDuration: TargetDuration;
@@ -125,8 +121,6 @@ export function ModalContainer(props: ModalContainerProps) {
         isOpen={props.showSettings}
         onClose={() => props.setShowSettings(false)}
         telemetry={props.telemetry}
-        transcriptionEngine={props.transcriptionEngine}
-        setTranscriptionEngine={props.setTranscriptionEngine}
         whisperModel={props.whisperModel}
         setWhisperModel={props.setWhisperModel}
         whisperModelsList={props.whisperModelsList}
@@ -168,8 +162,6 @@ export function ModalContainer(props: ModalContainerProps) {
           props.setMediaPathToImport(null);
         }}
         telemetry={props.telemetry}
-        selectedStyle={props.selectedStyle}
-        setSelectedStyle={props.setSelectedStyle}
         selectedContentType={props.selectedContentType}
         setSelectedContentType={props.setSelectedContentType}
         targetDuration={props.targetDuration}

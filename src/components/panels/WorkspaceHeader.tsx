@@ -1,6 +1,5 @@
 import React from "react";
 import {
-  Clapperboard,
   SlidersHorizontal,
   RefreshCw,
   Check,
@@ -12,9 +11,8 @@ import {
   FolderSync,
   Scissors,
   FileText,
-  Trash2,
 } from "lucide-react";
-import type { ProjectDetail, LlmMemoryStatus } from "../../types";
+import type { ProjectDetail } from "../../types";
 import { fileName } from "../../utils/format";
 
 interface WorkspaceHeaderProps {

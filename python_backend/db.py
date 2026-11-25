@@ -14,10 +14,6 @@ def utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-# Canonical classification shared with LLM candidate parser
-_infer_hook_type = classify_hook_type
-
-
 SCHEMA_MIGRATIONS = [
     (1, "ALTER TABLE candidates ADD COLUMN description TEXT;"),
     (2, "ALTER TABLE candidates ADD COLUMN hook_title TEXT;"),
@@ -256,12 +252,6 @@ class Database:
                 "createdAt": r["created_at"],
                 "updatedAt": r["updated_at"],
             }
-
-    def update_project_workflow_goal(self, project_id: str, workflow_goal: str) -> Dict[str, Any]:
-        now = utc_now_iso()
-        with self.get_conn() as conn:
-            conn.execute("UPDATE projects SET workflow_goal = ?, updated_at = ? WHERE id = ?", (workflow_goal, now, project_id))
-        return self.get_project(project_id)
 
     def update_project_dir(self, project_id: str, project_dir: str) -> Dict[str, Any]:
         now = utc_now_iso()
@@ -577,90 +567,3 @@ class Database:
                    WHERE candidate_id = ?""",
                 (status, output_path, caption_path, render_log, candidate_id)
             )
-
-    def save_autoedit(
-        self,
-        project_id: str,
-        output_path: str,
-        format_mode: str,
-        target_duration_sec: float,
-        actual_duration_sec: Optional[float] = None,
-        chapters_text: Optional[str] = None,
-        title: Optional[str] = None,
-        description: Optional[str] = None,
-        hashtags: Optional[str] = None,
-        autoedit_id: Optional[str] = None
-    ) -> Dict[str, Any]:
-        ae_id = autoedit_id or str(uuid.uuid4())
-        now = utc_now_iso()
-        with self.get_conn() as conn:
-            conn.execute(
-                """INSERT INTO autoedits (id, project_id, output_path, format_mode, target_duration_sec, actual_duration_sec, chapters_text, title, description, hashtags, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                   ON CONFLICT(id) DO UPDATE SET
-                     output_path = excluded.output_path,
-                     actual_duration_sec = excluded.actual_duration_sec,
-                     chapters_text = excluded.chapters_text,
-                     title = COALESCE(excluded.title, autoedits.title),
-                     description = COALESCE(excluded.description, autoedits.description),
-                     hashtags = COALESCE(excluded.hashtags, autoedits.hashtags)""",
-                (ae_id, project_id, output_path, format_mode, target_duration_sec, actual_duration_sec, chapters_text, title, description, hashtags, now)
-            )
-        return self.get_autoedit(ae_id)
-
-    def get_autoedit(self, autoedit_id: str) -> Optional[Dict[str, Any]]:
-        with self.get_conn() as conn:
-            r = conn.execute(
-                "SELECT id, project_id, output_path, format_mode, target_duration_sec, actual_duration_sec, chapters_text, title, description, hashtags, created_at FROM autoedits WHERE id = ?",
-                (autoedit_id,)
-            ).fetchone()
-            if not r:
-                return None
-            return {
-                "id": r["id"],
-                "projectId": r["project_id"],
-                "outputPath": r["output_path"],
-                "formatMode": r["format_mode"],
-                "targetDurationSec": r["target_duration_sec"],
-                "actualDurationSec": r["actual_duration_sec"],
-                "chaptersText": r["chapters_text"],
-                "title": r["title"] or "",
-                "description": r["description"] or "",
-                "hashtags": r["hashtags"] or "",
-                "createdAt": r["created_at"]
-            }
-
-    def list_autoedits(self, project_id: str) -> List[Dict[str, Any]]:
-        with self.get_conn() as conn:
-            rows = conn.execute(
-                "SELECT id, project_id, output_path, format_mode, target_duration_sec, actual_duration_sec, chapters_text, title, description, hashtags, created_at FROM autoedits WHERE project_id = ? ORDER BY created_at DESC",
-                (project_id,)
-            ).fetchall()
-            return [
-                {
-                    "id": r["id"],
-                    "projectId": r["project_id"],
-                    "outputPath": r["output_path"],
-                    "formatMode": r["format_mode"],
-                    "targetDurationSec": r["target_duration_sec"],
-                    "actualDurationSec": r["actual_duration_sec"],
-                    "chaptersText": r["chapters_text"],
-                    "title": r["title"] or "",
-                    "description": r["description"] or "",
-                    "hashtags": r["hashtags"] or "",
-                    "createdAt": r["created_at"]
-                }
-                for r in rows
-            ]
-
-    def delete_autoedit(self, autoedit_id: str):
-        with self.get_conn() as conn:
-            conn.execute("DELETE FROM autoedits WHERE id = ?", (autoedit_id,))
-
-    def update_autoedit_copy(self, autoedit_id: str, title: str, description: str, hashtags: str) -> Optional[Dict[str, Any]]:
-        with self.get_conn() as conn:
-            conn.execute(
-                "UPDATE autoedits SET title = ?, description = ?, hashtags = ? WHERE id = ?",
-                (title, description, hashtags, autoedit_id)
-            )
-        return self.get_autoedit(autoedit_id)

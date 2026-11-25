@@ -94,11 +94,6 @@
   .workspace {
     height: auto;
   }
-
-  .work-grid,
-  .pipeline-strip {
-    grid-template-columns: 1fr;
-  }
 }
 
 /* Home Dashboard Styling */

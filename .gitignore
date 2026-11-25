@@ -1,7 +1,7 @@
 node_modules
 dist
-target
-src-tauri/target
+build
+_internal
 .env
 .DS_Store
 *.log
@@ -9,12 +9,9 @@ src-tauri/target
 
 # Python & Build artifacts
 __pycache__/
-*.pyc
-build/
-build_tmp/
-release/
+venv/
+.venv/
+env/
 data/
 scratch/
-repo-supoclip/
-analizarrepos/
 MagicMock/

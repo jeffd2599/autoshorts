@@ -10,10 +10,8 @@ from python_backend.llm_prompts import (
     DURATION_SPECS,
     parse_time_to_seconds,
     parse_markdown_clips,
-    DEFAULT_MOMENTS_PROMPT,
     build_system_prompt,
     strip_emojis_from_text,
-    locate_moment_active_window,
     classify_hook_type,
 )
 
@@ -120,14 +118,12 @@ def unload_all_lmstudio_models(base_url: Optional[str] = None):
         resp = requests.get(f"{root_url}/api/v1/models", timeout=1.0)
         if resp.ok:
             data = resp.json()
-            unloaded = False
             for m in data.get("models", []):
                 for inst in m.get("loaded_instances", []):
                     inst_id = inst.get("id")
                     if inst_id:
                         requests.post(f"{root_url}/api/v1/models/unload", json={"instance_id": inst_id}, timeout=2)
                         print(f"VRAM liberada: Modelo de LM Studio '{inst_id}' descargado de memoria.")
-                        unloaded = True
     except Exception:
         pass
 
@@ -422,27 +418,6 @@ def normalize_candidate_duration(
             break
 
     return start, round(best_end, 2)
-
-
-def expand_short_candidate(
-    start: float,
-    end: float,
-    segments: Optional[List[Dict[str, Any]]],
-    target_min: float = 30.0,
-    target_max: float = 60.0
-) -> tuple[float, float]:
-    return normalize_candidate_duration(start, end, segments, target_min=target_min, target_max=target_max)
-
-
-def clamp_candidate_duration(
-    start: float,
-    end: float,
-    segments: Optional[List[Dict[str, Any]]],
-    target_min: float = 45.0,
-    target_max: float = 75.0
-) -> Tuple[float, float]:
-    return normalize_candidate_duration(start, end, segments, target_min=target_min, target_max=target_max)
-
 
 
 def _coerce_candidate_timestamp(val: Any) -> float:

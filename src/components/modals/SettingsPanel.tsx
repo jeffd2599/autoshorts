@@ -1,11 +1,10 @@
-import React, { useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Bot, Download, Eye, EyeOff, Mic, RefreshCw, SlidersHorizontal, Sparkles, X } from "lucide-react";
 import {
   DEFAULT_WHISPER_MODELS,
   EnvironmentStatus,
   HardwareTelemetry,
   LlmEngine,
-  TranscriptionEngine,
   WhisperModel,
 } from "../../types";
 import {
@@ -19,8 +18,6 @@ interface SettingsPanelProps {
   isOpen: boolean;
   onClose: () => void;
   telemetry?: HardwareTelemetry | null;
-  transcriptionEngine: TranscriptionEngine;
-  setTranscriptionEngine: (engine: TranscriptionEngine) => void;
   whisperModel: string;
   setWhisperModel: (model: string) => void;
   whisperModelsList: WhisperModel[];

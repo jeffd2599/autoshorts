@@ -6,6 +6,8 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
+from ..version import __version__
+
 PROJECT_FILE_NAME = "autoshorts.project"
 LEGACY_PROJECT_FILE_NAMES = ["project.json", "autoshorts.json"]
 MEDIA_EXTENSIONS = {".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v", ".mp3", ".wav", ".m4a"}
@@ -73,7 +75,7 @@ def serialize_project(db: Any, project_id: str) -> Dict[str, Any]:
 
     return {
         "formatVersion": "2.6",
-        "appVersion": "2.6.0",
+        "appVersion": __version__,
         "id": proj["id"],
         "name": proj.get("name"),
         "sourcePath": proj.get("sourcePath"),
@@ -395,18 +397,6 @@ def auto_migrate_legacy_projects(db: Any) -> int:
     except Exception as e:
         print(f"Error en auto_migrate_legacy_projects: {e}")
     return count
-
-
-def open_media_file(path: Optional[str]) -> bool:
-    if path:
-        p = Path(path)
-        if p.exists():
-            try:
-                os.startfile(str(p))
-                return True
-            except Exception as e:
-                print(f"Error opening media file: {e}")
-    return False
 
 
 def open_folder(path: Optional[str]) -> bool:

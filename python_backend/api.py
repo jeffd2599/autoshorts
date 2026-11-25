@@ -2,8 +2,6 @@ import json
 import os
 import re
 import shutil
-import subprocess
-import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -14,11 +12,9 @@ from .db import Database
 from .media import (
     command_exists,
     extract_audio,
-    extract_video_thumbnail,
     generate_srt,
     generate_ass_subtitles,
     generate_cta_badge_image,
-    build_drawtext_filters,
     probe_media,
     probe_media_cached,
     render_flat_clip,
@@ -32,21 +28,19 @@ from .llm import (
     get_loaded_models_status,
     preload_local_model,
     refine_transcript_with_llm,
-    DEFAULT_MOMENTS_PROMPT,
     generate_social_copy_with_llm,
     strip_emojis_from_text,
 )
+from .llm_prompts import DEFAULT_MOMENTS_PROMPT
 from .telemetry import get_hardware_telemetry
 from .services.project_service import (
     resolve_project_dir,
-    open_media_file,
     open_folder,
     move_project_folder_action,
     sync_project_to_disk,
     restore_project_from_disk,
     find_project_file,
     auto_migrate_legacy_projects,
-    PROJECT_FILE_NAME
 )
 from .logger import log_buffer, get_system_logs, clear_system_logs
 
@@ -372,30 +366,10 @@ class Api:
         sync_project_to_disk(self.db, proj["id"], target_dir)
         return proj
 
-    def update_project_workflow_goal(self, args: Any) -> Dict[str, Any]:
-        project_id = args.get("projectId")
-        workflow_goal = args.get("workflowGoal", "clips")
-        return self.db.update_project_workflow_goal(project_id, workflow_goal)
-
-    def probe_project(self, args: Any) -> Dict[str, Any]:
-        project_id = args.get("projectId") if isinstance(args, dict) else args
-        project = self.db.get_project(project_id)
-        probe = probe_media_cached(project["sourcePath"])
-        self.db.update_project_status(project_id, "ingest", probe.get("durationSec"))
-        return probe
-
-    def extract_project_audio(self, args: Any) -> str:
-        project_id = args.get("projectId") if isinstance(args, dict) else args
-        project = self.db.get_project(project_id)
-        proj_dir = self.get_project_dir(project)
-        audio_path = extract_audio(project["sourcePath"], proj_dir / "audio")
-        return str(audio_path)
-
     def transcribe_project(self, args: Any) -> Dict[str, Any]:
         if isinstance(args, dict):
             project_id = args.get("projectId")
             provider = args.get("provider", "local")
-            api_key = args.get("apiKey")
             whisper_model = args.get("whisperModel") or "base"
             refine_with_llm = bool(args.get("refineWithLlm", False))
             llm_engine = args.get("llmEngine", "local")
@@ -405,7 +379,6 @@ class Api:
         else:
             project_id = args
             provider = "local"
-            api_key = None
             whisper_model = "base"
             refine_with_llm = False
             llm_engine = "local"
@@ -618,27 +591,6 @@ class Api:
         )
         return saved
 
-    def save_demo_transcript(self, args: Any) -> Dict[str, Any]:
-        project_id = args.get("projectId") if isinstance(args, dict) else args
-        demo = {
-            "language": "es",
-            "duration": 180.0,
-            "speakers": ["S1"],
-            "words": [
-                {"text": "Bienvenidos", "start": 0.5, "end": 1.2, "speaker": "S1"},
-                {"text": "a", "start": 1.2, "end": 1.4, "speaker": "S1"},
-                {"text": "AutoShorts", "start": 1.4, "end": 2.0, "speaker": "S1"},
-            ],
-            "segments": [
-                {"start": 0.0, "end": 60.0, "speaker": "S1", "text": "Este es un momento épico en la partida..."},
-                {"start": 60.0, "end": 120.0, "speaker": "S1", "text": "¡No me puedo creer lo que acaba de pasar!"}
-            ]
-        }
-        raw_json = json.dumps(demo, ensure_ascii=False, indent=2)
-        saved = self.db.save_transcript(project_id, "demo", raw_json, "es")
-        self.db.update_project_status(project_id, "analyzing", 180.0)
-        return saved
-
     def cancel_candidate_generation(self, _args: Any = None) -> bool:
         self._cancel_candidates_flag = True
         try:
@@ -653,9 +605,6 @@ class Api:
 
     def get_hardware_telemetry(self, _args: Any = None) -> Dict[str, Any]:
         return get_hardware_telemetry()
-
-    def get_whisper_models(self, _args: Any = None) -> List[Dict[str, Any]]:
-        return get_installed_whisper_models()
 
     def get_default_moments_prompt(self, _args: Any = None) -> str:
         return DEFAULT_MOMENTS_PROMPT
@@ -825,7 +774,6 @@ class Api:
         provider = args.get("provider", "local") if isinstance(args, dict) else "local"
         model_name = args.get("modelName") if isinstance(args, dict) else None
         api_key = args.get("apiKey") if isinstance(args, dict) else None
-        enable_thinking = bool(args.get("enableThinking", False)) if isinstance(args, dict) else False
         keep_loaded = bool(args.get("keepLoaded", False)) if isinstance(args, dict) and "keepLoaded" in args else bool(self.get_app_config().get("keepModelLoaded", False))
 
         candidate, project = self.db.get_candidate_with_project(candidate_id)
@@ -1020,6 +968,12 @@ class Api:
             return result[0]
         return None
 
+    def cancel_render(self, _args: Any = None) -> bool:
+        """Cancela de forma atómica y segura cualquier exportación activa de FFmpeg."""
+        from .media import cancel_active_render
+        log_buffer.push("[Api] Solicitud de cancelación de renderizado recibida.")
+        return cancel_active_render()
+
     def render_flat_clip_for_candidate(self, args: Any) -> str:
         candidate_id = args.get("candidateId") if isinstance(args, dict) else args
         custom_dir = args.get("outputDir") if isinstance(args, dict) else None
@@ -1027,7 +981,15 @@ class Api:
         burn_subtitles = bool(args.get("burnSubtitles", False)) if isinstance(args, dict) else False
         sub_ranges = args.get("subRanges") if isinstance(args, dict) else None
         transition = args.get("transition") if isinstance(args, dict) else None
-        target_fps = int(args["fps"]) if isinstance(args, dict) and args.get("fps") and int(args["fps"]) in (30, 60) else None
+        target_fps = int(args["fps"]) if isinstance(args, dict) and args.get("fps") and int(args["fps"]) in (30, 60, 120) else None
+        layout = args.get("layout", "crop") if isinstance(args, dict) else "crop"
+        camera_crop = args.get("cameraCrop") if isinstance(args, dict) else None
+        gameplay_crop = args.get("gameplayCrop") if isinstance(args, dict) else None
+        bgm_path = args.get("bgmPath") if isinstance(args, dict) else None
+        bgm_volume = float(args.get("bgmVolume", 0.15)) if isinstance(args, dict) and args.get("bgmVolume") is not None else 0.15
+        bgm_start_sec = float(args.get("bgmStartSec", 0.0)) if isinstance(args, dict) and args.get("bgmStartSec") is not None else 0.0
+        target_bitrate_k = int(args.get("targetBitrateK")) if isinstance(args, dict) and args.get("targetBitrateK") else None
+        two_pass = bool(args.get("twoPass", False)) if isinstance(args, dict) else False
 
         candidate, project = self.db.get_candidate_with_project(candidate_id)
         self.db.update_clip_for_candidate(candidate_id, "cutting")
@@ -1123,7 +1085,6 @@ class Api:
 
         log_buffer.push(f"[Exportación] Preparando clip #{candidate.get('rank', 1)}: '{base_name}'...")
 
-        drawtext_filters = None
         subtitle_filter = None
         srt_path = None
         cta_badge_path = None
@@ -1194,12 +1155,18 @@ class Api:
                 except Exception as e:
                     print(f"Warning building captions: {e}")
 
+            def on_render_progress(pct: int, stage: str):
+                self.emit("render-progress", {
+                    "candidateId": candidate_id,
+                    "percent": pct,
+                    "stage": stage,
+                })
+
             rendered_path = render_flat_clip(
                 source_path=project["sourcePath"],
                 start_sec=start_sec,
                 end_sec=end_sec,
                 output_path=output_path,
-                drawtext_filters=drawtext_filters,
                 aspect_ratio=aspect_ratio,
                 subtitle_filter=subtitle_filter,
                 cta_badge_path=cta_badge_path,
@@ -1210,7 +1177,16 @@ class Api:
                 transition=transition,
                 target_fps=target_fps,
                 cta_x=cta_x,
-                cta_y=cta_y
+                cta_y=cta_y,
+                layout=layout,
+                camera_crop=camera_crop,
+                gameplay_crop=gameplay_crop,
+                bgm_path=bgm_path,
+                bgm_volume=bgm_volume,
+                bgm_start_sec=bgm_start_sec,
+                target_bitrate_k=target_bitrate_k,
+                two_pass=two_pass,
+                progress_callback=on_render_progress
             )
 
             self.db.update_clip_for_candidate(
@@ -1225,6 +1201,10 @@ class Api:
             except Exception as e:
                 print(f"Warning syncing project on export: {e}")
             return str(rendered_path)
+        except InterruptedError:
+            log_buffer.push(f"[Exportación] Renderizado de clip #{candidate.get('rank', 1)} cancelado por el usuario.")
+            self.db.update_clip_for_candidate(candidate_id, "error")
+            return ""
         except Exception as e:
             err_msg = str(e)
             log_buffer.push(f"[Exportación ERROR] Falló exportación de clip #{candidate.get('rank', 1)}: {err_msg}")
@@ -1337,9 +1317,6 @@ class Api:
                     })
         return True
 
-    def install_ollama(self, _args: Any = None):
-        raise RuntimeError("Descarga e instala Ollama desde https://ollama.com")
-
     def _validate_safe_path(self, requested_path: Optional[str]) -> Path:
         """
         Valida que la ruta solicitada no acceda a ubicaciones restringidas del sistema.
@@ -1354,14 +1331,63 @@ class Api:
             raise PermissionError(f"Acceso denegado a ruta restringida del sistema: {requested_path}")
         return p
 
-    def open_media_file(self, args: Any) -> bool:
-        path = args.get("path") if isinstance(args, dict) else args
-        return open_media_file(path)
-
     def open_folder(self, args: Any):
         path = args.get("path") if isinstance(args, dict) else args
         safe_path = self._validate_safe_path(path)
         return open_folder(str(safe_path))
+
+    def save_project_bgm(self, args: Any) -> Dict[str, Any]:
+        """
+        Recibe audio de música de fondo (BGM) codificado en base64 desde drag & drop en WebView2,
+        sanitiza el nombre de archivo y lo persiste en la subcarpeta 'bgm' del proyecto.
+        Retorna la ruta física absoluta verificada en disco para FFmpeg.
+        """
+        import base64
+        args = args or {}
+        project_id = args.get("projectId")
+        raw_name = args.get("fileName") or "musica.mp3"
+        data_b64 = args.get("dataBase64") or ""
+
+        if not data_b64:
+            raise ValueError("No se enviaron datos de audio (dataBase64 vacío)")
+
+        # Sanitizar nombre de archivo contra path traversal y caracteres reservados de Windows
+        safe_name = Path(raw_name).name
+        safe_name = re.sub(r'[\\/*?:"<>|]', "", safe_name).strip() or "bgm_audio.mp3"
+        if not safe_name.lower().endswith((".mp3", ".wav", ".aac", ".m4a", ".ogg")):
+            safe_name += ".mp3"
+
+        # Determinar directorio destino del proyecto
+        target_dir = None
+        if project_id:
+            try:
+                proj = self.db.get_project(project_id)
+                if proj:
+                    target_dir = self.get_project_dir(proj) / "bgm"
+            except Exception:
+                pass
+
+        if not target_dir:
+            target_dir = self.data_dir / "bgm"
+
+        target_dir.mkdir(parents=True, exist_ok=True)
+        dest_file = target_dir / safe_name
+
+        # Decodificar payload Base64 (eliminando prefijo Data URL si existe)
+        header_prefix = "base64,"
+        idx = data_b64.find(header_prefix)
+        clean_b64 = data_b64[idx + len(header_prefix):] if idx != -1 else data_b64
+        decoded_bytes = base64.b64decode(clean_b64)
+
+        dest_file.write_bytes(decoded_bytes)
+        log_buffer.push(f"[BGM] Pista guardada en disco: {dest_file.name} ({len(decoded_bytes)} bytes)")
+
+        return {
+            "success": True,
+            "path": str(dest_file.resolve()),
+            "fileName": dest_file.name,
+            "sizeBytes": len(decoded_bytes)
+        }
 
     def open_project_folder(self, args: Any) -> Dict[str, Any]:
         project_id = args.get("projectId") if isinstance(args, dict) else args
@@ -1442,7 +1468,7 @@ class Api:
                 "lines": len(entries)
             }
 
-    def open_project_file_dialog(self, _args: Optional[Dict[str, Any]] = None) -> Optional[str]:
+    def _open_project_file_dialog(self, _args: Optional[Dict[str, Any]] = None) -> Optional[str]:
         if not self._window:
             return None
         file_types = (
@@ -1463,7 +1489,7 @@ class Api:
     def import_existing_project(self, args: Any) -> Dict[str, Any]:
         path = args.get("path") if isinstance(args, dict) else args
         if not path:
-            path = self.open_project_file_dialog()
+            path = self._open_project_file_dialog()
             if not path:
                 return {}
         p = Path(path)

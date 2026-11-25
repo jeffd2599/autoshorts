@@ -15,7 +15,6 @@ import {
 import {
   ModelBadge,
   getWhisperTrafficLevel,
-  getOllamaTrafficLevel,
   sortWhisperModels,
 } from "../common/ModelBadge";
 
@@ -23,8 +22,6 @@ interface StyleModalProps {
   isOpen: boolean;
   onClose: () => void;
   telemetry?: HardwareTelemetry | null;
-  selectedStyle: string;
-  setSelectedStyle: (style: string) => void;
   selectedContentType: ContentType;
   setSelectedContentType: (type: ContentType) => void;
   targetDuration: TargetDuration;
@@ -63,8 +60,6 @@ export function StyleModal({
   isOpen,
   onClose,
   telemetry,
-  selectedStyle,
-  setSelectedStyle,
   selectedContentType,
   setSelectedContentType,
   targetDuration,

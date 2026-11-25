@@ -3,7 +3,7 @@
   <h1>AutoShorts</h1>
   <p><strong>Suite de Escritorio Local-First para Extracción, Detección Inteligente y Edición de Clips Verticales Virales</strong></p>
 
-  [![Version 2.9.0](https://img.shields.io/badge/Release-v2.9.0-brightgreen.svg)](https://github.com/jeffd2599/autoshorts/releases)
+  [![Version 3.0.0](https://img.shields.io/badge/Release-v3.0.0-brightgreen.svg)](https://github.com/jeffd2599/autoshorts/releases)
   [![Portable Windows](https://img.shields.io/badge/Portable-Windows%20x64%20(ZIP%20Portable)-blue.svg)](https://github.com/jeffd2599/autoshorts/releases)
   [![Python 3.11](https://img.shields.io/badge/Python-3.11%20Recomendado-3776AB?logo=python&logoColor=white)](https://www.python.org/)
   [![React 19](https://img.shields.io/badge/React-19.0-61DAFB?logo=react&logoColor=black)](https://react.dev/)
@@ -23,7 +23,7 @@
 Diseñada bajo una arquitectura **Local-First**, AutoShorts procesa la transcripción de audio de forma 100% local en tu hardware con **faster-whisper (CTranslate2)** sobre GPU NVIDIA CUDA o CPU. Para la inferencia y análisis de momentos virales, ofrece compatibilidad flexible con **LLMs locales (Ollama y LM Studio)** y con la nube mediante **OpenRouter (modelos Free y Paid)** con optimización avanzada de macro-chunks para no saturar tu cuota diaria.
 
 > [!TIP]
-> **Versión Portable Oficial para Windows (Zero-Install):** Para la gran mayoría de usuarios y creadores de contenido, **no es necesario instalar Python, Node.js ni compilar código**. Descarga el archivo [AutoShorts-v2.9.0-windows-x64-portable.zip](https://github.com/jeffd2599/autoshorts/releases) (~180 MB), descomprímelo en cualquier disco o pendrive y ejecuta directamente `AutoShorts.exe`.
+> **Versión Portable Oficial para Windows (Zero-Install):** Para la gran mayoría de usuarios y creadores de contenido, **no es necesario instalar Python, Node.js ni compilar código**. Descarga el archivo [AutoShorts-v3.0.0-windows-x64-portable.zip](https://github.com/jeffd2599/autoshorts/releases) (~180 MB), descomprímelo en cualquier disco o pendrive y ejecuta directamente `AutoShorts.exe`.
 
 > [!NOTE]
 > **Privacidad y Cero Consumo de Audio:** Toda la transcripción acústica, detección de voz, cálculo de decibelios RMS y renderizado de video con FFmpeg ocurren en tu equipo. Tu archivo de video jamás se sube a internet.
@@ -131,7 +131,10 @@ El motor combina el análisis acústico RMS en segundo plano con la comprensión
   - *Picos Emocionales y Gameplay:* Clutches, jugadas épicas, risas contagiosas, gritos, enfados o sustos.
   - *Contenido Narrativo y Humor:* Fails cómicos, anécdotas rápidas, debates intensos o explicaciones condensadas.
 - **Detección Acústica en Gameplay Silencioso:** Inyecta etiquetas `[CLUTCH / ACCION ACUSTICA]` analizando decibelios RMS de fondo cuando el jugador se concentra en jugadas tensas sin hablar.
-- **Normalización de Duraciones:** Aplica restricción estricta (`clamp_candidate_duration`) para que un clip de 1 minuto jamás se desborde a 3 o 5 minutos.
+- **Normalización de Duraciones:** Aplica restricción estricta (`normalize_candidate_duration`) para que un clip de 1 minuto jamás se desborde a 3 o 5 minutos.
+- **Studio Gaming Split 2D & Downscale Blur (v3.0):** Encuadre interactivo libre 2D (Facecam + Gameplay) sobre lienzo vertical 9:16 (`1080x1920`) con fondo difuminado de alto rendimiento (`downscale blur` + `gblur`) en tiempo real.
+- **Audio BGM Drag & Drop y Timeline:** Soporte para pistas de música locales con recorte por rango temporal, mezcla en tiempo real en el preview e integración de audio multi-pista en exportación.
+- **Renderizado VBR 2-Pass Optimizado:** Codificación precisa de dos pases (`pass 1` + `pass 2`) con parámetros unificados y control de tasa de bits optimizado.
 - **Segmentación Dinámica Adaptativa:** AutoShorts dimensiona automáticamente los bloques según la ventana de contexto (4k, 8k o 16k tokens) y subdivide por bisección ante desbordamiento de contexto (`exceed_context_size_error`).
 
 ---
@@ -205,7 +208,7 @@ AutoShorts permite refinar el momento detectado antes de mandarlo a exportar:
 
 ## Descarga y Ejecución Portable
 
-1. Descarga el paquete oficial: [AutoShorts-v2.9.0-windows-x64-portable.zip](https://github.com/jeffd2599/autoshorts/releases) (~180 MB).
+1. Descarga el paquete oficial: [AutoShorts-v3.0.0-windows-x64-portable.zip](https://github.com/jeffd2599/autoshorts/releases) (~180 MB).
 2. Haz clic derecho y selecciona **Extraer todo...** en la carpeta o disco que desees.
 3. Entra a la carpeta `AutoShorts` y ejecuta directamente `AutoShorts.exe`.
 4. El programa abrirá una ventana de escritorio pura (con `Subsystem = 2`, sin consolas CMD emergentes).
@@ -285,7 +288,7 @@ autoshorts/
 │   ├── stream_server.py          # Servidor HTTP local con soporte Range 206
 │   ├── telemetry.py              # Telemetría de CPU (Win32), GPU, VRAM y temperatura
 │   ├── transcription.py          # Pipeline con faster-whisper (CTranslate2 CUDA/CPU)
-│   ├── version.py                # Fuente de verdad de versionado semántico (v2.9.0)
+│   ├── version.py                # Fuente de verdad de versionado semántico (v3.0.0)
 │   └── services/                 # Servicios modulares de proyecto y archivos
 ├── src/                          # Frontend en React 19 + TypeScript
 │   ├── components/               # Modales, paneles y componentes de interfaz
@@ -293,13 +296,14 @@ autoshorts/
 │   ├── styles/                   # Sistema de diseño dark mode NLE en CSS puro
 │   ├── types.ts                  # Definiciones de tipos TypeScript
 │   └── apiBridge.ts              # Adaptador RPC nativo para PyWebView
+├── context/                      # Memoria arquitectónica (context/DECISIONS.md, plans/, designs/, egm/)
+├── tests/                        # Suite de tests unitarios, integración y E2E (unittest)
 ├── AutoShorts.bat                # Lanzador de desarrollo con detección de entorno
 ├── AutoShorts.spec               # Especificación PyInstaller onedir con assets y DLLs CUDA
-├── build_portable.py             # Compilador y empaquetador oficial .zip y .tar.gz
+├── build_portable.py             # Compilador y empaquetador oficial .zip portable
 ├── run.py                        # Punto de entrada principal con freeze_support
 ├── requirements.txt              # Requisitos de Python (faster-whisper, pywebview, pillow)
-├── package.json                  # Scripts y dependencias del frontend (v2.9.0)
-├── DECISIONS.md                  # Registro de decisiones de arquitectura
+├── package.json                  # Scripts y dependencias del frontend (v3.0.0)
 └── README.md                     # Documentación técnica exhaustiva del proyecto
 ```
 
@@ -311,7 +315,7 @@ autoshorts/
 Verifica que FFmpeg esté instalado y que su subcarpeta `bin` esté en la variable de entorno `PATH`. Comprueba con `ffmpeg -version`.
 
 ### 2. Cuota de OpenRouter agotada (HTTP 429)
-En modo Free (`openrouter/free`), OpenRouter limita a 50 peticiones por día. Con los macro-chunks adaptativos de AutoShorts v2.9, un directo de 2 horas solo consume 5 peticiones. Si alcanzas el límite de 50 peticiones en un solo día, puedes alternar temporalmente a Ollama / LM Studio local o ingresar créditos en OpenRouter conmutando a modo "Pago".
+En modo Free (`openrouter/free`), OpenRouter limita a 50 peticiones por día. Con los macro-chunks adaptativos de AutoShorts v3.0, un directo de 2 horas solo consume 5 peticiones. Si alcanzas el límite de 50 peticiones en un solo día, puedes alternar temporalmente a Ollama / LM Studio local o ingresar créditos en OpenRouter conmutando a modo "Pago".
 
 ### 3. faster-whisper no utiliza la tarjeta gráfica NVIDIA
 Verifica que tu entorno detecte la GPU ejecutando:

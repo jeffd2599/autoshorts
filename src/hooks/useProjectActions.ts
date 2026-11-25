@@ -29,7 +29,6 @@ export function useProjectActions(options: UseProjectActionsOptions) {
 
   // Import state
   const [showStyleModal, setShowStyleModal] = useState(false);
-  const [selectedStyle, setSelectedStyle] = useState("modern-box");
   const [selectedContentType, setSelectedContentType] = useState<ContentType>("gaming");
   const [targetDuration, setTargetDuration] = useState<TargetDuration>(() => {
     return (localStorage.getItem("autoshorts_target_duration") as TargetDuration) || "60s";
@@ -284,7 +283,6 @@ export function useProjectActions(options: UseProjectActionsOptions) {
 
   const confirmImport = useCallback(
     async (
-      style: string,
       contentType: ContentType = selectedContentType,
       dur: TargetDuration = targetDuration
     ) => {
@@ -301,7 +299,7 @@ export function useProjectActions(options: UseProjectActionsOptions) {
         const project = await invoke<Project>("create_project_from_path", {
           path: selected,
           transcriptionMode: transcriptionEngine === "local" ? "local" : "cloud",
-          captionStyle: style,
+          captionStyle: "modern-box",
           projectDir: projDir,
           moveSourceVideo: shouldMove,
           workflowGoal: "clips",
@@ -379,8 +377,6 @@ export function useProjectActions(options: UseProjectActionsOptions) {
     // Import state & actions
     showStyleModal,
     setShowStyleModal,
-    selectedStyle,
-    setSelectedStyle,
     selectedContentType,
     setSelectedContentType,
     targetDuration,

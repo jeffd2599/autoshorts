@@ -312,3 +312,97 @@
      - Fijar formalmente la versión semántica en `v2.9.0`.
      - Reestructurar y actualizar exhaustivamente `README.md` documentando OpenRouter (Free/Paid), cortes internos CapCut, controles de subtítulos y CTA, ejecución sin consolas y descarga directa del ZIP portable.
 - **Motivo:** Entregar un paquete portable estándar en formato ZIP listo para su publicación en GitHub Releases, optimizar drásticamente el consumo de API en grabaciones extensas, resolver las fallas de exportación de registros del sistema y actualizar la documentación oficial a los estándares de la versión v2.9.0.
+
+## D-033: Release v3.0.0 — Conversión Vertical con Downscale Blur y Split Gaming, Música de Fondo Drag & Drop y Calibración H.264 Level 5.1
+- **Decisión:**
+  1. **Filtro Cinemático Downscale Blur + Fast Bilinear Upscale (`python_backend/media.py`):**
+     - Descartar el uso directo de `gblur` o `boxblur` a resolución completa 1080x1920 (el cual consumía el 95% de la CPU). Implementar la técnica de reducción previa a 180x320 con `boxblur=10:2` y reescalado bilineal a 1080x1920, logrando un desenfoque bokeh idéntico en tiempo real.
+  2. **Modo Gaming Split con Sanitización de Paridad y Aspect Ratio:**
+     - Permitir al usuario encuadrar la cámara y el gameplay en `CandidatePreviewModal.tsx`.
+     - En backend, sanitizar todas las coordenadas con `trunc(val/2)*2` para evitar errores `height not divisible by 2` en `yuv420p` y preservar el aspect ratio de la facecam (`scale=1080:-2`).
+  3. **Mezcla de Audio con BGM, Transición Cero y Limitador de Picos (`alimiter`):**
+     - Desactivar la normalización automática destructiva de `amix` (`normalize=0`) para no atenuar la voz del creador a la mitad (-6 dB) y fijar `dropout_transition=0`.
+     - Añadir `alimiter=limit=0.95:attack=5:release=50:asc=1` para evitar clipping digital cuando la voz y la música coinciden en amplitud máxima.
+  4. **Control Avanzado de Bitrate y Framerate con Level Dinámico (30, 60 y 120 FPS):**
+     - Extraer `bitRate` y `fps` en `probe_media`.
+     - Elevar automáticamente a `-level:v 5.1` y buffer ampliado (`-maxrate 15M -bufsize 24M`) al exportar a 120 FPS para evitar violaciones de macrobloques en H.264. Mantener `-level:v 4.2` para $\le 60$ FPS.
+     - Soportar codificación en 2 pases (VBR 2-Pass) con archivo temporal `-passlogfile`.
+- **Motivo:** Permitir transformar cualquier gameplay horizontal en un video vertical profesional con cámara y fondo desenfocado sin penalización de CPU, añadir música de fondo sin arruinar el audio vocal y ofrecer exportación calibrada a estándares de nivel industrial.
+
+## D-034: Normalización de Saltos CRLF en Launcher .BAT y Empaquetado Portable Oficial v3.0.0
+- **Decisión:**
+  1. **Conversión Estricta a CRLF en `AutoShorts.bat`:** Reemplazar los saltos Unix LF (`\n`) por saltos Windows CRLF (`\r\n`), eliminando la pérdida del primer byte por línea en `cmd.exe` (`etlocal`, `cho`, `et`) e incorporando la detección defensiva de `%LOCALAPPDATA%\Programs\Python\Python311\python.exe`.
+  2. **Multiplataforma en `build_portable.py`:** Sustituir la invocación de `pnpm.cmd` por `node node_modules/vite/bin/vite.js build` y `pyinstaller` directo por `"{sys.executable}" -m PyInstaller`, garantizando que la compilación de la distribución onedir y los archivos comprimidos (`.zip` y `.tar.gz`) funcionen sin depender de variables de entorno volátiles en Windows.
+- **Motivo:** Garantizar que el lanzador por lotes funcione con doble clic directo en el explorador de Windows y generar los binarios portables oficiales en `dist/` para la versión v3.0.0.
+
+## D-035: Encuadre Interactivo Gaming con Mouse, Fondo Blur Integral, BGM en Vivo, Progreso y Cancelación Atómica
+- **Decisión:**
+  1. **Layout Gaming Split con Fondo Blur Integral (Lienzo 1080x1920):**
+     - Estructurar el lienzo en 3 capas: Capa 0 con fondo desenfocado integral del mismo video (`scale=270:480,boxblur=12:2,scale=1080:1920:flags=fast_bilinear`), Capa 1 con Facecam (`scale=1080:{cam_h}:flags=lanczos`) en la parte superior (`cam_y`), y Capa 2 con Gameplay principal (`scale=1080:{game_h}:flags=lanczos`) centrado debajo de la cámara (`game_y`).
+     - Aplicar paridad estricta (`make_even`) y clamping defensivo de coordenadas para eliminar artefactos de color en `yuv420p` y evitar fallos por desbordamiento de canvas en FFmpeg.
+  2. **Encuadre Interactivo con Mouse en Frontend:**
+     - Implementar en `CandidatePreviewModal.tsx` manipulación directa con mouse para Facecam y Gameplay, calculando las coordenadas reales mediante `getRenderedVideoRect` para compensar el letterboxing de `object-fit: contain`. Sincronizar bidireccionalmente con los campos numéricos de la interfaz.
+  3. **Música de Fondo en Vivo y Offset Temporal (`bgm_start_sec`):**
+     - Sincronizar un elemento `<audio>` con el `<video>` en el modal gestionando `onPlay`, `onPause`, `onWaiting` y `onSeeked`, con control de inicio de pista (`bgmStartSec`) y ajuste de volumen en tiempo real.
+     - En FFmpeg, aplicar el offset dentro del filtergraph (`atrim=start={bgm_start_sec:.3f},asetpts=PTS-STARTPTS`) para preservar el bucle infinito `-stream_loop -1` sin saltos ni desincronización de PTS.
+  4. **Monitoreo de Progreso en Vivo y Cancelación Atómica en Windows:**
+     - Ejecutar FFmpeg con `subprocess.Popen` y `-progress pipe:1`. Drenar continuamente `stdout` para telemetría de porcentaje y `stderr` mediante hilo daemon para evitar bloqueos por buffers de pipe saturados en Windows. Ponderar el avance en 1 pase (0% a 99%) y 2 pases (Pase 1: 0-45%, Pase 2: 45-99%).
+     - Proteger el subproceso con `threading.Lock()` e implementar `cancel_active_render()`: comprobar `proc.poll() is None`, invocar `taskkill /F /T /PID` y `proc.kill()`, y esperar salida antes de purgar archivos temporales, previniendo condiciones de carrera y reciclaje accidental de PIDs en Windows.
+     - En frontend, escuchar el evento `render-progress` mostrando porcentaje en vivo y botón `Cancelar Exportación` con limpieza automática en `beforeunload`.
+- **Motivo:** Brindar a los creadores una experiencia fluida e interactiva de reencuadre vertical idéntica a su flujo de trabajo real, con preescucha de música y control absoluto del renderizado sin bloqueos de sistema operativo.
+
+
+
+## D-036: Composición Vertical 9:16 Flexible, Inyección de `-t` en Pase 1 y Tag BGM JSX en Tiempo Real
+- **Decisión:**
+  1. **Composición Flexible en Lienzo 9:16 (Facecam & Gameplay):**
+     - Extender `CropRect` y `CutClipOptions` con `outHeight?: number; outY?: number;`.
+     - Implementar sliders interactivos en `CandidatePreviewModal.tsx` para definir la altura de la cámara (`camOutHeight`: 180px - 720px) y del gameplay (`gameOutHeight`: 360px - 1400px), así como sus posiciones verticales `Y`.
+     - Reflejar en tiempo real la composición en el Phone Stage con Facecam en primer plano (`zIndex: 4`) y Gameplay en capa inferior (`zIndex: 3`).
+     - En el backend (`python_backend/media.py`), invertir el orden del filtergraph para superponer primero el gameplay sobre el fondo blur y luego la facecam al frente (`[vbg][vgame]` -> `[vtmp][vcam]`), impidiendo que el gameplay oculte la cámara. Implementar `make_even_coord` (`max(0, ...)`) para permitir `y = 0` exacto sin bordes negros de 2px.
+  2. **BGM Nativo en JSX con Streaming y Preescucha:**
+     - Insertar explícitamente el elemento `<audio ref={bgmAudioRef} ... loop />` en el JSX conectado a `http://127.0.0.1:1422/stream?file=...` con salvaguarda `onLoadedMetadata` antes de aplicar seek, control reactivo de volumen y botón "▶ Probar Música". Registrar tipos MIME de audio (`.mp3`, `.wav`, `.aac`, `.m4a`) en `stream_server.py`.
+  3. **Solución Mortal al Cuelgue en 45% y Aceleración de VBR 2-Pass:**
+     - Añadir obligatoriamente `"-t", dur_str` al comando `cmd_pass1` de FFmpeg en `media.py`, subsanando el defecto donde el Pase 1 codificaba hasta el final absoluto de videos de 2 a 4 horas.
+     - Reemplazar el argumento `-` por `os.devnull` (`NUL` en Windows) para eliminar la colisión de descriptores con `-progress pipe:1`.
+     - Optimizar el Pase 1 con `-preset veryfast` para acelerar el análisis estadístico a más del doble sin comprometer la calidad del Pase 2 (`-preset medium`).
+     - Incorporar sleep defensivo (`time.sleep(0.01)`) en `_run_ffmpeg_monitored` para evitar busy-loops de CPU mientras el proceso finaliza I/O en disco.
+- **Motivo:** Corregir el bloqueo del exportador en 2 pases, permitir a los creadores libertad total de encuadre en el video vertical final y hacer audible la música de fondo en tiempo real durante la edición del clip.
+
+## D-037: Lienzo 9:16 Interactivo con Mouse, Sincronización Preset x264 2-Pass y Bridge BGM
+- **Decisión:**
+  1. **Interacción con Mouse en Lienzo Vertical 9:16 (Phone Stage):**
+     - Dotar a las capas de Facecam y Gameplay de manipulación interactiva directa con el mouse en el Phone Stage (`CandidatePreviewModal.tsx`): desplazamiento vertical (`move`) y redimensión vertical mediante manija inferior derecha (`resize_br`).
+     - Aislar eventos con `e.stopPropagation()` y `setPointerCapture` para impedir que hacer clic o arrastrar las capas pause la reproducción de video.
+     - Implementar helpers de paridad en frontend (`makeEven`, `makeEvenCoord`) para asegurar múltiplos de 2 requeridos por FFmpeg y subsampling `yuv420p`. Sincronizar bidireccionalmente con los sliders numéricos.
+  2. **Unificación de Preset en libx264 VBR 2-Pass (`python_backend/media.py`):**
+     - Fijar idéntico preset `"-preset", "medium"` y `"-threads", "0"` tanto en `cmd_pass1` como en `cmd_pass2`.
+     - Erradicar la disparidad interna de `--weightp` (1 en veryfast vs 2 en medium) que provocaba el fallo mortal en la apertura del encoder de x264 en el Pase 2 (`Generic error in an external library`, código -542398533).
+  3. **Alias Universal de Compatibilidad en Logging (`python_backend/logger.py`):**
+     - Definir `append = push` en `SystemLogBuffer`, eliminando las excepciones `AttributeError: 'SystemLogBuffer' object has no attribute 'append'` lanzadas desde `api.py` (L155, L161, L245) y preservando la categorización automática de niveles y formato de timestamps.
+  4. **Drag & Drop de Audio BGM Resiliente y RPC de Persistencia (`api.py`, `CandidatePreviewModal.tsx`):**
+     - Resolver la restricción de sandbox de Chromium / WebView2 en Windows (donde `(file as any).path` es `undefined`) generando `URL.createObjectURL(file)` en frontend para preescucha inmediata con 0ms de latencia en `<audio>`.
+     - Implementar endpoint RPC `save_project_bgm(projectId, fileName, dataBase64)` en backend: decodificar base64, sanitizar contra path traversal y caracteres prohibidos en Windows, persistir en `{project_dir}/bgm/{filename}` y retornar la ruta absoluta verificada en disco para FFmpeg.
+- **Motivo:** Brindar a los creadores control táctil/mouse en pantalla completa sobre el formato vertical 9:16, solucionar definitivamente el error fatal de codificación en dos pases con x264 y asegurar que la música arrastrada se reproduzca en vivo y se exporte con precisión física.
+
+## D-038: Desacoplamiento de Grafos FFmpeg en 2 Pases y Composición 2D en Lienzo 9:16
+- **Decisión:**
+  1. **Desacoplamiento Estricto de Filtergraphs en Pase 1 (`python_backend/media.py`):**
+     - Separar la construcción de filtros en `video_filter_parts` y `audio_filter_parts`.
+     - En clips con multi-segmentos (`has_multi_segment`), bifurcar la concatenación en dos nodos independientes: `concat=n={N}:v=1:a=0[vjoined]` en video y `concat=n={N}:v=0:a=1[ajoined]` en audio.
+     - En `cmd_pass1` (Pase 1 VBR), inyectar únicamente `video_fc` y excluir los demuxers de audio BGM (`-stream_loop -1 -i bgm_path`), erradicando por completo el fallo fatal de FFmpeg `Filter 'alimiter/concat:default' has output 1 unconnected`.
+     - En `cmd_pass2` y Single Pass, aplicar `full_fc` con mapeo dinámico resiliente de `out_audio_map` (`[aout]`, `[ajoined]`, `0:a?` o `-an`).
+  2. **Composición Bidimensional 2D en Lienzo 9:16 (Facecam & Gameplay):**
+     - Extender `CropRect` en `src/types.ts` y backend con parámetros 2D completos: `outWidth`, `outHeight`, `outX`, `outY`.
+     - En `media.py`, aplicar `scale={out_w}:{out_h}` y `overlay=x={out_x}:y={out_y}` para Facecam y Gameplay, permitiendo al creador achicar la cámara a cualquier dimensión deseada dejando ver el fondo difuminado cinematográfico alrededor.
+     - En `CandidatePreviewModal.tsx`, implementar arrastre 2D (`move`) y redimensión 2D (`resize_br`) en el Phone Stage 9:16 con fórmulas matemáticas acotadas contra desbordamientos (`maxW = 1080 - initialX`, `maxH = 1920 - initialY`) y controles numéricos en la interfaz con auto-clamp y atajos de centrado horizontal.
+- **Motivo:** Garantizar exportaciones exitosas al 100% en codificación en dos pases sin colisiones de pads de audio y otorgar libertad creativa total para diseñar layouts gamer profesionales estilo OBS/Premiere en formato vertical.
+
+## D-039: Limpieza Integral Pre-Push v3.0 (Código Muerto, Estilos, CI Obsoleto y Residuos Locales)
+- **Decisión:**
+  1. **Retiro Definitivo de Legados Obsoletos:** Eliminar del índice Git el workflow roto de Rust/Tauri (`.github/workflows/release.yml`), `.env.example` (claves cloud retiradas en D-005), componentes huérfanos (`PipelineStep.tsx`, `StatusPill.tsx`) y `src/styles/autoedit.css` tras migrar `.view-mode-segmented` / `.view-mode-pill*` a `layout.css`.
+  2. **Higiene Estricta Frontend y Backend:** Alcanzar cero errores en `tsc --noEmit --noUnusedLocals --noUnusedParameters` retirando props muertas (`selectedStyle`, `settingsNode`, `transcriptionEngine` en `SettingsPanel`/`TranscriptPanel`, `busy` en `useMediaPipeline`), selectores CSS huérfanos (`modals.css`, `layout.css`, `dashboard.css`, `panels.css` preservando `.icon-button`, `.onboarding-*` de `ModelDownloadModal`, `.summary-modal*` y `.style-modal`), imports/métodos muertos en `api.py`, `db.py` (sin tocar esquema `.db`), `llm.py` (`expand_short_candidate`, `clamp_candidate_duration`), `llm_prompts.py` (`locate_moment_active_window`), `media.py` (`extract_video_thumbnail`, `build_drawtext_filters`, `get_font_option`) y `project_service.py` (`open_media_file`, versionando `appVersion` con `__version__`).
+  3. **Consolidación de Tests y Limpieza Local:** Promover la suite v3.0 completa (unitarios, integración, E2E FFmpeg sintético autocontenido y aserciones de higiene) a `tests/test_v30_regression.py` usando `tempfile.TemporaryDirectory()`, purgar residuos locales (`_internal/`, `MagicMock/`, `analizarrepos/`, `build/`, `.env`, `scratch/`), actualizar `.gitignore` y `README.md` a `v3.0.0`, y preservar `context/`, `data/` y `dist/` recompilado para `AutoShorts.bat`.
+- **Motivo:** Dejar la rama `release-v3.0` limpia, auditada y lista para publicar sin artefactos rotos ni código muerto acumulado entre versiones.
+
+

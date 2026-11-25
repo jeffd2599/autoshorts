@@ -12,13 +12,12 @@ import {
   FolderOpen,
   Sparkles,
 } from "lucide-react";
-import type { Project, BusyState, EnvironmentStatus } from "../../types";
+import type { Project, BusyState } from "../../types";
 import { fileName, formatTime } from "../../utils/format";
 
 interface HomeDashboardProps {
   projects: Project[];
   busy: BusyState;
-  environment: EnvironmentStatus | null;
   showSettings: boolean;
   setShowSettings: (val: boolean) => void;
   importMedia: () => void;
@@ -30,13 +29,11 @@ interface HomeDashboardProps {
   relinkProjectVideo: (id: string) => void;
   openProjectFolder: (id: string) => void;
   onOpenQuickCopy?: () => void;
-  settingsNode?: React.ReactNode;
 }
 
 export const HomeDashboard: React.FC<HomeDashboardProps> = ({
   projects,
   busy,
-  environment,
   showSettings,
   setShowSettings,
   importMedia,
@@ -48,7 +45,6 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
   relinkProjectVideo,
   openProjectFolder,
   onOpenQuickCopy,
-  settingsNode,
 }) => {
   const [filterTab, setFilterTab] = useState<"all" | "in_progress" | "completed">("all");
 

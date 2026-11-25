@@ -5,6 +5,7 @@ import re
 import shutil
 import struct
 import subprocess
+import tempfile
 import threading
 import time
 import wave
@@ -14,6 +15,165 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from .paths import get_ffmpeg_path, get_ffprobe_path, get_no_window_kwargs
 from .logger import log_buffer
+
+
+def make_even(val: Any) -> int:
+    """Garantiza dimensiones pares estrictas >= 2 para compatibilidad yuv420p."""
+    try:
+        return max(2, (int(round(float(val))) // 2) * 2)
+    except Exception:
+        return 2
+
+
+def make_even_coord(val: Any) -> int:
+    """Garantiza coordenadas pares >= 0 para overlays yuv420p en FFmpeg."""
+    try:
+        return max(0, (int(round(float(val))) // 2) * 2)
+    except Exception:
+        return 0
+
+
+def parse_progress_time_sec(line: str) -> Optional[float]:
+    """Parsea líneas de telemetría de FFmpeg (-progress pipe:1) y retorna el tiempo actual en segundos."""
+    line = line.strip()
+    if not line or "=" not in line:
+        return None
+    k, v = line.split("=", 1)
+    k = k.strip()
+    v = v.strip()
+    if k in ("out_time_us", "out_time_ms"):
+        try:
+            return max(0.0, float(v) / 1_000_000.0)
+        except Exception:
+            return None
+    elif k == "out_time":
+        try:
+            parts = v.split(":")
+            if len(parts) == 3:
+                h = float(parts[0])
+                m = float(parts[1])
+                s = float(parts[2])
+                return max(0.0, h * 3600.0 + m * 60.0 + s)
+        except Exception:
+            return None
+    return None
+
+
+_active_render_lock = threading.Lock()
+_active_render_process: Optional[subprocess.Popen] = None
+_active_render_cancelled: bool = False
+
+
+def cancel_active_render() -> bool:
+    """Cancela atómicamente el subproceso de renderizado activo de FFmpeg sin carreras de PIDs en Windows."""
+    global _active_render_process, _active_render_cancelled
+    with _active_render_lock:
+        if _active_render_process is None:
+            return False
+        proc = _active_render_process
+        _active_render_cancelled = True
+        if proc.poll() is not None:
+            _active_render_process = None
+            return False
+        try:
+            if os.name == "nt":
+                subprocess.run(
+                    ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                    capture_output=True,
+                    **get_no_window_kwargs()
+                )
+            proc.kill()
+        except Exception as e:
+            log_buffer.push(f"[Cancel Render] Advertencia al terminar proceso: {e}")
+        finally:
+            try:
+                proc.wait(timeout=2.0)
+            except Exception:
+                pass
+            _active_render_process = None
+        return True
+
+
+def _run_ffmpeg_monitored(
+    cmd: List[str],
+    dur_sec: float,
+    progress_callback: Optional[Callable[[int, str], None]],
+    base_pct: int,
+    pct_weight: int,
+    stage_name: str,
+    output_path: Optional[Path] = None,
+) -> None:
+    """Ejecuta FFmpeg con -progress pipe:1, drenando continuamente stdout y stderr para evitar deadlocks en Windows."""
+    global _active_render_process, _active_render_cancelled
+
+    full_cmd = list(cmd)
+    if "-progress" not in full_cmd:
+        full_cmd.extend(["-progress", "pipe:1"])
+
+    with _active_render_lock:
+        _active_render_cancelled = False
+        proc = subprocess.Popen(
+            full_cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            **get_no_window_kwargs()
+        )
+        _active_render_process = proc
+
+    stderr_lines: List[str] = []
+
+    def _drain_stderr(pipe):
+        try:
+            for l in pipe:
+                stderr_lines.append(l)
+                if len(stderr_lines) > 60:
+                    stderr_lines.pop(0)
+        except Exception:
+            pass
+
+    err_thread = threading.Thread(target=_drain_stderr, args=(proc.stderr,), daemon=True)
+    err_thread.start()
+
+    last_pct = base_pct
+    try:
+        while True:
+            line = proc.stdout.readline()
+            if not line:
+                if proc.poll() is not None:
+                    break
+                time.sleep(0.01)
+            if line:
+                t_sec = parse_progress_time_sec(line)
+                if t_sec is not None and dur_sec > 0:
+                    pct = min(base_pct + pct_weight, base_pct + int((t_sec / dur_sec) * pct_weight))
+                    if pct > last_pct:
+                        last_pct = pct
+                        if progress_callback:
+                            try:
+                                progress_callback(pct, stage_name)
+                            except Exception:
+                                pass
+    finally:
+        err_thread.join(timeout=1.0)
+        with _active_render_lock:
+            _active_render_process = None
+
+    if _active_render_cancelled:
+        if output_path and output_path.exists():
+            try:
+                output_path.unlink(missing_ok=True)
+            except Exception:
+                pass
+        raise InterruptedError("Exportación cancelada por el usuario.")
+
+    if proc.returncode != 0:
+        err_msg = "".join(stderr_lines[-20:]).strip() or f"Código de error {proc.returncode}"
+        log_buffer.push(f"[FFmpeg ERROR] Error en {stage_name}: {err_msg}")
+        raise RuntimeError(f"Error renderizando clip en FFmpeg ({stage_name}): {err_msg}")
+
 
 
 def command_exists(name: str) -> bool:
@@ -69,6 +229,19 @@ def probe_media(path: str) -> Dict[str, Any]:
             except Exception:
                 pass
 
+    bit_rate_raw = None
+    if "format" in data and "bit_rate" in data["format"]:
+        try:
+            bit_rate_raw = int(data["format"]["bit_rate"])
+        except Exception:
+            pass
+    if bit_rate_raw is None and video and "bit_rate" in video:
+        try:
+            bit_rate_raw = int(video["bit_rate"])
+        except Exception:
+            pass
+    bit_rate_mbps = round(float(bit_rate_raw) / 1_000_000, 2) if bit_rate_raw else None
+
     aspect_ratio = None
     if video and "width" in video and "height" in video and video["width"] and video["height"]:
         w = int(video["width"])
@@ -94,6 +267,8 @@ def probe_media(path: str) -> Dict[str, Any]:
         "videoCodec": video.get("codec_name") if video else None,
         "audioCodec": audio.get("codec_name") if audio else None,
         "fps": fps,
+        "bitRate": bit_rate_raw,
+        "bitRateMbps": bit_rate_mbps,
         "aspect_ratio": aspect_ratio,
     }
 
@@ -441,31 +616,6 @@ def inject_acoustic_cues_into_transcript(
         return transcript_segments, words
 
 
-
-def extract_video_thumbnail(source_path: str, timestamp: float, output_path: Any) -> Path:
-    """
-    Extracts a crisp 1080p JPEG thumbnail at the specified timestamp using FFmpeg.
-    """
-    if not command_exists("ffmpeg"):
-        raise RuntimeError("ffmpeg is not installed or not available on PATH")
-
-    out_p = Path(output_path)
-    os.makedirs(out_p.parent, exist_ok=True)
-    cmd = [
-        get_ffmpeg_path(), "-y",
-        "-ss", f"{max(0.0, timestamp):.3f}",
-        "-i", str(source_path),
-        "-vframes", "1",
-        "-q:v", "2",
-        str(out_p)
-    ]
-    res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", **get_no_window_kwargs())
-    if res.returncode != 0:
-        raise RuntimeError(f"FFmpeg thumbnail extraction failed: {res.stderr.strip()[-300:]}")
-
-    return out_p
-
-
 def format_srt_time(secs: float) -> str:
     hours = int(secs // 3600)
     mins = int((secs % 3600) // 60)
@@ -626,86 +776,6 @@ def generate_srt(
         index += 1
 
     return "\n".join(lines)
-
-
-def get_font_option() -> str:
-    font_paths = [
-        "C:/Windows/Fonts/SegoeUIb.ttf",
-        "C:/Windows/Fonts/segoeuib.ttf",
-        "C:/Windows/Fonts/SegoeUI.ttf",
-        "C:/Windows/Fonts/segoeui.ttf",
-        "C:/Windows/Fonts/arialbd.ttf",
-        "C:/Windows/Fonts/arial.ttf",
-        "/System/Library/Fonts/Supplemental/Futura.ttc",
-        "/System/Library/Fonts/Avenir Next.ttc",
-        "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
-        "/System/Library/Fonts/Helvetica.ttc",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-    ]
-    for p in font_paths:
-        if os.path.exists(p):
-            escaped = p.replace("\\", "/").replace(":", "\\:").replace("'", "'\\''")
-            return f"fontfile='{escaped}':"
-    return ""
-
-
-def build_drawtext_filters(
-    words: List[Dict[str, Any]],
-    start_sec: float,
-    end_sec: float,
-    cropped_width: int,
-    caption_style: str = "modern-box"
-) -> str:
-    candidate_words = [w for w in words if w["end"] > start_sec and w["start"] < end_sec]
-    if not candidate_words:
-        return ""
-
-    font_option = get_font_option()
-    drawtext_filters = []
-
-    fontsize = max(16, min(80, int(round(cropped_width * 0.075))))
-    padding = max(4, min(24, int(round(fontsize * 0.3))))
-
-    # Chunk into 2 words for fast-paced short captions
-    for i in range(0, len(candidate_words), 2):
-        chunk = candidate_words[i:i+2]
-        if not chunk:
-            continue
-        first = chunk[0]
-        last = chunk[-1]
-        start_rel = max(0.0, first["start"] - start_sec)
-        end_rel = max(0.0, min(end_sec - start_sec, last["end"] - start_sec))
-        if end_rel <= start_rel:
-            continue
-
-        text = " ".join(w["text"].upper() for w in chunk)
-        # Clean text
-        clean_text = "".join(c for c in text if c.isalnum() or c in " !?")
-        if not clean_text:
-            continue
-
-        if caption_style == "classic-outline":
-            borderw = max(2, min(8, int(round(fontsize * 0.1))))
-            dt = f"drawtext={font_option}text='{clean_text}':x=(w-text_w)/2:y=h*0.65:fontsize={fontsize}:fontcolor=yellow:borderw={borderw}:bordercolor=black:enable='between(t,{start_rel:.3f},{end_rel:.3f})'"
-        elif caption_style == "minimal-shadow":
-            dt = f"drawtext={font_option}text='{clean_text}':x=(w-text_w)/2:y=h*0.7:fontsize={fontsize}:fontcolor=white:shadowcolor=black@0.5:shadowx=2:shadowy=2:enable='between(t,{start_rel:.3f},{end_rel:.3f})'"
-        elif caption_style == "vibrant-cyan":
-            dt = f"drawtext={font_option}text='{clean_text}':x=(w-text_w)/2:y=h*0.7:fontsize={fontsize}:fontcolor=0x00FFFF:shadowcolor=black@0.6:shadowx=2:shadowy=2:enable='between(t,{start_rel:.3f},{end_rel:.3f})'"
-        elif caption_style == "vibrant-yellow-box":
-            dt = f"drawtext={font_option}text='{clean_text}':x=(w-text_w)/2:y=h*0.72:fontsize={fontsize}:fontcolor=black:box=1:boxcolor=0xffff00e0:boxborderw={padding}:enable='between(t,{start_rel:.3f},{end_rel:.3f})'"
-        elif caption_style == "vibrant-green":
-            borderw = max(2, min(6, int(round(fontsize * 0.08))))
-            dt = f"drawtext={font_option}text='{clean_text}':x=(w-text_w)/2:y=h*0.7:fontsize={fontsize}:fontcolor=0x39FF14:borderw={borderw}:bordercolor=black:shadowcolor=black@0.6:shadowx=2:shadowy=2:enable='between(t,{start_rel:.3f},{end_rel:.3f})'"
-        elif caption_style == "vibrant-red":
-            borderw = max(2, min(6, int(round(fontsize * 0.08))))
-            dt = f"drawtext={font_option}text='{clean_text}':x=(w-text_w)/2:y=h*0.7:fontsize={fontsize}:fontcolor=0xFF3B30:borderw={borderw}:bordercolor=black:shadowcolor=black@0.6:shadowx=2:shadowy=2:enable='between(t,{start_rel:.3f},{end_rel:.3f})'"
-        else:
-            # modern-box default
-            dt = f"drawtext={font_option}text='{clean_text}':x=(w-text_w)/2:y=h*0.72:fontsize={fontsize}:fontcolor=white:box=1:boxcolor=black@0.75:boxborderw={padding}:enable='between(t,{start_rel:.3f},{end_rel:.3f})'"
-
-        drawtext_filters.append(dt)
-
-    return ",".join(drawtext_filters)
 
 
 def format_ass_time(sec: float) -> str:
@@ -1162,7 +1232,6 @@ def render_flat_clip(
     start_sec: float,
     end_sec: float,
     output_path: Path,
-    drawtext_filters: Optional[str] = None,
     aspect_ratio: str = "9:16",
     subtitle_filter: Optional[str] = None,
     cta_badge_path: Optional[str] = None,
@@ -1173,7 +1242,16 @@ def render_flat_clip(
     transition: Optional[str] = None,
     target_fps: Optional[int] = None,
     cta_x: Optional[int] = None,
-    cta_y: Optional[int] = None
+    cta_y: Optional[int] = None,
+    layout: str = "crop",
+    camera_crop: Optional[Dict[str, Any]] = None,
+    gameplay_crop: Optional[Dict[str, Any]] = None,
+    bgm_path: Optional[str] = None,
+    bgm_volume: float = 0.15,
+    bgm_start_sec: float = 0.0,
+    target_bitrate_k: Optional[int] = None,
+    two_pass: bool = False,
+    progress_callback: Optional[Callable[[int, str], None]] = None
 ) -> Path:
     if not command_exists("ffmpeg"):
         raise RuntimeError("ffmpeg is not installed or not available on PATH")
@@ -1197,7 +1275,7 @@ def render_flat_clip(
     has_audio = probe.get("audioCodec") is not None
     vid_w = probe.get("width", 0) or 0
     vid_h = probe.get("height", 0) or 0
-    # Automatically treat video as vertical if explicitly selected OR if source file is portrait/vertical in original mode
+
     if aspect_ratio == "9:16":
         is_vertical = True
     elif aspect_ratio == "16:9":
@@ -1205,7 +1283,22 @@ def render_flat_clip(
     else:  # "original" / "native"
         is_vertical = (vid_h > vid_w > 0)
 
-    cmd = [
+    has_cta = bool(cta_badge_path and os.path.exists(str(cta_badge_path)))
+    valid_bgm = bool(bgm_path and os.path.isfile(str(bgm_path)))
+
+    log_buffer.push(f"[FFmpeg] Iniciando renderizado de '{output_path.name}' ({dur_sec:.1f}s)...")
+    if is_vertical:
+        log_buffer.push(f"[FFmpeg] Salida vertical 9:16 (1080x1920) | Layout: {layout}")
+    elif aspect_ratio == "16:9":
+        log_buffer.push("[FFmpeg] Salida horizontal 16:9 (1920x1080)")
+    else:
+        log_buffer.push(f"[FFmpeg] Salida nativa/original ({vid_w}x{vid_h})")
+    if has_multi_segment:
+        log_buffer.push(f"[FFmpeg] Aplicando {len(sorted_ranges)} segmentos sincronizados (cortes internos)...")
+    if valid_bgm:
+        log_buffer.push(f"[FFmpeg] Mezclando música de fondo: {os.path.basename(str(bgm_path))} (volumen {bgm_volume*100:.0f}%, inicio {bgm_start_sec:.1f}s)")
+
+    base_video_inputs = [
         get_ffmpeg_path(),
         "-y",
         "-threads", "0",
@@ -1213,33 +1306,19 @@ def render_flat_clip(
         "-i", source_path
     ]
 
-    has_cta = bool(cta_badge_path and os.path.exists(str(cta_badge_path)))
+    curr_input_idx = 1
+    cta_idx = None
+    if has_cta:
+        base_video_inputs.extend(["-loop", "1", "-i", str(cta_badge_path)])
+        cta_idx = curr_input_idx
+        curr_input_idx += 1
 
-    log_buffer.push(f"[FFmpeg] Iniciando renderizado de '{output_path.name}' ({dur_sec:.1f}s)...")
-    if is_vertical:
-        log_buffer.push("[FFmpeg] Salida vertical 9:16 (1080x1920) | CRF 19 | VBV 10M | AAC 192k")
-    elif aspect_ratio == "16:9":
-        log_buffer.push("[FFmpeg] Salida horizontal 16:9 (1920x1080) | CRF 19 | VBV 10M | AAC 192k")
-    else:
-        log_buffer.push(f"[FFmpeg] Salida nativa/original ({vid_w}x{vid_h}) | CRF 19 | VBV 10M | AAC 192k")
-    if has_multi_segment:
-        log_buffer.push(f"[FFmpeg] Aplicando {len(sorted_ranges)} segmentos sincronizados (cortes internos)...")
-
-    # Calibrated video encoding flags for TikTok and vertical video platforms:
-    # Constrained CRF 19 with VBV 10M cap, yuv420p, high profile, level 4.2
-    enc_flags = [
-        "-threads", "0",
-        "-c:v", "libx264",
-        "-preset", "medium",
-        "-crf", "19",
-        "-maxrate", "10M",
-        "-bufsize", "16M",
-        "-profile:v", "high",
-        "-level:v", "4.2",
-        "-pix_fmt", "yuv420p"
-    ]
-    if target_fps in (30, 60):
-        enc_flags.extend(["-r", str(target_fps)])
+    base_inputs = list(base_video_inputs)
+    bgm_idx = None
+    if valid_bgm:
+        base_inputs.extend(["-stream_loop", "-1", "-i", str(bgm_path)])
+        bgm_idx = curr_input_idx
+        curr_input_idx += 1
 
     # Helper to generate CTA badge animation filter chain
     def build_cta_anim_chain(t_st: float, t_en: float, b_y: str):
@@ -1265,193 +1344,318 @@ def render_flat_clip(
         filter_chain = f"{scale_part},{fade}"
         return filter_chain, y_part
 
+    needs_crop = is_vertical and (vid_w >= vid_h > 0)
+    needs_crop_to_16_9 = (aspect_ratio == "16:9") and (vid_h > vid_w > 0)
+    ref_w = 1080 if is_vertical else 1920
+    ref_h = 1920 if is_vertical else 1080
+    target_w = 1080 if is_vertical else (1920 if aspect_ratio == "16:9" else (vid_w if vid_w > 0 else ref_w))
+    target_h = 1920 if is_vertical else (1080 if aspect_ratio == "16:9" else (vid_h if vid_h > 0 else ref_h))
+
+    scaled_cta_x = int(int(cta_x) * target_w / ref_w) if cta_x is not None else None
+    scaled_cta_y = int(int(cta_y) * target_h / ref_h) if cta_y is not None else None
+
+    has_sub_collision = bool(subtitle_filter and (cta_position == caption_position))
+    overlay_x = f"max(0,min(W-w,{int(scaled_cta_x)}-w/2))" if scaled_cta_x is not None else "(W-w)/2"
+    if scaled_cta_y is not None:
+        base_y = f"max(0,min(H-h,{int(scaled_cta_y)}-h/2))"
+    elif cta_position == "top":
+        base_y = "280" if (has_sub_collision and is_vertical) else ("160" if has_sub_collision else ("130" if is_vertical else "65"))
+    elif cta_position == "center":
+        base_y = "(H-h)/2+90" if has_sub_collision else "(H-h)/2"
+    else:  # bottom
+        margin_b = 300 if is_vertical else 160
+        normal_b = 140 if is_vertical else 70
+        base_y = f"H-h-{margin_b}" if has_sub_collision else f"H-h-{normal_b}"
+
+    if dur_sec >= 20.0:
+        t1_start, t1_end = 1.0, 6.0
+        t2_start = max(t1_end + 4.0, dur_sec - 5.0)
+        t2_end = dur_sec - 0.5
+    elif dur_sec >= 8.0:
+        t1_start, t1_end = 1.0, 6.0
+        t2_start = t2_end = None
+    elif dur_sec >= 4.0:
+        t1_start, t1_end = 0.8, min(dur_sec - 0.4, 4.5)
+        t2_start = t2_end = None
+    else:
+        t1_start, t1_end = 0.4, max(1.0, dur_sec - 0.2)
+        t2_start = t2_end = None
+
+    video_filter_parts: List[str] = []
+    audio_filter_parts: List[str] = []
     if has_video:
-        needs_crop = is_vertical and (vid_w >= vid_h > 0)
-        needs_crop_to_16_9 = (aspect_ratio == "16:9") and (vid_h > vid_w > 0)
-        ref_w = 1080 if is_vertical else 1920
-        ref_h = 1920 if is_vertical else 1080
-        # Determine target video dimensions for scaling coordinates
-        target_w = 1080 if is_vertical else (1920 if aspect_ratio == "16:9" else (vid_w if vid_w > 0 else ref_w))
-        target_h = 1920 if is_vertical else (1080 if aspect_ratio == "16:9" else (vid_h if vid_h > 0 else ref_h))
-
-        scaled_cta_x = int(int(cta_x) * target_w / ref_w) if cta_x is not None else None
-        scaled_cta_y = int(int(cta_y) * target_h / ref_h) if cta_y is not None else None
-
-        has_sub_collision = bool(subtitle_filter and (cta_position == caption_position))
-        overlay_x = f"max(0,min(W-w,{int(scaled_cta_x)}-w/2))" if scaled_cta_x is not None else "(W-w)/2"
-        if scaled_cta_y is not None:
-            base_y = f"max(0,min(H-h,{int(scaled_cta_y)}-h/2))"
-        elif cta_position == "top":
-            base_y = "280" if (has_sub_collision and is_vertical) else ("160" if has_sub_collision else ("130" if is_vertical else "65"))
-        elif cta_position == "center":
-            base_y = "(H-h)/2+90" if has_sub_collision else "(H-h)/2"
-        else:  # bottom
-            margin_b = 300 if is_vertical else 160
-            normal_b = 140 if is_vertical else 70
-            base_y = f"H-h-{margin_b}" if has_sub_collision else f"H-h-{normal_b}"
-
-        if dur_sec >= 20.0:
-            t1_start, t1_end = 1.0, 6.0
-            t2_start = max(t1_end + 4.0, dur_sec - 5.0)
-            t2_end = dur_sec - 0.5
-        elif dur_sec >= 8.0:
-            t1_start, t1_end = 1.0, 6.0
-            t2_start = t2_end = None
-        elif dur_sec >= 4.0:
-            t1_start, t1_end = 0.8, min(dur_sec - 0.4, 4.5)
-            t2_start = t2_end = None
-        else:
-            t1_start, t1_end = 0.4, max(1.0, dur_sec - 0.2)
-            t2_start = t2_end = None
-
         if has_multi_segment:
-            if has_cta:
-                cmd.extend(["-loop", "1", "-i", str(cta_badge_path)])
-
-            filter_parts = []
             N = len(sorted_ranges)
             for i, r in enumerate(sorted_ranges):
                 rs = max(0.0, float(r["start"]) - first_start)
                 re_ = max(rs + 0.05, float(r["end"]) - first_start)
-                filter_parts.append(f"[0:v]trim=start={rs:.3f}:end={re_:.3f},setpts=PTS-STARTPTS[vseg{i}]")
-                if has_audio:
-                    filter_parts.append(f"[0:a]atrim=start={rs:.3f}:end={re_:.3f},asetpts=PTS-STARTPTS[aseg{i}]")
+                video_filter_parts.append(f"[0:v]trim=start={rs:.3f}:end={re_:.3f},setpts=PTS-STARTPTS[vseg{i}]")
+            vconcat_in = "".join(f"[vseg{i}]" for i in range(N))
+            video_filter_parts.append(f"{vconcat_in}concat=n={N}:v=1:a=0[vjoined]")
+            v_in = "[vjoined]"
 
             if has_audio:
-                concat_inputs = "".join(f"[vseg{i}][aseg{i}]" for i in range(N))
-                filter_parts.append(f"{concat_inputs}concat=n={N}:v=1:a=1[vjoined][ajoined]")
+                for i, r in enumerate(sorted_ranges):
+                    rs = max(0.0, float(r["start"]) - first_start)
+                    re_ = max(rs + 0.05, float(r["end"]) - first_start)
+                    audio_filter_parts.append(f"[0:a]atrim=start={rs:.3f}:end={re_:.3f},asetpts=PTS-STARTPTS[aseg{i}]")
+                aconcat_in = "".join(f"[aseg{i}]" for i in range(N))
+                audio_filter_parts.append(f"{aconcat_in}concat=n={N}:v=0:a=1[ajoined]")
+                a_in = "[ajoined]"
             else:
-                concat_inputs = "".join(f"[vseg{i}]" for i in range(N))
-                filter_parts.append(f"{concat_inputs}concat=n={N}:v=1:a=0[vjoined]")
+                a_in = None
+        else:
+            v_in = "[0:v]"
+            a_in = None
 
-            if needs_crop:
-                filter_parts.append("[vjoined]crop=w='2*trunc(min(iw,ih*9/16)/2)':h='2*trunc(min(ih,iw*16/9)/2)',scale=1080:1920:flags=lanczos,setsar=1[vbase]")
-            elif needs_crop_to_16_9:
-                filter_parts.append("[vjoined]crop=w='2*trunc(min(iw,ih*16/9)/2)':h='2*trunc(min(ih,iw*9/16)/2)',scale=1920:1080:flags=lanczos,setsar=1[vbase]")
-            elif aspect_ratio == "9:16" and vid_w > 0 and vid_h > 0 and (vid_w != 1080 or vid_h != 1920):
-                filter_parts.append("[vjoined]scale=1080:1920:flags=lanczos,setsar=1[vbase]")
-            elif aspect_ratio == "16:9" and vid_w > 0 and vid_h > 0 and (vid_w != 1920 or vid_h != 1080):
-                filter_parts.append("[vjoined]scale=1920:1080:flags=lanczos,setsar=1[vbase]")
-            else:
-                filter_parts.append("[vjoined]scale=trunc(iw/2)*2:trunc(ih/2)*2,setsar=1[vbase]")
+        # Base layout processing
+        if is_vertical and layout == "blur":
+            video_filter_parts.append(f"{v_in}split=2[vbg_raw][vfg_raw]")
+            video_filter_parts.append("[vbg_raw]scale=270:480:force_original_aspect_ratio=increase,crop=270:480,boxblur=12:2,scale=1080:1920:flags=fast_bilinear[vbg]")
+            video_filter_parts.append("[vfg_raw]scale=w=1080:h=1920:force_original_aspect_ratio=decrease,scale=trunc(iw/2)*2:trunc(ih/2)*2[vfg]")
+            video_filter_parts.append("[vbg][vfg]overlay=x=(W-w)/2:y=(H-h)/2[vbase]")
+        elif is_vertical and layout == "gaming_split":
+            in_w = vid_w if vid_w > 0 else 1920
+            in_h = vid_h if vid_h > 0 else 1080
 
-            if has_cta:
-                chain1, y1 = build_cta_anim_chain(t1_start, t1_end, base_y)
-                if t2_start is not None and t2_end is not None:
-                    chain2, y2 = build_cta_anim_chain(t2_start, t2_end, base_y)
-                    filter_parts.append("[1:v]format=rgba,split=2[b1raw][b2raw]")
-                    filter_parts.append(f"[b1raw]{chain1}[b1f]")
-                    filter_parts.append(f"[b2raw]{chain2}[b2f]")
-                    filter_parts.append(f"[vbase][b1f]overlay=x='{overlay_x}':y='{y1}':shortest=1:enable='between(t,{t1_start:.2f},{t1_end:.2f})'[vmid]")
-                    filter_parts.append(f"[vmid][b2f]overlay=x='{overlay_x}':y='{y2}':shortest=1:enable='between(t,{t2_start:.2f},{t2_end:.2f})'[vpost_cta]")
-                else:
-                    filter_parts.append(f"[1:v]format=rgba,{chain1}[b1f]")
-                    filter_parts.append(f"[vbase][b1f]overlay=x='{overlay_x}':y='{y1}':shortest=1:enable='between(t,{t1_start:.2f},{t1_end:.2f})'[vpost_cta]")
-            else:
-                filter_parts.append("[vbase]null[vpost_cta]")
+            c_crop = camera_crop or {}
+            g_crop = gameplay_crop or {}
 
-            if subtitle_filter and subtitle_filter.strip():
-                filter_parts.append(f"[vpost_cta]{subtitle_filter.strip()}[vout]")
-            elif drawtext_filters and drawtext_filters.strip():
-                filter_parts.append(f"[vpost_cta]{drawtext_filters.strip()}[vout]")
-            else:
-                filter_parts.append("[vpost_cta]null[vout]")
+            cw = make_even(min(c_crop.get("width", in_w), in_w))
+            ch = make_even(min(c_crop.get("height", in_h), in_h))
+            cx = make_even(max(0, min(c_crop.get("x", 0), in_w - cw)))
+            cy = make_even(max(0, min(c_crop.get("y", 0), in_h - ch)))
 
-            fc = "; ".join(filter_parts)
-            cmd.extend([
-                "-filter_complex", fc,
-                "-map", "[vout]"
-            ])
-            if has_audio:
-                cmd.extend(["-map", "[ajoined]"])
-            cmd.extend(enc_flags)
+            gw = make_even(min(g_crop.get("width", in_w), in_w))
+            gh = make_even(min(g_crop.get("height", in_h), in_h))
+            gx = make_even(max(0, min(g_crop.get("x", 0), in_w - gw)))
+            gy = make_even(max(0, min(g_crop.get("y", 0), in_h - gh)))
 
-        elif has_cta:
-            cmd.extend(["-loop", "1", "-i", str(cta_badge_path)])
-            if needs_crop:
-                crop_prep = "[0:v]crop=w='2*trunc(min(iw,ih*9/16)/2)':h='2*trunc(min(ih,iw*16/9)/2)',scale=1080:1920:flags=lanczos,setsar=1[vbase]; "
-            elif needs_crop_to_16_9:
-                crop_prep = "[0:v]crop=w='2*trunc(min(iw,ih*16/9)/2)':h='2*trunc(min(ih,iw*9/16)/2)',scale=1920:1080:flags=lanczos,setsar=1[vbase]; "
-            elif aspect_ratio == "9:16" and vid_w > 0 and (vid_w != 1080 or vid_h != 1920):
-                crop_prep = "[0:v]scale=1080:1920:flags=lanczos,setsar=1[vbase]; "
-            elif aspect_ratio == "16:9" and vid_w > 0 and (vid_w != 1920 or vid_h != 1080):
-                crop_prep = "[0:v]scale=1920:1080:flags=lanczos,setsar=1[vbase]; "
-            else:
-                crop_prep = "[0:v]scale=trunc(iw/2)*2:trunc(ih/2)*2,setsar=1[vbase]; "
+            default_cam_h = min(make_even((ch / max(1, cw)) * 1080), 720)
+            cam_out_w = make_even(min(1080, max(180, c_crop.get("outWidth", 1080))))
+            cam_out_h = make_even(min(1920, max(180, c_crop.get("outHeight", default_cam_h))))
+            cam_out_x = make_even_coord(max(0, min(1080 - cam_out_w, c_crop.get("outX", (1080 - cam_out_w) // 2))))
+            cam_out_y = make_even_coord(max(0, min(1920 - cam_out_h, c_crop.get("outY", 0))))
 
+            max_game_h = 1920 - cam_out_h
+            default_game_h = min(make_even((gh / max(1, gw)) * 1080), max_game_h)
+            game_out_w = make_even(min(1080, max(360, g_crop.get("outWidth", 1080))))
+            game_out_h = make_even(min(1920, max(360, g_crop.get("outHeight", default_game_h))))
+            default_game_y = max(cam_out_y + cam_out_h, (1920 - game_out_h) // 2)
+            game_out_x = make_even_coord(max(0, min(1080 - game_out_w, g_crop.get("outX", 0))))
+            game_out_y = make_even_coord(max(0, min(1920 - game_out_h, g_crop.get("outY", default_game_y))))
+
+            video_filter_parts.append(f"{v_in}split=3[vbg_raw][vcam_raw][vgame_raw]")
+            video_filter_parts.append("[vbg_raw]scale=270:480:force_original_aspect_ratio=increase,crop=270:480,boxblur=12:2,scale=1080:1920:flags=fast_bilinear[vbg]")
+            video_filter_parts.append(f"[vcam_raw]crop=w={cw}:h={ch}:x={cx}:y={cy},scale={cam_out_w}:{cam_out_h}:flags=lanczos[vcam]")
+            video_filter_parts.append(f"[vgame_raw]crop=w={gw}:h={gh}:x={gx}:y={gy},scale={game_out_w}:{game_out_h}:flags=lanczos[vgame]")
+            # Facecam superpuesta al frente (sobre el gameplay)
+            video_filter_parts.append(f"[vbg][vgame]overlay=x={game_out_x}:y={game_out_y}[vtmp]")
+            video_filter_parts.append(f"[vtmp][vcam]overlay=x={cam_out_x}:y={cam_out_y}[vbase]")
+
+            if cta_position == "top" and scaled_cta_y is None:
+                base_y = f"{cam_out_y + cam_out_h + 30}"
+        elif needs_crop:
+            video_filter_parts.append(f"{v_in}crop=w='2*trunc(min(iw,ih*9/16)/2)':h='2*trunc(min(ih,iw*16/9)/2)',scale=1080:1920:flags=lanczos,setsar=1[vbase]")
+        elif needs_crop_to_16_9:
+            video_filter_parts.append(f"{v_in}crop=w='2*trunc(min(iw,ih*16/9)/2)':h='2*trunc(min(ih,iw*9/16)/2)',scale=1920:1080:flags=lanczos,setsar=1[vbase]")
+        elif aspect_ratio == "9:16" and vid_w > 0 and vid_h > 0 and (vid_w != 1080 or vid_h != 1920):
+            video_filter_parts.append(f"{v_in}scale=1080:1920:flags=lanczos,setsar=1[vbase]")
+        elif aspect_ratio == "16:9" and vid_w > 0 and vid_h > 0 and (vid_w != 1920 or vid_h != 1080):
+            video_filter_parts.append(f"{v_in}scale=1920:1080:flags=lanczos,setsar=1[vbase]")
+        else:
+            video_filter_parts.append(f"{v_in}scale=trunc(iw/2)*2:trunc(ih/2)*2,setsar=1[vbase]")
+
+        # CTA badge handling
+        if has_cta:
             chain1, y1 = build_cta_anim_chain(t1_start, t1_end, base_y)
             if t2_start is not None and t2_end is not None:
                 chain2, y2 = build_cta_anim_chain(t2_start, t2_end, base_y)
-                fc = (
-                    f"[1:v]format=rgba,split=2[b1raw][b2raw]; "
-                    f"[b1raw]{chain1}[b1f]; "
-                    f"[b2raw]{chain2}[b2f]; "
-                    f"{crop_prep}"
-                    f"[vbase][b1f]overlay=x='{overlay_x}':y='{y1}':shortest=1:enable='between(t,{t1_start:.2f},{t1_end:.2f})'[vmid]; "
-                    f"[vmid][b2f]overlay=x='{overlay_x}':y='{y2}':shortest=1:enable='between(t,{t2_start:.2f},{t2_end:.2f})'[vpost_cta]"
-                )
+                video_filter_parts.append(f"[{cta_idx}:v]format=rgba,split=2[b1raw][b2raw]")
+                video_filter_parts.append(f"[b1raw]{chain1}[b1f]")
+                video_filter_parts.append(f"[b2raw]{chain2}[b2f]")
+                video_filter_parts.append(f"[vbase][b1f]overlay=x='{overlay_x}':y='{y1}':shortest=1:enable='between(t,{t1_start:.2f},{t1_end:.2f})'[vmid]")
+                video_filter_parts.append(f"[vmid][b2f]overlay=x='{overlay_x}':y='{y2}':shortest=1:enable='between(t,{t2_start:.2f},{t2_end:.2f})'[vpost_cta]")
             else:
-                fc = (
-                    f"[1:v]format=rgba,{chain1}[b1f]; "
-                    f"{crop_prep}"
-                    f"[vbase][b1f]overlay=x='{overlay_x}':y='{y1}':shortest=1:enable='between(t,{t1_start:.2f},{t1_end:.2f})'[vpost_cta]"
-                )
-
-            if subtitle_filter and subtitle_filter.strip():
-                fc += f"; [vpost_cta]{subtitle_filter.strip()}[vout]"
-            elif drawtext_filters and drawtext_filters.strip():
-                fc += f"; [vpost_cta]{drawtext_filters.strip()}[vout]"
-            else:
-                fc += "; [vpost_cta]null[vout]"
-
-            cmd.extend([
-                "-filter_complex", fc,
-                "-map", "[vout]",
-                "-map", "0:a?"
-            ])
-            cmd.extend(enc_flags)
-
+                video_filter_parts.append(f"[{cta_idx}:v]format=rgba,{chain1}[b1f]")
+                video_filter_parts.append(f"[vbase][b1f]overlay=x='{overlay_x}':y='{y1}':shortest=1:enable='between(t,{t1_start:.2f},{t1_end:.2f})'[vpost_cta]")
         else:
-            # Standard single-input pipeline
-            filters = []
-            if needs_crop:
-                filters.append("crop=w='2*trunc(min(iw,ih*9/16)/2)':h='2*trunc(min(ih,iw*16/9)/2)',scale=1080:1920:flags=lanczos,setsar=1")
-            elif needs_crop_to_16_9:
-                filters.append("crop=w='2*trunc(min(iw,ih*16/9)/2)':h='2*trunc(min(ih,iw*9/16)/2)',scale=1920:1080:flags=lanczos,setsar=1")
-            elif aspect_ratio == "9:16" and vid_w > 0 and vid_h > 0 and (vid_w != 1080 or vid_h != 1920):
-                filters.append("scale=1080:1920:flags=lanczos,setsar=1")
-            elif aspect_ratio == "16:9" and vid_w > 0 and vid_h > 0 and (vid_w != 1920 or vid_h != 1080):
-                filters.append("scale=1920:1080:flags=lanczos,setsar=1")
-            else:
-                filters.append("scale=trunc(iw/2)*2:trunc(ih/2)*2,setsar=1")
+            video_filter_parts.append("[vbase]null[vpost_cta]")
 
-            if subtitle_filter and subtitle_filter.strip():
-                filters.append(subtitle_filter.strip())
-            elif drawtext_filters and drawtext_filters.strip():
-                filters.append(drawtext_filters.strip())
+        # Subtitles (libass)
+        if subtitle_filter and subtitle_filter.strip():
+            video_filter_parts.append(f"[vpost_cta]{subtitle_filter.strip()}[vout]")
+        else:
+            video_filter_parts.append("[vpost_cta]null[vout]")
 
-            vf = ",".join(filters) if filters else None
-            if vf:
-                cmd.extend(["-vf", vf])
-
-            cmd.extend(enc_flags)
+    out_audio_map = None
+    if valid_bgm:
+        bgm_vol = max(0.0, min(float(bgm_volume), 1.0))
+        bgm_trim = f"atrim=start={bgm_start_sec:.3f},asetpts=PTS-STARTPTS," if bgm_start_sec > 0 else ""
+        if has_audio:
+            vocal_track = a_in if a_in else "[0:a]"
+            audio_filter_parts.append(
+                f"{vocal_track}volume=1.0[vocal]; "
+                f"[{bgm_idx}:a]{bgm_trim}volume={bgm_vol:.2f}[bgm]; "
+                f"[vocal][bgm]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[amix_raw]; "
+                f"[amix_raw]alimiter=limit=0.95:attack=5:release=50:asc=1[aout]"
+            )
+            out_audio_map = "[aout]"
+        else:
+            audio_filter_parts.append(f"[{bgm_idx}:a]{bgm_trim}atrim=0:{dur_sec:.3f},asetpts=PTS-STARTPTS,volume={bgm_vol:.2f}[aout]")
+            out_audio_map = "[aout]"
     else:
-        cmd.append("-vn")
+        if has_audio:
+            out_audio_map = a_in if a_in else "0:a?"
 
-    cmd.extend([
+    h264_level = "5.2" if target_fps == 120 else "4.2"
+    maxrate_str = "15M" if target_fps == 120 else "10M"
+    bufsize_str = "24M" if target_fps == 120 else "16M"
+
+    if target_bitrate_k:
+        maxrate_str = f"{int(target_bitrate_k * 1.2)}k"
+        bufsize_str = f"{int(target_bitrate_k * 2)}k"
+
+    enc_flags = [
         "-threads", "0",
-        "-c:a", "aac",
-        "-b:a", "192k",
-        "-movflags", "+faststart",
-        "-t", dur_str,
-        str(output_path)
-    ])
+        "-c:v", "libx264",
+        "-preset", "medium",
+        "-profile:v", "high",
+        "-level:v", h264_level,
+        "-pix_fmt", "yuv420p"
+    ]
 
-    res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", **get_no_window_kwargs())
-    if res.returncode != 0:
-        err_msg = res.stderr.strip()[-400:] if res.stderr else "Error desconocido de FFmpeg"
-        log_buffer.push(f"[FFmpeg ERROR] Error al codificar clip: {err_msg}")
-        raise RuntimeError(f"Error renderizando clip en FFmpeg: {err_msg}")
+    if target_bitrate_k and not two_pass:
+        enc_flags.extend(["-b:v", f"{target_bitrate_k}k", "-maxrate", maxrate_str, "-bufsize", bufsize_str])
+    elif not target_bitrate_k:
+        enc_flags.extend(["-crf", "19", "-maxrate", maxrate_str, "-bufsize", bufsize_str])
+
+    if target_fps:
+        enc_flags.extend(["-r", str(target_fps), "-fps_mode", "cfr"])
+
+    v_fc = "; ".join(video_filter_parts) if video_filter_parts else None
+    full_fc = "; ".join(video_filter_parts + audio_filter_parts) if (video_filter_parts or audio_filter_parts) else None
+
+    # Two-pass mode
+    if two_pass and target_bitrate_k and has_video:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            pass_logfile = Path(temp_dir) / "ffmpeg2pass"
+
+            # Pass 1
+            cmd_pass1 = list(base_video_inputs)
+            if v_fc:
+                cmd_pass1.extend(["-filter_complex", v_fc, "-map", "[vout]"])
+            else:
+                cmd_pass1.extend(["-map", "0:v"])
+            cmd_pass1.extend([
+                "-threads", "0",
+                "-c:v", "libx264",
+                "-preset", "medium",
+                "-b:v", f"{target_bitrate_k}k",
+                "-maxrate", maxrate_str,
+                "-bufsize", bufsize_str,
+                "-profile:v", "high",
+                "-level:v", h264_level,
+                "-pix_fmt", "yuv420p"
+            ])
+            if target_fps:
+                cmd_pass1.extend(["-r", str(target_fps), "-fps_mode", "cfr"])
+            cmd_pass1.extend([
+                "-pass", "1",
+                "-passlogfile", str(pass_logfile).replace("\\", "/"),
+                "-an",
+                "-t", dur_str,
+                "-f", "null",
+                os.devnull
+            ])
+            _run_ffmpeg_monitored(
+                cmd=cmd_pass1,
+                dur_sec=dur_sec,
+                progress_callback=progress_callback,
+                base_pct=0,
+                pct_weight=45,
+                stage_name="Pase 1 (Análisis VBR)",
+                output_path=None
+            )
+
+            # Pass 2
+            cmd_pass2 = list(base_inputs)
+            if full_fc:
+                cmd_pass2.extend(["-filter_complex", full_fc, "-map", "[vout]"])
+            else:
+                cmd_pass2.extend(["-map", "0:v"])
+            if out_audio_map:
+                cmd_pass2.extend(["-map", out_audio_map, "-c:a", "aac", "-b:a", "192k"])
+            else:
+                cmd_pass2.append("-an")
+            cmd_pass2.extend([
+                "-threads", "0",
+                "-c:v", "libx264",
+                "-preset", "medium",
+                "-b:v", f"{target_bitrate_k}k",
+                "-maxrate", maxrate_str,
+                "-bufsize", bufsize_str,
+                "-profile:v", "high",
+                "-level:v", h264_level,
+                "-pix_fmt", "yuv420p"
+            ])
+            if target_fps:
+                cmd_pass2.extend(["-r", str(target_fps), "-fps_mode", "cfr"])
+            cmd_pass2.extend([
+                "-pass", "2",
+                "-passlogfile", str(pass_logfile).replace("\\", "/"),
+                "-movflags", "+faststart",
+                "-t", dur_str,
+                str(output_path)
+            ])
+            _run_ffmpeg_monitored(
+                cmd=cmd_pass2,
+                dur_sec=dur_sec,
+                progress_callback=progress_callback,
+                base_pct=45,
+                pct_weight=54,
+                stage_name="Pase 2 (Codificación final)",
+                output_path=output_path
+            )
+
+    else:
+        # Single-pass
+        cmd = list(base_inputs)
+        if has_video:
+            if full_fc:
+                cmd.extend(["-filter_complex", full_fc, "-map", "[vout]"])
+            else:
+                cmd.extend(["-map", "0:v"])
+            cmd.extend(enc_flags)
+        else:
+            cmd.append("-vn")
+
+        if out_audio_map:
+            cmd.extend(["-map", out_audio_map, "-c:a", "aac", "-b:a", "192k"])
+        else:
+            cmd.append("-an")
+
+        cmd.extend([
+            "-movflags", "+faststart",
+            "-t", dur_str,
+            str(output_path)
+        ])
+
+        _run_ffmpeg_monitored(
+            cmd=cmd,
+            dur_sec=dur_sec,
+            progress_callback=progress_callback,
+            base_pct=0,
+            pct_weight=99,
+            stage_name="Codificando clip",
+            output_path=output_path
+        )
+
+    if progress_callback:
+        try:
+            progress_callback(100, "¡Clip exportado exitosamente!")
+        except Exception:
+            pass
 
     if output_path.exists():
         size_mb = output_path.stat().st_size / (1024 * 1024)

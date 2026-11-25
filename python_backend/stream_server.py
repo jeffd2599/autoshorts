@@ -4,7 +4,6 @@ import re
 import subprocess
 import hashlib
 import shutil
-from pathlib import Path
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 import threading
@@ -12,6 +11,12 @@ import threading
 from .paths import get_resource_dir, get_user_data_dir, get_ffmpeg_path, get_no_window_kwargs
 
 CHUNK_SIZE = 256 * 1024  # 256 KB buffer for high-throughput local media streaming
+
+
+mimetypes.add_type("audio/mpeg", ".mp3")
+mimetypes.add_type("audio/wav", ".wav")
+mimetypes.add_type("audio/aac", ".aac")
+mimetypes.add_type("audio/mp4", ".m4a")
 
 
 class VideoStreamHandler(BaseHTTPRequestHandler):

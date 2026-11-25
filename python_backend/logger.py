@@ -1,6 +1,5 @@
 import os
 import sys
-import time
 import threading
 from datetime import datetime
 from pathlib import Path
@@ -71,6 +70,9 @@ class SystemLogBuffer:
     def clear(self):
         with self._lock:
             self.entries.clear()
+
+    # Alias de compatibilidad universal para push()
+    append = push
 
 
 # Global singleton instance

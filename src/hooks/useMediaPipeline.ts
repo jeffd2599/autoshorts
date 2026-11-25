@@ -4,13 +4,14 @@ import type {
   Candidate,
   ContentType,
   CopyResult,
+  CropRect,
   EnvironmentStatus,
   NormalizedTranscript,
   ProjectDetail,
   TargetDuration,
   Transcript,
 } from "../types";
-export interface CutClipOptions {
+interface CutClipOptions {
   burnSubtitles?: boolean;
   captionStyle?: string;
   captionPosition?: "bottom" | "center" | "top";
@@ -34,6 +35,14 @@ export interface CutClipOptions {
   subRanges?: Array<{ start: number; end: number }>;
   transition?: string;
   fps?: number;
+  layout?: "crop" | "blur" | "gaming_split";
+  cameraCrop?: CropRect;
+  gameplayCrop?: CropRect;
+  bgmPath?: string;
+  bgmVolume?: number;
+  bgmStartSec?: number;
+  targetBitrateK?: number;
+  twoPass?: boolean;
 }
 
 interface UseMediaPipelineOptions {
@@ -41,7 +50,6 @@ interface UseMediaPipelineOptions {
   setDetail: React.Dispatch<React.SetStateAction<ProjectDetail | null>>;
   refresh: (projectId?: string) => Promise<void>;
   setError: (err: string | null) => void;
-  busy: import("../types").BusyState;
   setBusy: (busy: import("../types").BusyState) => void;
   transcriptionEngine: string;
   whisperModel: string;
@@ -66,7 +74,6 @@ export function useMediaPipeline(options: UseMediaPipelineOptions) {
     setDetail,
     refresh,
     setError,
-    busy,
     setBusy,
     transcriptionEngine,
     whisperModel,
@@ -642,6 +649,14 @@ export function useMediaPipeline(options: UseMediaPipelineOptions) {
           ...(options?.subRanges ? { subRanges: options.subRanges } : {}),
           ...(options?.transition ? { transition: options.transition } : {}),
           ...(options?.fps ? { fps: options.fps } : {}),
+          ...(options?.layout ? { layout: options.layout } : {}),
+          ...(options?.cameraCrop ? { cameraCrop: options.cameraCrop } : {}),
+          ...(options?.gameplayCrop ? { gameplayCrop: options.gameplayCrop } : {}),
+          ...(options?.bgmPath ? { bgmPath: options.bgmPath } : {}),
+          ...(options?.bgmVolume !== undefined ? { bgmVolume: options.bgmVolume } : {}),
+          ...(options?.bgmStartSec !== undefined ? { bgmStartSec: options.bgmStartSec } : {}),
+          ...(options?.targetBitrateK ? { targetBitrateK: options.targetBitrateK } : {}),
+          ...(options?.twoPass !== undefined ? { twoPass: options.twoPass } : {}),
         });
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
@@ -757,6 +772,14 @@ export function useMediaPipeline(options: UseMediaPipelineOptions) {
     }
   }, [detail, selectedCandidates, customOutputDir, clipAspectRatio, refresh, setError, setBusy]);
 
+  const cancelRender = useCallback(async () => {
+    try {
+      await invoke("cancel_render");
+    } catch (err) {
+      console.warn("Error invoking cancel_render:", err);
+    }
+  }, []);
+
   const generateSocialCopy = useCallback(
     async (extraContextOverride?: string) => {
       if (!detail) return;
@@ -848,6 +871,7 @@ export function useMediaPipeline(options: UseMediaPipelineOptions) {
     updateClipCount,
     toggleCandidateDismissed,
     cutCandidate,
+    cancelRender,
     cutSelected,
     previewCandidate,
     setPreviewCandidate,

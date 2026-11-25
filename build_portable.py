@@ -68,8 +68,8 @@ def main():
     print(f"      Construyendo paquete portable para {APP_NAME} v{__version__}")
     print("=" * 60)
 
-    # 1. Compilar frontend de React con pnpm
-    run_command("pnpm.cmd run build", "Compilando frontend de producción con pnpm")
+    # 1. Compilar frontend de React con Vite
+    run_command("node node_modules/vite/bin/vite.js build", "Compilando frontend de producción con Vite")
 
     # 2. Purgar compilación previa y compilar con PyInstaller en modo onedir
     output_dir = PROJECT_ROOT / "dist" / "AutoShorts"
@@ -87,7 +87,7 @@ def main():
         except Exception as e:
             print(f"[!] Aviso al limpiar {build_dir}: {e}")
 
-    run_command("pyinstaller -y --clean AutoShorts.spec", "Compilando backend ejecutable con PyInstaller (onedir)")
+    run_command(f'"{sys.executable}" -m PyInstaller -y --clean AutoShorts.spec', "Compilando backend ejecutable con PyInstaller (onedir)")
 
     output_dir = PROJECT_ROOT / "dist" / "AutoShorts"
     if not output_dir.exists() or not (output_dir / "AutoShorts.exe").exists():

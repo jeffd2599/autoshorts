@@ -2,7 +2,6 @@
 pywebview>=5.0.0
 pythonnet>=3.0.0; sys_platform == 'win32'
 requests>=2.31.0
-tqdm>=4.66.0
 
 # Procesamiento de Medios & Stickers
 pillow>=10.0.0

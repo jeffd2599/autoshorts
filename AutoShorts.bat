@@ -4,11 +4,11 @@ title AutoShorts Launcher
 cd /d "%~dp0"
 
 echo ========================================================
-echo                 Iniciando AutoShorts
+echo                 Iniciando AutoShorts v3.0
 echo ========================================================
 echo.
 
-:: 1. Detectar entorno virtual Python (venv, .venv o env)
+:: 1. Detectar entorno virtual o instalacion de Python
 set "PYTHON_EXE="
 
 if exist "venv\Scripts\python.exe" (
@@ -20,8 +20,10 @@ if exist "venv\Scripts\python.exe" (
 ) else if exist "env\Scripts\python.exe" (
     set "PYTHON_EXE=env\Scripts\python.exe"
     echo [i] Entorno virtual detectado: env
+) else if exist "%LOCALAPPDATA%\Programs\Python\Python311\python.exe" (
+    set "PYTHON_EXE=%LOCALAPPDATA%\Programs\Python\Python311\python.exe"
+    echo [i] Python 3.11 detectado en LocalAppData
 ) else (
-    :: Verificar si python está en el PATH del sistema
     where python >nul 2>&1
     if !errorlevel! equ 0 (
         set "PYTHON_EXE=python"

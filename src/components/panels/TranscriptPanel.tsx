@@ -1,4 +1,3 @@
-import React from "react";
 import { AudioLines, Crosshair, Flame, Loader2, Sparkles } from "lucide-react";
 import { BusyState, NormalizedTranscript, ProjectDetail } from "../../types";
 import { formatTime } from "../../utils/format";
@@ -10,7 +9,6 @@ interface TranscriptPanelProps {
   transcript: NormalizedTranscript | null;
   busy: BusyState;
   canTranscribe: boolean;
-  transcriptionEngine: string;
   isRefiningTranscript: boolean;
   isDetectingActionCues?: boolean;
   transcriptionProgress?: { percentage: number; message: string } | null;
@@ -25,7 +23,6 @@ export function TranscriptPanel({
   transcript,
   busy,
   canTranscribe,
-  transcriptionEngine,
   isRefiningTranscript,
   isDetectingActionCues = false,
   transcriptionProgress,

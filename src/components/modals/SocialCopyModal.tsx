@@ -1,4 +1,3 @@
-import React from "react";
 import { Loader2, Sparkles, Copy, X } from "lucide-react";
 import { CopyResult } from "../../types";
 

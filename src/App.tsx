@@ -1,6 +1,4 @@
 import React, { useEffect, useState } from "react";
-import { invoke } from "./apiBridge";
-import { Loader2 } from "lucide-react";
 
 // Hooks
 import { useAppSettings } from "./hooks/useAppSettings";
@@ -16,7 +14,6 @@ import { CandidatePanel } from "./components/panels/CandidatePanel";
 import { StatusBar } from "./components/common/StatusBar";
 
 // Modals
-import { SettingsPanel } from "./components/modals/SettingsPanel";
 import { ModalContainer } from "./components/modals/ModalContainer";
 import { LogsModal } from "./components/modals/LogsModal";
 
@@ -53,7 +50,6 @@ export function App() {
     setDetail: projectActions.setDetail,
     refresh: projectActions.refresh,
     setError: projectActions.setError,
-    busy: projectActions.busy,
     setBusy: projectActions.setBusy,
     transcriptionEngine: settings.transcriptionEngine,
     whisperModel: settings.whisperModel,
@@ -77,48 +73,6 @@ export function App() {
   useEffect(() => {
     void projectActions.refresh();
   }, []);
-
-  const settingsNode = (
-    <SettingsPanel
-      isOpen={showSettings}
-      onClose={() => setShowSettings(false)}
-      telemetry={settings.telemetry}
-      transcriptionEngine={settings.transcriptionEngine}
-      setTranscriptionEngine={settings.setTranscriptionEngine}
-      whisperModel={settings.whisperModel}
-      setWhisperModel={settings.setWhisperModel}
-      whisperModelsList={settings.whisperModelsList}
-      llmEngine={settings.llmEngine}
-      setLlmEngine={settings.setLlmEngine}
-      localLlmModel={settings.localLlmModel}
-      setLocalLlmModel={settings.setLocalLlmModel}
-      lmstudioModel={settings.lmstudioModel}
-      setLmstudioModel={settings.setLmstudioModel}
-      lmstudioBaseUrl={settings.lmstudioBaseUrl}
-      setLmstudioBaseUrl={settings.setLmstudioBaseUrl}
-      openRouterKey={settings.openRouterKey}
-      setOpenRouterKey={settings.setOpenRouterKey}
-      openRouterModel={settings.openRouterModel}
-      setOpenRouterModel={settings.setOpenRouterModel}
-      openRouterIsFree={settings.openRouterIsFree}
-      setOpenRouterIsFree={settings.setOpenRouterIsFree}
-      openRouterContextSize={settings.openRouterContextSize}
-      setOpenRouterContextSize={settings.setOpenRouterContextSize}
-      environment={settings.environment}
-      onRefreshEnv={() => projectActions.refresh(projectActions.detail?.project.id)}
-      pullInputModel={settings.pullInputModel}
-      setPullInputModel={settings.setPullInputModel}
-      downloadingModelName={settings.downloadingModelName}
-      modelDownloadStatus={settings.modelDownloadStatus}
-      modelDownloadProgress={settings.modelDownloadProgress}
-      onPullModel={settings.pullModelDirectly}
-      customMomentsPrompt={settings.customMomentsPrompt}
-      setCustomMomentsPrompt={settings.setCustomMomentsPrompt}
-      defaultMomentsPrompt={settings.defaultMomentsPrompt}
-      syncConfig={settings.syncConfig}
-      onResetConfig={settings.handleResetConfig}
-    />
-  );
 
   return (
     <div className="app-shell-container">
@@ -162,7 +116,6 @@ export function App() {
                     detail={projectActions.detail}
                     transcript={mediaPipeline.transcript}
                     busy={projectActions.busy}
-                    transcriptionEngine={settings.transcriptionEngine}
                     canTranscribe={settings.canTranscribe}
                     isRefiningTranscript={mediaPipeline.isRefiningTranscript}
                     isDetectingActionCues={mediaPipeline.isDetectingActionCues}
@@ -215,7 +168,6 @@ export function App() {
             <HomeDashboard
               projects={projectActions.projects}
               busy={projectActions.busy}
-              environment={settings.environment}
               showSettings={showSettings}
               setShowSettings={setShowSettings}
               importMedia={projectActions.importMedia}
@@ -227,7 +179,6 @@ export function App() {
               relinkProjectVideo={projectActions.relinkProjectVideo}
               openProjectFolder={projectActions.openProjectFolder}
               onOpenQuickCopy={() => mediaPipeline.setShowQuickCopyModal(true)}
-              settingsNode={settingsNode}
             />
           )}
         </section>
@@ -248,7 +199,6 @@ export function App() {
         setShowSettings={setShowSettings}
         telemetry={settings.telemetry}
         transcriptionEngine={settings.transcriptionEngine}
-        setTranscriptionEngine={settings.setTranscriptionEngine}
         whisperModel={settings.whisperModel}
         setWhisperModel={settings.setWhisperModel}
         whisperModelsList={settings.whisperModelsList}
@@ -287,8 +237,6 @@ export function App() {
         showStyleModal={projectActions.showStyleModal}
         setShowStyleModal={projectActions.setShowStyleModal}
         setMediaPathToImport={projectActions.setMediaPathToImport}
-        selectedStyle={projectActions.selectedStyle}
-        setSelectedStyle={projectActions.setSelectedStyle}
         selectedContentType={projectActions.selectedContentType}
         setSelectedContentType={projectActions.setSelectedContentType}
         targetDuration={projectActions.targetDuration}
@@ -307,7 +255,6 @@ export function App() {
         setMoveSourceVideo={projectActions.setMoveSourceVideo}
         onConfirmImport={() =>
           projectActions.confirmImport(
-            projectActions.selectedStyle,
             projectActions.selectedContentType,
             projectActions.targetDuration
           )

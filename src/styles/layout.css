@@ -39,23 +39,11 @@
   opacity: 0.85;
 }
 
-.brand-mark {
-  display: grid;
-  place-items: center;
-  width: 34px;
-  height: 34px;
-  color: #09090b;
-  background: #fafafa;
-  border-radius: 6px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
-}
-
 .brand-row h1,
 .brand-row p,
 .topbar h2,
 .panel-heading h3,
-.candidate-card h4,
-.empty-workspace h2 {
+.candidate-card h4 {
   margin: 0;
 }
 
@@ -288,6 +276,45 @@ textarea:focus {
   gap: 8px;
 }
 
+/* Topbar Segmented View Switcher */
+.view-mode-segmented {
+  display: inline-flex;
+  align-items: center;
+  background: #141417;
+  border: 1px solid #27272a;
+  border-radius: 8px;
+  padding: 3px;
+  gap: 3px;
+}
+
+.view-mode-pill {
+  background: transparent;
+  border: none;
+  color: #a1a1aa;
+  padding: 5px 12px;
+  border-radius: 6px;
+  font-size: 0.78rem;
+  font-weight: 500;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.view-mode-pill:hover {
+  color: #fafafa;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.view-mode-pill.active {
+  background: #27272a;
+  color: #ffffff;
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+
 .icon-button {
   height: 38px;
   min-height: 38px;
@@ -308,63 +335,6 @@ textarea:focus {
   border-color: rgba(255, 255, 255, 0.2);
 }
 
-/* Horizontal Collapsible Settings Panel */
-.settings-panel {
-  padding: 16px;
-  background: var(--bg-sidebar);
-  border: 1px solid var(--border-color);
-  border-radius: 12px;
-  animation: slideInDown 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-}
-
-@keyframes slideInDown {
-  from {
-    opacity: 0;
-    transform: translateY(-10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.key-stack-horizontal {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 16px;
-}
-
-.key-stack-horizontal label {
-  display: grid;
-  gap: 6px;
-}
-
-.key-stack-horizontal span {
-  color: var(--text-secondary);
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-.key-stack-horizontal input {
-  width: 100%;
-  min-height: 36px;
-  padding: 0 12px;
-  color: var(--text-primary);
-  background: var(--bg-input);
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  outline: none;
-  font-size: 13px;
-  transition: all 0.2s ease;
-}
-
-.key-stack-horizontal input:focus {
-  border-color: var(--border-color-focus);
-}
-
-.icon-button.settings-toggle.active,
 .secondary-action.settings-toggle.active {
   background: rgba(255, 255, 255, 0.08);
   border-color: #fafafa;
@@ -379,42 +349,6 @@ textarea:focus {
   border-radius: 8px;
   font-weight: 600;
   font-size: 12.5px;
-}
-
-.pipeline-strip {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(100px, 1fr));
-  gap: 8px;
-}
-
-.pipeline-step {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  min-height: 38px;
-  color: var(--text-muted);
-  background: rgba(255, 255, 255, 0.02);
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  font-size: 11.5px;
-  font-weight: 700;
-  transition: all 0.2s ease;
-}
-
-.pipeline-step.done {
-  color: var(--color-success-text);
-  background: var(--color-success-bg);
-  border-color: var(--color-success-border);
-}
-
-/* Two-column workspace layout */
-.work-grid {
-  display: grid;
-  grid-template-columns: minmax(420px, 0.95fr) minmax(460px, 1.05fr);
-  gap: 16px;
-  min-height: 0;
-  flex: 1;
 }
 
 /* Full-width single view workspace layout */
