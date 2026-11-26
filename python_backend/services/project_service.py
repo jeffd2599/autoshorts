@@ -80,6 +80,7 @@ def serialize_project(db: Any, project_id: str) -> Dict[str, Any]:
         "name": proj.get("name"),
         "sourcePath": proj.get("sourcePath"),
         "sourceDuration": proj.get("sourceDuration"),
+        "bitRate": proj.get("bitRate"),
         "status": proj.get("status", "ready"),
         "transcriptionMode": proj.get("transcriptionMode", "local"),
         "captionStyle": proj.get("captionStyle", "modern-box"),
@@ -216,6 +217,7 @@ def restore_project_from_disk(db: Any, file_or_dir: Path) -> Dict[str, Any]:
         caption_style=caption_style,
         project_dir=str(project_dir),
         workflow_goal=workflow_goal,
+        bit_rate_bps=data.get("bitRate"),
         created_at=data.get("createdAt"),
         updated_at=data.get("updatedAt")
     )

@@ -21,6 +21,7 @@ SCHEMA_MIGRATIONS = [
     (4, "ALTER TABLE candidates ADD COLUMN dismissed INTEGER DEFAULT 0;"),
     (5, "ALTER TABLE projects ADD COLUMN project_dir TEXT;"),
     (6, "ALTER TABLE projects ADD COLUMN workflow_goal TEXT DEFAULT 'clips';"),
+    (8, "ALTER TABLE projects ADD COLUMN bit_rate_bps INTEGER;"),
 ]
 
 
@@ -160,16 +161,21 @@ class Database:
                 except Exception:
                     pass
 
+            # Safety guard: ensure bit_rate_bps exists even on legacy DBs with schema_version >= 7
+            proj_cols = {r[1] for r in conn.execute("PRAGMA table_info(projects)").fetchall()}
+            if "bit_rate_bps" not in proj_cols:
+                conn.execute("ALTER TABLE projects ADD COLUMN bit_rate_bps INTEGER;")
 
-    def create_project(self, source_path: str, transcription_mode: str = "local", caption_style: str = "modern-box", source_duration: Optional[float] = None, project_dir: Optional[str] = None, workflow_goal: str = "clips") -> Dict[str, Any]:
+
+    def create_project(self, source_path: str, transcription_mode: str = "local", caption_style: str = "modern-box", source_duration: Optional[float] = None, project_dir: Optional[str] = None, workflow_goal: str = "clips", bit_rate_bps: Optional[int] = None) -> Dict[str, Any]:
         proj_id = str(uuid.uuid4())
         name = Path(source_path).stem
         now = utc_now_iso()
         with self.get_conn() as conn:
             conn.execute(
-                """INSERT INTO projects (id, name, source_path, source_duration, status, transcription_mode, caption_style, project_dir, workflow_goal, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (proj_id, name, source_path, source_duration, "ingest", transcription_mode, caption_style, project_dir, workflow_goal, now, now)
+                """INSERT INTO projects (id, name, source_path, source_duration, status, transcription_mode, caption_style, project_dir, workflow_goal, bit_rate_bps, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (proj_id, name, source_path, source_duration, "ingest", transcription_mode, caption_style, project_dir, workflow_goal, bit_rate_bps, now, now)
             )
         return self.get_project(proj_id)
 
@@ -184,6 +190,7 @@ class Database:
         caption_style: str = "modern-box",
         project_dir: Optional[str] = None,
         workflow_goal: str = "clips",
+        bit_rate_bps: Optional[int] = None,
         created_at: Optional[str] = None,
         updated_at: Optional[str] = None
     ) -> Dict[str, Any]:
@@ -192,8 +199,8 @@ class Database:
         u_at = updated_at or now
         with self.get_conn() as conn:
             conn.execute(
-                """INSERT INTO projects (id, name, source_path, source_duration, status, transcription_mode, caption_style, project_dir, workflow_goal, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """INSERT INTO projects (id, name, source_path, source_duration, status, transcription_mode, caption_style, project_dir, workflow_goal, bit_rate_bps, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                    ON CONFLICT(id) DO UPDATE SET
                      name=excluded.name,
                      source_path=excluded.source_path,
@@ -203,16 +210,17 @@ class Database:
                      caption_style=excluded.caption_style,
                      project_dir=coalesce(excluded.project_dir, projects.project_dir),
                      workflow_goal=excluded.workflow_goal,
+                     bit_rate_bps=coalesce(excluded.bit_rate_bps, projects.bit_rate_bps),
                      updated_at=excluded.updated_at
                 """,
-                (project_id, name, source_path, source_duration, status, transcription_mode, caption_style, project_dir, workflow_goal, c_at, u_at)
+                (project_id, name, source_path, source_duration, status, transcription_mode, caption_style, project_dir, workflow_goal, bit_rate_bps, c_at, u_at)
             )
         return self.get_project(project_id)
 
     def list_projects(self) -> List[Dict[str, Any]]:
         with self.get_conn() as conn:
             rows = conn.execute(
-                "SELECT id, name, source_path, source_duration, status, transcription_mode, created_at, updated_at, caption_style, project_dir, workflow_goal FROM projects ORDER BY updated_at DESC"
+                "SELECT id, name, source_path, source_duration, status, transcription_mode, created_at, updated_at, caption_style, project_dir, workflow_goal, bit_rate_bps FROM projects ORDER BY updated_at DESC"
             ).fetchall()
             return [
                 {
@@ -225,6 +233,8 @@ class Database:
                     "captionStyle": r["caption_style"],
                     "projectDir": r["project_dir"],
                     "workflowGoal": r["workflow_goal"] or "clips",
+                    "bitRate": r["bit_rate_bps"],
+                    "bitRateMbps": round(r["bit_rate_bps"] / 1_000_000, 2) if r["bit_rate_bps"] else None,
                     "createdAt": r["created_at"],
                     "updatedAt": r["updated_at"],
                 }
@@ -234,7 +244,7 @@ class Database:
     def get_project(self, project_id: str) -> Dict[str, Any]:
         with self.get_conn() as conn:
             r = conn.execute(
-                "SELECT id, name, source_path, source_duration, status, transcription_mode, created_at, updated_at, caption_style, project_dir, workflow_goal FROM projects WHERE id = ?",
+                "SELECT id, name, source_path, source_duration, status, transcription_mode, created_at, updated_at, caption_style, project_dir, workflow_goal, bit_rate_bps FROM projects WHERE id = ?",
                 (project_id,)
             ).fetchone()
             if not r:
@@ -249,6 +259,8 @@ class Database:
                 "captionStyle": r["caption_style"],
                 "projectDir": r["project_dir"],
                 "workflowGoal": r["workflow_goal"] or "clips",
+                "bitRate": r["bit_rate_bps"],
+                "bitRateMbps": round(r["bit_rate_bps"] / 1_000_000, 2) if r["bit_rate_bps"] else None,
                 "createdAt": r["created_at"],
                 "updatedAt": r["updated_at"],
             }
@@ -283,13 +295,28 @@ class Database:
         with self.get_conn() as conn:
             conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
 
-    def relink_project(self, project_id: str, new_source_path: str, new_duration: Optional[float] = None) -> Dict[str, Any]:
+    def update_project_bit_rate(self, project_id: str, bit_rate_bps: Optional[int]):
         now = utc_now_iso()
         with self.get_conn() as conn:
-            if new_duration is not None:
+            conn.execute("UPDATE projects SET bit_rate_bps = ?, updated_at = ? WHERE id = ?", (bit_rate_bps, now, project_id))
+
+    def relink_project(self, project_id: str, new_source_path: str, new_duration: Optional[float] = None, bit_rate_bps: Optional[int] = None) -> Dict[str, Any]:
+        now = utc_now_iso()
+        with self.get_conn() as conn:
+            if new_duration is not None and bit_rate_bps is not None:
+                conn.execute(
+                    "UPDATE projects SET source_path = ?, source_duration = ?, bit_rate_bps = ?, updated_at = ? WHERE id = ?",
+                    (new_source_path, new_duration, bit_rate_bps, now, project_id)
+                )
+            elif new_duration is not None:
                 conn.execute(
                     "UPDATE projects SET source_path = ?, source_duration = ?, updated_at = ? WHERE id = ?",
                     (new_source_path, new_duration, now, project_id)
+                )
+            elif bit_rate_bps is not None:
+                conn.execute(
+                    "UPDATE projects SET source_path = ?, bit_rate_bps = ?, updated_at = ? WHERE id = ?",
+                    (new_source_path, bit_rate_bps, now, project_id)
                 )
             else:
                 conn.execute(

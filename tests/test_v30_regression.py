@@ -13,6 +13,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from python_backend.api import Api
+from python_backend.db import Database
 from python_backend.logger import SystemLogBuffer
 from python_backend.llm import normalize_candidate_duration
 from python_backend.media import (
@@ -318,6 +319,139 @@ class TestRepoCleanupCompliance(unittest.TestCase):
         media_txt = (PROJECT_ROOT / "python_backend" / "media.py").read_text(encoding="utf-8")
         for sym in ["def extract_video_thumbnail", "def build_drawtext_filters", "def get_font_option"]:
             self.assertNotIn(sym, media_txt)
+
+
+class TestPlan40VbrAndBitrate(unittest.TestCase):
+    """TDD Plan 40: persistencia bit_rate_bps y rango VBR min/target/max en 2-Pass."""
+
+    def test_render_flat_clip_vbr_min_max_clamping_and_symmetry(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            source = tmp / "src.mp4"
+            source.write_bytes(b"fake")
+            out = tmp / "out.mp4"
+
+            captured_cmds = []
+
+            def fake_run(cmd, *_args, **_kwargs):
+                captured_cmds.append(list(cmd))
+
+            with patch("python_backend.media.probe_media", return_value={"width": 1920, "height": 1080, "hasVideo": True, "hasAudio": True, "fps": 60.0}), \
+                 patch("python_backend.media._run_ffmpeg_monitored", side_effect=fake_run):
+                # Enviar min > target y max < target para validar clamp seguro
+                render_flat_clip(
+                    source_path=source,
+                    output_path=out,
+                    start_sec=1.0,
+                    end_sec=4.0,
+                    aspect_ratio="9:16",
+                    layout="blur",
+                    target_bitrate_k=8000,
+                    min_bitrate_k=10000,
+                    max_bitrate_k=5000,
+                    two_pass=True,
+                )
+
+            self.assertEqual(len(captured_cmds), 2)
+            for cmd in captured_cmds:
+                self.assertIn("-b:v", cmd)
+                self.assertEqual(cmd[cmd.index("-b:v") + 1], "8000k")
+                self.assertIn("-minrate", cmd)
+                self.assertEqual(cmd[cmd.index("-minrate") + 1], "8000k")
+                self.assertIn("-maxrate", cmd)
+                self.assertEqual(cmd[cmd.index("-maxrate") + 1], "8000k")
+                self.assertIn("-bufsize", cmd)
+                self.assertEqual(cmd[cmd.index("-bufsize") + 1], "16000k")
+
+    def test_db_persists_and_updates_bit_rate_bps(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db = Database(Path(tmpdir) / "test.db")
+            db.migrate()
+            try:
+                proj = db.create_project(
+                    source_path="C:/fake/video.mp4",
+                    transcription_mode="local",
+                    source_duration=60.0,
+                    bit_rate_bps=12_500_000,
+                )
+                self.assertEqual(proj.get("bitRate"), 12_500_000)
+                self.assertEqual(proj.get("bitRateMbps"), 12.5)
+
+                db.update_project_bit_rate(proj["id"], 8_400_000)
+                updated = db.get_project(proj["id"])
+                self.assertEqual(updated.get("bitRate"), 8_400_000)
+                self.assertEqual(updated.get("bitRateMbps"), 8.4)
+            finally:
+                db.close()
+
+    def test_db_migrates_legacy_v7_schema_adding_bit_rate_bps(self):
+        import sqlite3
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "legacy_v7.db"
+            conn = sqlite3.connect(db_path)
+            conn.executescript(
+                """
+                CREATE TABLE schema_version (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);
+                INSERT INTO schema_version (version, applied_at) VALUES (7, '2026-01-01T00:00:00Z');
+                CREATE TABLE projects (
+                    id TEXT PRIMARY KEY,
+                    name TEXT,
+                    source_path TEXT NOT NULL,
+                    source_duration REAL,
+                    status TEXT NOT NULL,
+                    transcription_mode TEXT NOT NULL,
+                    caption_style TEXT,
+                    project_dir TEXT,
+                    workflow_goal TEXT DEFAULT 'clips',
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+                INSERT INTO projects (id, name, source_path, status, transcription_mode, created_at, updated_at)
+                VALUES ('p1', 'demo', 'C:/demo.mp4', 'ready', 'local', '2026-01-01', '2026-01-01');
+                """
+            )
+            conn.commit()
+            conn.close()
+
+            db = Database(db_path)
+            try:
+                projs = db.list_projects()
+                self.assertEqual(len(projs), 1)
+                self.assertIsNone(projs[0].get("bitRate"))
+            finally:
+                db.close()
+
+    def test_synthetic_two_pass_vbr_min_max_e2e(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            src = tmp / "src.mp4"
+            out = tmp / "out_vbr.mp4"
+            subprocess.run(
+                [
+                    "ffmpeg", "-y", "-f", "lavfi", "-i", "testsrc=duration=2.0:size=640x360:rate=30",
+                    "-f", "lavfi", "-i", "sine=frequency=440:duration=2.0",
+                    "-c:v", "libx264", "-preset", "ultrafast", "-c:a", "aac", str(src),
+                ],
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            render_flat_clip(
+                source_path=src,
+                output_path=out,
+                start_sec=0.0,
+                end_sec=1.5,
+                aspect_ratio="9:16",
+                layout="blur",
+                target_bitrate_k=4000,
+                min_bitrate_k=2000,
+                max_bitrate_k=6000,
+                two_pass=True,
+            )
+            self.assertTrue(out.exists())
+            info = probe_media(out)
+            self.assertEqual(info.get("width"), 1080)
+            self.assertEqual(info.get("height"), 1920)
 
 
 if __name__ == "__main__":

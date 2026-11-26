@@ -277,6 +277,10 @@ class Api:
                     detail["project"]["sourceWidth"] = probe.get("width")
                     detail["project"]["sourceHeight"] = probe.get("height")
                     detail["project"]["nativeAspectRatio"] = probe.get("aspect_ratio")
+                    if not detail["project"].get("bitRate") and probe.get("bitRate"):
+                        self.db.update_project_bit_rate(project_id, probe["bitRate"])
+                        detail["project"]["bitRate"] = probe["bitRate"]
+                        detail["project"]["bitRateMbps"] = probe.get("bitRateMbps")
                 except Exception:
                     pass
         return detail
@@ -349,9 +353,11 @@ class Api:
                         pass
 
         duration = None
+        bit_rate_bps = None
         try:
             probe = probe_media_cached(source_path)
             duration = probe.get("durationSec")
+            bit_rate_bps = probe.get("bitRate")
         except Exception:
             pass
 
@@ -361,7 +367,8 @@ class Api:
             caption_style=caption_style,
             source_duration=duration,
             project_dir=str(target_dir),
-            workflow_goal=workflow_goal
+            workflow_goal=workflow_goal,
+            bit_rate_bps=bit_rate_bps,
         )
         sync_project_to_disk(self.db, proj["id"], target_dir)
         return proj
@@ -988,7 +995,9 @@ class Api:
         bgm_path = args.get("bgmPath") if isinstance(args, dict) else None
         bgm_volume = float(args.get("bgmVolume", 0.15)) if isinstance(args, dict) and args.get("bgmVolume") is not None else 0.15
         bgm_start_sec = float(args.get("bgmStartSec", 0.0)) if isinstance(args, dict) and args.get("bgmStartSec") is not None else 0.0
-        target_bitrate_k = int(args.get("targetBitrateK")) if isinstance(args, dict) and args.get("targetBitrateK") else None
+        target_bitrate_k = int(round(float(args.get("targetBitrateK")))) if isinstance(args, dict) and args.get("targetBitrateK") else None
+        min_bitrate_k = int(round(float(args.get("minBitrateK")))) if isinstance(args, dict) and args.get("minBitrateK") else None
+        max_bitrate_k = int(round(float(args.get("maxBitrateK")))) if isinstance(args, dict) and args.get("maxBitrateK") else None
         two_pass = bool(args.get("twoPass", False)) if isinstance(args, dict) else False
 
         candidate, project = self.db.get_candidate_with_project(candidate_id)
@@ -1185,6 +1194,8 @@ class Api:
                 bgm_volume=bgm_volume,
                 bgm_start_sec=bgm_start_sec,
                 target_bitrate_k=target_bitrate_k,
+                min_bitrate_k=min_bitrate_k,
+                max_bitrate_k=max_bitrate_k,
                 two_pass=two_pass,
                 progress_callback=on_render_progress
             )
@@ -1272,13 +1283,15 @@ class Api:
             raise FileNotFoundError(f"El archivo seleccionado no existe: {new_source_path}")
 
         duration = None
+        bit_rate_bps = None
         try:
             probe = probe_media(new_source_path)
             duration = probe.get("durationSec")
+            bit_rate_bps = probe.get("bitRate")
         except Exception:
             pass
 
-        updated = self.db.relink_project(project_id, new_source_path, duration)
+        updated = self.db.relink_project(project_id, new_source_path, duration, bit_rate_bps=bit_rate_bps)
         updated["sourceExists"] = True
         return updated
 

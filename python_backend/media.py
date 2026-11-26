@@ -1250,6 +1250,8 @@ def render_flat_clip(
     bgm_volume: float = 0.15,
     bgm_start_sec: float = 0.0,
     target_bitrate_k: Optional[int] = None,
+    min_bitrate_k: Optional[int] = None,
+    max_bitrate_k: Optional[int] = None,
     two_pass: bool = False,
     progress_callback: Optional[Callable[[int, str], None]] = None
 ) -> Path:
@@ -1511,10 +1513,22 @@ def render_flat_clip(
     h264_level = "5.2" if target_fps == 120 else "4.2"
     maxrate_str = "15M" if target_fps == 120 else "10M"
     bufsize_str = "24M" if target_fps == 120 else "16M"
+    minrate_str = None
 
-    if target_bitrate_k:
-        maxrate_str = f"{int(target_bitrate_k * 1.2)}k"
-        bufsize_str = f"{int(target_bitrate_k * 2)}k"
+    if target_bitrate_k and target_bitrate_k > 0:
+        eff_min_k = min(min_bitrate_k, target_bitrate_k) if (min_bitrate_k and min_bitrate_k > 0) else None
+        eff_max_k = max(max_bitrate_k, target_bitrate_k) if (max_bitrate_k and max_bitrate_k > 0) else int(target_bitrate_k * 1.2)
+        bufsize_k = max(int(eff_max_k * 1.5), int(target_bitrate_k * 2))
+        if eff_min_k:
+            minrate_str = f"{eff_min_k}k"
+        maxrate_str = f"{eff_max_k}k"
+        bufsize_str = f"{bufsize_k}k"
+
+    rate_control_flags = []
+    if target_bitrate_k and target_bitrate_k > 0:
+        if minrate_str:
+            rate_control_flags.extend(["-minrate", minrate_str])
+        rate_control_flags.extend(["-b:v", f"{target_bitrate_k}k", "-maxrate", maxrate_str, "-bufsize", bufsize_str])
 
     enc_flags = [
         "-threads", "0",
@@ -1526,7 +1540,7 @@ def render_flat_clip(
     ]
 
     if target_bitrate_k and not two_pass:
-        enc_flags.extend(["-b:v", f"{target_bitrate_k}k", "-maxrate", maxrate_str, "-bufsize", bufsize_str])
+        enc_flags.extend(rate_control_flags)
     elif not target_bitrate_k:
         enc_flags.extend(["-crf", "19", "-maxrate", maxrate_str, "-bufsize", bufsize_str])
 
@@ -1551,9 +1565,7 @@ def render_flat_clip(
                 "-threads", "0",
                 "-c:v", "libx264",
                 "-preset", "medium",
-                "-b:v", f"{target_bitrate_k}k",
-                "-maxrate", maxrate_str,
-                "-bufsize", bufsize_str,
+                *rate_control_flags,
                 "-profile:v", "high",
                 "-level:v", h264_level,
                 "-pix_fmt", "yuv420p"
@@ -1592,9 +1604,7 @@ def render_flat_clip(
                 "-threads", "0",
                 "-c:v", "libx264",
                 "-preset", "medium",
-                "-b:v", f"{target_bitrate_k}k",
-                "-maxrate", maxrate_str,
-                "-bufsize", bufsize_str,
+                *rate_control_flags,
                 "-profile:v", "high",
                 "-level:v", h264_level,
                 "-pix_fmt", "yuv420p"

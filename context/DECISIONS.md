@@ -405,4 +405,12 @@
   3. **Consolidación de Tests y Limpieza Local:** Promover la suite v3.0 completa (unitarios, integración, E2E FFmpeg sintético autocontenido y aserciones de higiene) a `tests/test_v30_regression.py` usando `tempfile.TemporaryDirectory()`, purgar residuos locales (`_internal/`, `MagicMock/`, `analizarrepos/`, `build/`, `.env`, `scratch/`), actualizar `.gitignore` y `README.md` a `v3.0.0`, y preservar `context/`, `data/` y `dist/` recompilado para `AutoShorts.bat`.
 - **Motivo:** Dejar la rama `release-v3.0` limpia, auditada y lista para publicar sin artefactos rotos ni código muerto acumulado entre versiones.
 
+## D-040: Diseño Studio NLE v3.0 — Sync Multi-Video, Aspect Ratio 2D, Bitrate Original + VBR Min/Max y Dock Timeline
+- **Decisión:**
+  1. **Arranque Multi-`<video>` Determinista:** Eliminar `autoPlay` del maestro `videoRef` y de las capas secundarias (`bgVideoRef`, `camVideoRef`, `gameVideoRef`); controlar el primer arranque con `initialSeekDoneRef` (`useRef`), fast-path cuando `trimStart === 0` o `isExported` (`onSeeked` no se emite en `0`), `onPlaying` tras `onWaiting` y drift check unificado en las 3 capas.
+  2. **Composición 2D 9:16:** Incorporar `Centrar Y` junto a `Centrar X`, más bloqueo de relación de aspecto por defecto (`lockOutputAspectRatio` + inversión con `Shift`) con acotamiento matemático previo dentro de `1080 - initialX` y `1920 - initialY`.
+  3. **Persistencia `bit_rate_bps` & VBR 2-Pass Min/Target/Max:** Migrar `projects` via `SCHEMA_MIGRATIONS` para guardar `bit_rate_bps` (reutilizando `probe_media_cached` existente en `get_project_detail` sin duplicar `ffprobe`, y sincronizando `relink_project` / `autoshorts.project`), cablear `minBitrateK` / `maxBitrateK` en `useMediaPipeline.ts` -> `api.py` -> `media.py` (`-minrate`, `-b:v`, `-maxrate`, `-bufsize` simétricos en Pase 1 y Pase 2), corregir `▶ ▶ Probar Música` y habilitar VBR Min/Objetivo/Max incluso sobre bitrate Original si existe metadata.
+  4. **Layout NLE 3 Zonas:** Reorganizar `CandidatePreviewModal.tsx` y `modals.css` con monitor amplio flexible sin inline `maxHeight`/`maxWidth`, inspector con pestañas de 1 sola línea (`white-space: nowrap`), y Timeline Dock inferior persistente (Jump Cuts click-to-seek + pista BGM).
+- **Motivo:** Erradicar el tartamudeo inicial al abrir clips, evitar deformación al redimensionar en 9:16, dar control real sobre VBR 2-Pass frente al bitrate original y ofrecer una ergonomía NLE profesional estilo CapCut / Premiere Pro.
+
 

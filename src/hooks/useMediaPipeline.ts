@@ -42,6 +42,8 @@ interface CutClipOptions {
   bgmVolume?: number;
   bgmStartSec?: number;
   targetBitrateK?: number;
+  minBitrateK?: number;
+  maxBitrateK?: number;
   twoPass?: boolean;
 }
 
@@ -656,6 +658,8 @@ export function useMediaPipeline(options: UseMediaPipelineOptions) {
           ...(options?.bgmVolume !== undefined ? { bgmVolume: options.bgmVolume } : {}),
           ...(options?.bgmStartSec !== undefined ? { bgmStartSec: options.bgmStartSec } : {}),
           ...(options?.targetBitrateK ? { targetBitrateK: options.targetBitrateK } : {}),
+          ...(options?.minBitrateK ? { minBitrateK: options.minBitrateK } : {}),
+          ...(options?.maxBitrateK ? { maxBitrateK: options.maxBitrateK } : {}),
           ...(options?.twoPass !== undefined ? { twoPass: options.twoPass } : {}),
         });
       } catch (err) {

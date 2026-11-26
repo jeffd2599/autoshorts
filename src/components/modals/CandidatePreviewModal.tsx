@@ -29,6 +29,8 @@ import {
   UploadCloud,
   Check,
   XCircle,
+  Lock,
+  Unlock,
 } from "lucide-react";
 import { Candidate, Clip, ProjectDetail, CropRect, VideoLayoutOption } from "../../types";
 import { formatTime } from "../../utils/format";
@@ -330,11 +332,13 @@ export function CandidatePreviewModal({
     if (!v) return;
 
     const syncTarget = (el: HTMLVideoElement | null) => {
-      if (!el) return;
+      if (!el || el.readyState < 1) return;
       if (action === "pause") {
         el.pause();
       } else if (action === "play") {
-        el.currentTime = v.currentTime;
+        if (Math.abs(el.currentTime - v.currentTime) > 0.08) {
+          el.currentTime = v.currentTime;
+        }
         el.play().catch(() => {});
       } else if (action === "seek") {
         el.currentTime = v.currentTime;
@@ -495,6 +499,20 @@ export function CandidatePreviewModal({
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
   };
 
+  const initialSeekDoneRef = useRef<boolean>(false);
+  const [lockOutputAspectRatio, setLockOutputAspectRatio] = useState<boolean>(() => {
+    const saved = localStorage.getItem("autoshorts_lock_out_ar");
+    return saved === null ? true : saved === "true";
+  });
+
+  useEffect(() => {
+    localStorage.setItem("autoshorts_lock_out_ar", lockOutputAspectRatio ? "true" : "false");
+  }, [lockOutputAspectRatio]);
+
+  useEffect(() => {
+    initialSeekDoneRef.current = false;
+  }, [candidate.id, exportedPath]);
+
   useEffect(() => {
     const handleStageGlobalPointerMove = (e: PointerEvent) => {
       const session = stageDragSessionRef.current;
@@ -519,10 +537,32 @@ export function CandidatePreviewModal({
       } else if (session.mode === "resize_br") {
         const minW = session.target === "camera" ? 180 : 360;
         const minH = session.target === "camera" ? 180 : 360;
-        const maxW = Math.max(minW, 1080 - session.initialX);
-        const maxH = Math.max(minH, 1920 - session.initialY);
-        const newW = makeEven(Math.min(maxW, Math.max(minW, session.initialWidth + deltaX)));
-        const newH = makeEven(Math.min(maxH, Math.max(minH, session.initialHeight + deltaY)));
+        const effMaxW = makeEvenCoord(Math.max(0, 1080 - session.initialX));
+        const effMaxH = makeEvenCoord(Math.max(0, 1920 - session.initialY));
+        const keepAspect = (lockOutputAspectRatio && !e.shiftKey) || (!lockOutputAspectRatio && e.shiftKey);
+
+        let newW: number;
+        let newH: number;
+
+        if (!keepAspect) {
+          newW = makeEven(Math.min(effMaxW, Math.max(Math.min(minW, effMaxW), session.initialWidth + deltaX)));
+          newH = makeEven(Math.min(effMaxH, Math.max(Math.min(minH, effMaxH), session.initialHeight + deltaY)));
+        } else {
+          const crop = session.target === "camera" ? cameraCrop : gameplayCrop;
+          const targetRatio = crop.height > 0 ? crop.width / crop.height : session.initialWidth / Math.max(1, session.initialHeight);
+          const ratioMinW = Math.max(minW, minH * targetRatio);
+          const ratioMaxW = Math.min(effMaxW, effMaxH * targetRatio);
+          const candidateW =
+            Math.abs(deltaX) >= Math.abs(deltaY)
+              ? session.initialWidth + deltaX
+              : (session.initialHeight + deltaY) * targetRatio;
+          const clampedW =
+            ratioMinW <= ratioMaxW
+              ? Math.max(ratioMinW, Math.min(ratioMaxW, candidateW))
+              : Math.max(2, Math.min(effMaxW, effMaxH * targetRatio));
+          newW = Math.min(effMaxW, Math.max(2, makeEven(clampedW)));
+          newH = Math.min(effMaxH, Math.max(2, makeEven(newW / targetRatio)));
+        }
 
         if (session.target === "camera") {
           setCamOutWidth(newW);
@@ -544,16 +584,18 @@ export function CandidatePreviewModal({
       window.removeEventListener("pointermove", handleStageGlobalPointerMove);
       window.removeEventListener("pointerup", handleStageGlobalPointerUp);
     };
-  }, [camOutWidth, camOutHeight, camOutX, camOutY, gameOutWidth, gameOutHeight, gameOutX, gameOutY]);
+  }, [camOutWidth, camOutHeight, camOutX, camOutY, gameOutWidth, gameOutHeight, gameOutX, gameOutY, lockOutputAspectRatio, cameraCrop, gameplayCrop]);
 
   useEffect(() => {
-    if (mappingVideoRef.current && videoRef.current) {
-      mappingVideoRef.current.currentTime = videoRef.current.currentTime;
+    if (activeTab === "format" && videoLayout === "gaming_split" && mappingVideoRef.current && videoRef.current) {
+      if (Math.abs(mappingVideoRef.current.currentTime - videoRef.current.currentTime) > 0.25) {
+        mappingVideoRef.current.currentTime = videoRef.current.currentTime;
+      }
     }
-  }, [currentPlayTime]);
+  }, [currentPlayTime, activeTab, videoLayout]);
 
   // V3.0 Control Avanzado de Exportación (Bitrate, 2-Pass, FPS)
-  const origBitrateMbps = (detail.project as any).bitRateMbps || ((detail.project as any).bitRate ? Number(((detail.project as any).bitRate / 1e6).toFixed(2)) : null);
+  const origBitrateMbps = detail.project.bitRateMbps || (detail.project.bitRate ? Number((detail.project.bitRate / 1e6).toFixed(2)) : null);
 
   const [bitrateMode, setBitrateMode] = useState<"recommended" | "original" | "custom">(() => {
     return (localStorage.getItem("autoshorts_bitrate_mode") as any) || "recommended";
@@ -564,6 +606,14 @@ export function CandidatePreviewModal({
   });
   const [twoPass, setTwoPass] = useState<boolean>(() => {
     return localStorage.getItem("autoshorts_two_pass") === "true";
+  });
+  const [vbrMinMbps, setVbrMinMbps] = useState<number>(() => {
+    const saved = localStorage.getItem("autoshorts_vbr_min_mbps");
+    return saved !== null ? Number(saved) : 6;
+  });
+  const [vbrMaxMbps, setVbrMaxMbps] = useState<number>(() => {
+    const saved = localStorage.getItem("autoshorts_vbr_max_mbps");
+    return saved !== null ? Number(saved) : 14;
   });
 
   useEffect(() => {
@@ -577,6 +627,14 @@ export function CandidatePreviewModal({
   useEffect(() => {
     localStorage.setItem("autoshorts_two_pass", twoPass ? "true" : "false");
   }, [twoPass]);
+
+  useEffect(() => {
+    localStorage.setItem("autoshorts_vbr_min_mbps", String(vbrMinMbps));
+  }, [vbrMinMbps]);
+
+  useEffect(() => {
+    localStorage.setItem("autoshorts_vbr_max_mbps", String(vbrMaxMbps));
+  }, [vbrMaxMbps]);
 
   const handleSelectAudioFile = async () => {
     try {
@@ -1043,11 +1101,13 @@ export function CandidatePreviewModal({
           bgmAudioRef.current.currentTime = expected;
         }
       }
-      // BgVideo drift sync check
-      if (bgVideoRef.current && !isExported && isPlaying) {
-        if (Math.abs(bgVideoRef.current.currentTime - time) > 0.3) {
-          bgVideoRef.current.currentTime = time;
-        }
+      // Secondary video layers drift sync check
+      if (!isExported && isPlaying) {
+        [bgVideoRef.current, camVideoRef.current, gameVideoRef.current].forEach((layer) => {
+          if (layer && layer.readyState >= 1 && Math.abs(layer.currentTime - time) > 0.3) {
+            layer.currentTime = time;
+          }
+        });
       }
 
       if (time >= trimEnd) {
@@ -1282,6 +1342,20 @@ export function CandidatePreviewModal({
               <h3 style={{ margin: 0, fontSize: "1.02rem", fontWeight: 700, color: "var(--text-primary)" }}>
                 "{cleanHook(candidate.hook)}"
               </h3>
+              <span
+                style={{
+                  background: "var(--bg-surface)",
+                  color: "var(--text-primary)",
+                  border: "1px solid var(--border-default)",
+                  fontSize: "0.7rem",
+                  fontWeight: 700,
+                  padding: "2px 7px",
+                  borderRadius: "4px",
+                  fontFamily: "var(--font-mono)",
+                }}
+              >
+                Score IA: {Math.round(candidate.score * 10)}/100
+              </span>
             </div>
             <p
               style={{
@@ -1380,8 +1454,6 @@ export function CandidatePreviewModal({
               style={{
                 cursor: "pointer",
                 aspectRatio: isEffectiveVertical ? "9 / 16" : "16 / 9",
-                maxHeight: isEffectiveVertical ? "460px" : "360px",
-                maxWidth: isEffectiveVertical ? "260px" : "620px",
                 position: "relative",
                 userSelect: "none",
               }}
@@ -1392,14 +1464,29 @@ export function CandidatePreviewModal({
                 src={`http://127.0.0.1:1422/stream?file=${encodeURIComponent(
                   exportedPath || detail.project.sourcePath
                 )}`}
-                autoPlay
                 loop={isExported}
                 playsInline
                 preload="auto"
                 onLoadedMetadata={() => {
-                  if (videoRef.current) {
-                    videoRef.current.currentTime = isExported ? 0 : trimStart;
-                    videoRef.current.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false));
+                  const v = videoRef.current;
+                  if (!v) return;
+                  const target = isExported ? 0 : trimStart;
+                  const startCoordinated = () => {
+                    syncBgVideo("seek");
+                    syncBgm("seek");
+                    v.play()
+                      .then(() => {
+                        setIsPlaying(true);
+                        syncBgm("play");
+                        syncBgVideo("play");
+                      })
+                      .catch(() => setIsPlaying(false));
+                  };
+                  if (Math.abs(v.currentTime - target) < 0.05) {
+                    initialSeekDoneRef.current = true;
+                    startCoordinated();
+                  } else {
+                    v.currentTime = target;
                   }
                 }}
                 onEnded={() => {
@@ -1410,9 +1497,27 @@ export function CandidatePreviewModal({
                 }}
                 onTimeUpdate={handleTimeUpdate}
                 onPlay={() => { setIsPlaying(true); syncBgm("play"); syncBgVideo("play"); }}
+                onPlaying={() => { setIsPlaying(true); syncBgm("play"); syncBgVideo("play"); }}
                 onPause={() => { setIsPlaying(false); syncBgm("pause"); syncBgVideo("pause"); }}
                 onWaiting={() => { setIsPlaying(false); syncBgm("pause"); syncBgVideo("pause"); }}
-                onSeeked={() => { syncBgm("seek"); syncBgVideo("seek"); }}
+                onSeeked={() => {
+                  const v = videoRef.current;
+                  if (v && !initialSeekDoneRef.current) {
+                    initialSeekDoneRef.current = true;
+                    syncBgVideo("seek");
+                    syncBgm("seek");
+                    v.play()
+                      .then(() => {
+                        setIsPlaying(true);
+                        syncBgm("play");
+                        syncBgVideo("play");
+                      })
+                      .catch(() => setIsPlaying(false));
+                    return;
+                  }
+                  syncBgm("seek");
+                  syncBgVideo("seek");
+                }}
                 style={{
                   width: "100%",
                   height: "100%",
@@ -1433,8 +1538,14 @@ export function CandidatePreviewModal({
                   )}`}
                   muted
                   playsInline
-                  autoPlay
                   preload="auto"
+                  onLoadedMetadata={(e) => {
+                    const el = e.currentTarget;
+                    const master = videoRef.current;
+                    const t = master ? master.currentTime : trimStart;
+                    if (Math.abs(el.currentTime - t) > 0.05) el.currentTime = t;
+                    if (master && !master.paused) el.play().catch(() => {});
+                  }}
                   style={{
                     position: "absolute",
                     inset: 0,
@@ -1476,6 +1587,14 @@ export function CandidatePreviewModal({
                       src={`http://127.0.0.1:1422/stream?file=${encodeURIComponent(detail.project.sourcePath)}`}
                       muted
                       playsInline
+                      preload="auto"
+                      onLoadedMetadata={(e) => {
+                        const el = e.currentTarget;
+                        const master = videoRef.current;
+                        const t = master ? master.currentTime : trimStart;
+                        if (Math.abs(el.currentTime - t) > 0.05) el.currentTime = t;
+                        if (master && !master.paused) el.play().catch(() => {});
+                      }}
                       style={{
                         position: "absolute",
                         width: `${(1920 / cameraCrop.width) * 100}%`,
@@ -1566,6 +1685,14 @@ export function CandidatePreviewModal({
                       src={`http://127.0.0.1:1422/stream?file=${encodeURIComponent(detail.project.sourcePath)}`}
                       muted
                       playsInline
+                      preload="auto"
+                      onLoadedMetadata={(e) => {
+                        const el = e.currentTarget;
+                        const master = videoRef.current;
+                        const t = master ? master.currentTime : trimStart;
+                        if (Math.abs(el.currentTime - t) > 0.05) el.currentTime = t;
+                        if (master && !master.paused) el.play().catch(() => {});
+                      }}
                       style={{
                         position: "absolute",
                         width: `${(1920 / gameplayCrop.width) * 100}%`,
@@ -1846,40 +1973,40 @@ export function CandidatePreviewModal({
                 className={`studio-tab-btn ${activeTab === "trim" ? "active" : ""}`}
                 onClick={() => setActiveTab("trim")}
               >
-                <Clock size={14} />
-                <span>1. Recorte</span>
+                <Clock size={13} />
+                <span>Recorte</span>
               </button>
               <button
                 type="button"
                 className={`studio-tab-btn ${activeTab === "subs" ? "active" : ""}`}
                 onClick={() => setActiveTab("subs")}
               >
-                <Type size={14} />
-                <span>2. Subtítulos</span>
+                <Type size={13} />
+                <span>Subtítulos</span>
               </button>
               <button
                 type="button"
                 className={`studio-tab-btn ${activeTab === "cta" ? "active" : ""}`}
                 onClick={() => setActiveTab("cta")}
               >
-                <Heart size={14} />
-                <span>3. CTA</span>
+                <Heart size={13} />
+                <span>CTA</span>
               </button>
               <button
                 type="button"
                 className={`studio-tab-btn ${activeTab === "format" ? "active" : ""}`}
                 onClick={() => setActiveTab("format")}
               >
-                <Layout size={14} />
-                <span>4. Formato & Gaming</span>
+                <Layout size={13} />
+                <span>Formato</span>
               </button>
               <button
                 type="button"
                 className={`studio-tab-btn ${activeTab === "export" ? "active" : ""}`}
                 onClick={() => setActiveTab("export")}
               >
-                <Sliders size={14} />
-                <span>5. Música & Bitrate</span>
+                <Sliders size={13} />
+                <span>Audio & Export</span>
               </button>
             </div>
 
@@ -3753,16 +3880,46 @@ export function CandidatePreviewModal({
 
                       {/* Controles Facecam */}
                       <div style={{ marginBottom: "8px", background: "rgba(244, 63, 94, 0.05)", border: "1px solid rgba(244, 63, 94, 0.25)", borderRadius: "6px", padding: "8px 10px" }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px", gap: "6px", flexWrap: "wrap" }}>
                           <span style={{ fontSize: "0.74rem", color: "#f43f5e", fontWeight: 700 }}>Facecam (Cámara Streamer)</span>
-                          <button
-                            type="button"
-                            onClick={() => setCamOutX(makeEvenCoord((1080 - camOutWidth) / 2))}
-                            style={{ fontSize: "0.65rem", padding: "1px 6px", background: "var(--bg-base)", border: "1px solid #f43f5e", color: "#f43f5e", borderRadius: "3px", cursor: "pointer" }}
-                            title="Centrar Facecam horizontalmente"
-                          >
-                            Centrar X
-                          </button>
+                          <div style={{ display: "flex", gap: "4px", alignItems: "center" }}>
+                            <button
+                              type="button"
+                              onClick={() => setLockOutputAspectRatio((v) => !v)}
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "3px",
+                                fontSize: "0.65rem",
+                                padding: "1px 6px",
+                                background: lockOutputAspectRatio ? "rgba(244, 63, 94, 0.16)" : "var(--bg-base)",
+                                border: "1px solid rgba(244, 63, 94, 0.55)",
+                                color: "#f43f5e",
+                                borderRadius: "3px",
+                                cursor: "pointer",
+                              }}
+                              title="Mantener relación de aspecto al redimensionar (Shift invierte temporalmente)"
+                            >
+                              {lockOutputAspectRatio ? <Lock size={10} /> : <Unlock size={10} />}
+                              <span>Proporción</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setCamOutX(makeEvenCoord((1080 - camOutWidth) / 2))}
+                              style={{ fontSize: "0.65rem", padding: "1px 6px", background: "var(--bg-base)", border: "1px solid #f43f5e", color: "#f43f5e", borderRadius: "3px", cursor: "pointer" }}
+                              title="Centrar Facecam horizontalmente"
+                            >
+                              Centrar X
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setCamOutY(makeEvenCoord((1920 - camOutHeight) / 2))}
+                              style={{ fontSize: "0.65rem", padding: "1px 6px", background: "var(--bg-base)", border: "1px solid #f43f5e", color: "#f43f5e", borderRadius: "3px", cursor: "pointer" }}
+                              title="Centrar Facecam verticalmente"
+                            >
+                              Centrar Y
+                            </button>
+                          </div>
                         </div>
                         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
                           <div>
@@ -3838,16 +3995,26 @@ export function CandidatePreviewModal({
 
                       {/* Controles Gameplay */}
                       <div style={{ background: "rgba(59, 130, 246, 0.05)", border: "1px solid rgba(59, 130, 246, 0.25)", borderRadius: "6px", padding: "8px 10px" }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px", gap: "6px" }}>
                           <span style={{ fontSize: "0.74rem", color: "#3b82f6", fontWeight: 700 }}>Gameplay</span>
-                          <button
-                            type="button"
-                            onClick={() => setGameOutX(makeEvenCoord((1080 - gameOutWidth) / 2))}
-                            style={{ fontSize: "0.65rem", padding: "1px 6px", background: "var(--bg-base)", border: "1px solid #3b82f6", color: "#3b82f6", borderRadius: "3px", cursor: "pointer" }}
-                            title="Centrar Gameplay horizontalmente"
-                          >
-                            Centrar X
-                          </button>
+                          <div style={{ display: "flex", gap: "4px", alignItems: "center" }}>
+                            <button
+                              type="button"
+                              onClick={() => setGameOutX(makeEvenCoord((1080 - gameOutWidth) / 2))}
+                              style={{ fontSize: "0.65rem", padding: "1px 6px", background: "var(--bg-base)", border: "1px solid #3b82f6", color: "#3b82f6", borderRadius: "3px", cursor: "pointer" }}
+                              title="Centrar Gameplay horizontalmente"
+                            >
+                              Centrar X
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setGameOutY(makeEvenCoord((1920 - gameOutHeight) / 2))}
+                              style={{ fontSize: "0.65rem", padding: "1px 6px", background: "var(--bg-base)", border: "1px solid #3b82f6", color: "#3b82f6", borderRadius: "3px", cursor: "pointer" }}
+                              title="Centrar Gameplay verticalmente"
+                            >
+                              Centrar Y
+                            </button>
+                          </div>
                         </div>
                         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
                           <div>
@@ -4081,7 +4248,7 @@ export function CandidatePreviewModal({
                   </div>
 
                   {/* Selector de Inicio de Canción (Timeline BGM) */}
-                  {bgmPath && (
+                  {(bgmPath || bgmBlobUrl) && (
                     <div style={{ background: "var(--bg-base)", padding: "8px 12px", borderRadius: "6px", border: "1px solid var(--border-default)" }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
                         <span style={{ fontSize: "0.74rem", color: "var(--text-secondary)", display: "flex", alignItems: "center", gap: "5px" }}>
@@ -4142,7 +4309,7 @@ export function CandidatePreviewModal({
                           }}
                         >
                           {isPlayingBgmPreview ? <Pause size={12} /> : <Play size={12} />}
-                          <span>{isPlayingBgmPreview ? "Pausar" : "▶ Probar Música"}</span>
+                          <span>{isPlayingBgmPreview ? "Pausar" : "Probar Música"}</span>
                         </button>
                       </div>
                     </div>
@@ -4161,15 +4328,23 @@ export function CandidatePreviewModal({
                     gap: "10px",
                   }}
                 >
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px", flexWrap: "wrap" }}>
                     <span style={{ fontSize: "0.82rem", fontWeight: 700, color: "var(--text-primary)", display: "flex", alignItems: "center", gap: "6px" }}>
                       <Sliders size={14} color="#3b82f6" /> Tasa de Bits (Bitrate) & Pases
                     </span>
-                    {origBitrateMbps && (
-                      <span style={{ fontSize: "0.68rem", color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
-                        Original: {origBitrateMbps} Mbps
-                      </span>
-                    )}
+                    <span
+                      style={{
+                        fontSize: "0.68rem",
+                        color: origBitrateMbps ? "#93c5fd" : "var(--text-muted)",
+                        background: "var(--bg-base)",
+                        border: "1px solid var(--border-default)",
+                        padding: "2px 7px",
+                        borderRadius: "4px",
+                        fontFamily: "var(--font-mono)",
+                      }}
+                    >
+                      Original: {origBitrateMbps ? `${origBitrateMbps} Mbps` : "No detectado"}
+                    </span>
                   </div>
 
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "6px" }}>
@@ -4256,7 +4431,8 @@ export function CandidatePreviewModal({
                       display: "flex",
                       alignItems: "center",
                       gap: "8px",
-                      cursor: "pointer",
+                      cursor: bitrateMode === "original" && !origBitrateMbps ? "not-allowed" : "pointer",
+                      opacity: bitrateMode === "original" && !origBitrateMbps ? 0.55 : 1,
                       fontSize: "0.76rem",
                       color: "var(--text-secondary)",
                       paddingTop: "4px",
@@ -4264,17 +4440,319 @@ export function CandidatePreviewModal({
                   >
                     <input
                       type="checkbox"
-                      checked={twoPass}
+                      checked={twoPass && !(bitrateMode === "original" && !origBitrateMbps)}
+                      disabled={bitrateMode === "original" && !origBitrateMbps}
                       onChange={(e) => setTwoPass(e.target.checked)}
-                      style={{ cursor: "pointer" }}
+                      style={{ cursor: bitrateMode === "original" && !origBitrateMbps ? "not-allowed" : "pointer" }}
                     />
                     <span>Codificación en 2 Pases (Estilo Premiere Pro - VBR 2-Pass)</span>
                   </label>
+
+                  {bitrateMode === "original" && !origBitrateMbps && (
+                    <span style={{ fontSize: "0.68rem", color: "var(--text-muted)" }}>
+                      Sin metadata de bitrate original: se usará calidad adaptativa (-crf 19).
+                    </span>
+                  )}
+
+                  {twoPass && !(bitrateMode === "original" && !origBitrateMbps) && (
+                    <div
+                      style={{
+                        background: "var(--bg-base)",
+                        border: "1px solid var(--border-default)",
+                        borderRadius: "6px",
+                        padding: "8px 10px",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "6px",
+                      }}
+                    >
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <span style={{ fontSize: "0.7rem", fontWeight: 600, color: "var(--text-secondary)" }}>
+                          Rango VBR 2-Pass (Mbps)
+                        </span>
+                        {origBitrateMbps && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const ref = Math.max(1, Math.min(80, Math.round(origBitrateMbps)));
+                              setBitrateMode("custom");
+                              setCustomBitrateMbps(ref);
+                              setVbrMinMbps(Math.max(1, Math.round(ref * 0.6)));
+                              setVbrMaxMbps(Math.min(80, Math.round(ref * 1.4)));
+                            }}
+                            style={{
+                              fontSize: "0.65rem",
+                              padding: "1px 6px",
+                              background: "var(--bg-surface)",
+                              border: "1px solid var(--border-default)",
+                              color: "#93c5fd",
+                              borderRadius: "3px",
+                              cursor: "pointer",
+                            }}
+                          >
+                            Ref. Original ({origBitrateMbps} Mbps)
+                          </button>
+                        )}
+                      </div>
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "8px" }}>
+                        {(() => {
+                          const effTarget =
+                            bitrateMode === "recommended"
+                              ? 10
+                              : bitrateMode === "original" && origBitrateMbps
+                              ? origBitrateMbps
+                              : customBitrateMbps;
+                          return (
+                            <>
+                              <div>
+                                <span style={{ fontSize: "0.66rem", color: "var(--text-muted)" }}>Mínimo</span>
+                                <input
+                                  type="number"
+                                  min={1}
+                                  max={80}
+                                  step={1}
+                                  value={vbrMinMbps}
+                                  onChange={(e) => setVbrMinMbps(Number(e.target.value))}
+                                  onBlur={() => setVbrMinMbps((v) => Math.max(1, Math.min(effTarget, Number.isFinite(v) && v > 0 ? Math.round(v) : 1)))}
+                                  style={{ width: "100%", background: "var(--bg-surface)", border: "1px solid var(--border-default)", borderRadius: "4px", color: "var(--text-primary)", padding: "3px 6px", fontSize: "0.74rem", fontFamily: "var(--font-mono)" }}
+                                />
+                              </div>
+                              <div>
+                                <span style={{ fontSize: "0.66rem", color: "var(--text-muted)" }}>Objetivo</span>
+                                <input
+                                  type="number"
+                                  min={1}
+                                  max={80}
+                                  step={1}
+                                  value={effTarget}
+                                  onChange={(e) => {
+                                    const val = Math.max(1, Math.min(80, Number(e.target.value) || 1));
+                                    setBitrateMode("custom");
+                                    setCustomBitrateMbps(val);
+                                  }}
+                                  style={{ width: "100%", background: "var(--bg-surface)", border: "1px solid #3b82f6", borderRadius: "4px", color: "var(--text-primary)", padding: "3px 6px", fontSize: "0.74rem", fontFamily: "var(--font-mono)" }}
+                                />
+                              </div>
+                              <div>
+                                <span style={{ fontSize: "0.66rem", color: "var(--text-muted)" }}>Máximo</span>
+                                <input
+                                  type="number"
+                                  min={1}
+                                  max={80}
+                                  step={1}
+                                  value={vbrMaxMbps}
+                                  onChange={(e) => setVbrMaxMbps(Number(e.target.value))}
+                                  onBlur={() => setVbrMaxMbps((v) => Math.max(effTarget, Math.min(80, Number.isFinite(v) && v > 0 ? Math.round(v) : Math.min(80, Math.round(effTarget * 1.4)))))}
+                                  style={{ width: "100%", background: "var(--bg-surface)", border: "1px solid var(--border-default)", borderRadius: "4px", color: "var(--text-primary)", padding: "3px 6px", fontSize: "0.74rem", fontFamily: "var(--font-mono)" }}
+                                />
+                              </div>
+                            </>
+                          );
+                        })()}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
           </div>
         </div>
+
+        {/* 2.5 TIMELINE NLE PERSISTENTE (JUMP CUTS + PISTA BGM) */}
+        {!isExported && (
+          <div className="clip-studio-timeline-dock">
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <Scissors size={14} style={{ color: "var(--accent-primary, #6366f1)" }} />
+                <span style={{ fontSize: "0.76rem", fontWeight: 700, color: "var(--text-primary)" }}>
+                  Timeline NLE
+                </span>
+                <span
+                  style={{
+                    fontSize: "0.68rem",
+                    fontFamily: "var(--font-mono)",
+                    color: totalRemovedDuration > 0 ? "#f43f5e" : "var(--text-muted)",
+                    background: "var(--bg-base)",
+                    padding: "1px 6px",
+                    borderRadius: "4px",
+                    border: "1px solid var(--border-default)",
+                  }}
+                >
+                  {totalRemovedDuration > 0
+                    ? `-${totalRemovedDuration.toFixed(1)}s | Neto: ${totalKeptDuration.toFixed(1)}s`
+                    : `Duración: ${clipDuration.toFixed(1)}s`}
+                </span>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                <button
+                  type="button"
+                  onClick={handleSplitAtPlayhead}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "4px",
+                    padding: "3px 8px",
+                    borderRadius: "4px",
+                    border: "1px solid rgba(99, 102, 241, 0.5)",
+                    background: "rgba(99, 102, 241, 0.14)",
+                    color: "#a5b4fc",
+                    fontSize: "0.7rem",
+                    fontWeight: 600,
+                    cursor: "pointer",
+                  }}
+                  title="Dividir segmento en el cabezal actual"
+                >
+                  <Split size={12} />
+                  <span>Dividir ({absoluteCurrentTime.toFixed(1)}s)</span>
+                </button>
+                {selectedSegmentId && segments.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => toggleDeleteSegment(selectedSegmentId)}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "4px",
+                      padding: "3px 8px",
+                      borderRadius: "4px",
+                      border: "1px solid rgba(244, 63, 94, 0.45)",
+                      background: "rgba(244, 63, 94, 0.12)",
+                      color: "#fda4af",
+                      fontSize: "0.7rem",
+                      fontWeight: 600,
+                      cursor: "pointer",
+                    }}
+                  >
+                    <Trash2 size={12} />
+                    <span>{segments.find((s) => s.id === selectedSegmentId)?.deleted ? "Restaurar" : "Eliminar tramo"}</span>
+                  </button>
+                )}
+                {segments.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={handleResetSegments}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "4px",
+                      padding: "3px 7px",
+                      borderRadius: "4px",
+                      border: "1px solid var(--border-default)",
+                      background: "var(--bg-base)",
+                      color: "var(--text-secondary)",
+                      fontSize: "0.7rem",
+                      cursor: "pointer",
+                    }}
+                    title="Restablecer cortes del timeline"
+                  >
+                    <RotateCcw size={11} />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Pista de Video / Segmentos Click-to-Seek */}
+            <div
+              onClick={(e) => {
+                const rect = e.currentTarget.getBoundingClientRect();
+                if (rect.width <= 0 || !videoRef.current) return;
+                const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+                const newRel = ratio * clipDuration;
+                setCurrentPlayTime(newRel);
+                videoRef.current.currentTime = trimStart + newRel;
+                syncBgm("seek");
+                syncBgVideo("seek");
+              }}
+              style={{
+                position: "relative",
+                height: "26px",
+                background: "var(--bg-base)",
+                borderRadius: "5px",
+                border: "1px solid var(--border-default)",
+                display: "flex",
+                overflow: "hidden",
+                cursor: "pointer",
+              }}
+              title="Haz clic para mover el cabezal en el timeline"
+            >
+              {segments.map((seg) => {
+                const segDur = Math.max(0.1, seg.end - seg.start);
+                const widthPct = (segDur / Math.max(0.1, clipDuration)) * 100;
+                const isSelected = seg.id === selectedSegmentId;
+                return (
+                  <div
+                    key={seg.id}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSelectedSegmentId(seg.id);
+                      if (videoRef.current) {
+                        const rel = Math.max(0, seg.start - trimStart);
+                        setCurrentPlayTime(rel);
+                        videoRef.current.currentTime = seg.start;
+                        syncBgm("seek");
+                        syncBgVideo("seek");
+                      }
+                    }}
+                    style={{
+                      width: `${widthPct}%`,
+                      height: "100%",
+                      background: seg.deleted ? "rgba(244, 63, 94, 0.2)" : isSelected ? "rgba(99, 102, 241, 0.65)" : "rgba(99, 102, 241, 0.38)",
+                      borderRight: "1px solid rgba(0, 0, 0, 0.45)",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      fontSize: "0.66rem",
+                      fontFamily: "var(--font-mono)",
+                      color: seg.deleted ? "#fda4af" : "#eef2ff",
+                      textDecoration: seg.deleted ? "line-through" : "none",
+                      overflow: "hidden",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {segDur.toFixed(1)}s
+                  </div>
+                );
+              })}
+              {/* Cabezal de reproducción */}
+              <div
+                style={{
+                  position: "absolute",
+                  top: 0,
+                  bottom: 0,
+                  left: `${Math.max(0, Math.min(100, (currentPlayTime / Math.max(0.1, clipDuration)) * 100))}%`,
+                  width: "2px",
+                  background: "#ffffff",
+                  boxShadow: "0 0 6px rgba(255,255,255,0.9)",
+                  pointerEvents: "none",
+                }}
+              />
+            </div>
+
+            {/* Pista BGM Activa */}
+            {(bgmPath || bgmBlobUrl) && (
+              <div
+                style={{
+                  height: "18px",
+                  borderRadius: "4px",
+                  background: "rgba(236, 72, 153, 0.14)",
+                  border: "1px solid rgba(236, 72, 153, 0.35)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  padding: "0 8px",
+                  fontSize: "0.65rem",
+                  color: "#f9a8d4",
+                  fontFamily: "var(--font-mono)",
+                }}
+              >
+                <span style={{ display: "inline-flex", alignItems: "center", gap: "5px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  <Music size={10} /> BGM: {(bgmPath ? bgmPath.split(/[\\/]/).pop() : null) || "Pista de audio"}
+                </span>
+                <span>Vol {bgmVolume}% · Inicio {bgmStartSec.toFixed(1)}s</span>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* 3. FOOTER DEL ESTUDIO */}
         <div className="clip-studio-footer">
@@ -4479,7 +4957,15 @@ export function CandidatePreviewModal({
                         : bitrateMode === "custom"
                         ? Math.max(1000, Math.round(customBitrateMbps * 1000))
                         : undefined,
-                    twoPass: twoPass && bitrateMode !== "original",
+                    minBitrateK:
+                      twoPass && !(bitrateMode === "original" && !origBitrateMbps)
+                        ? Math.max(1000, Math.round(vbrMinMbps * 1000))
+                        : undefined,
+                    maxBitrateK:
+                      twoPass && !(bitrateMode === "original" && !origBitrateMbps)
+                        ? Math.max(1000, Math.round(vbrMaxMbps * 1000))
+                        : undefined,
+                    twoPass: twoPass && !(bitrateMode === "original" && !origBitrateMbps),
                   });
                   bgmAudioRef.current?.pause();
                   setIsPlayingBgmPreview(false);

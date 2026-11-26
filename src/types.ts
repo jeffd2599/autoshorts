@@ -84,6 +84,8 @@ export type Project = {
   name: string | null;
   sourcePath: string;
   sourceDuration: number | null;
+  bitRate?: number | null;
+  bitRateMbps?: number | null;
   status: string;
   transcriptionMode: string;
   captionStyle?: string | null;
